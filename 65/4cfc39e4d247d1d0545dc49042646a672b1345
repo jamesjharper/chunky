@@ -1,0 +1,98 @@
+Cargo.toml
+  h_b23a6a8439c0dd 1-7
+.gitignore
+  h_b23a6a8439c0dd 22-23
+src/python/chunky/Artifacts/artifact_handles.py
+  s_85d5eeb68e8d8a::t_2ea614d5bd6d9e 1-86
+src/python/chunky/CacheProviders/file_cache_provider/__init__.py
+  s_85d5eeb68e8d8a::t_fc0b5a21df5828 1-39
+src/python/chunky/CacheProviders/file_cache_provider/_constants.py
+  s_85d5eeb68e8d8a::t_0a2b879dd78ab5 1-9
+src/python/chunky/CacheProviders/file_cache_provider/_descriptors.py
+  s_85d5eeb68e8d8a::t_95bc8adba24fa1 1-45
+src/python/chunky/CacheProviders/file_cache_provider/configuration.py
+  s_85d5eeb68e8d8a::t_587aed43888a2b 1-66
+src/python/chunky/CacheProviders/file_cache_provider/errors.py
+  s_85d5eeb68e8d8a::t_a73daaae5af254 1-13
+src/python/chunky/CacheProviders/file_cache_provider/maintenance.py
+  s_85d5eeb68e8d8a::t_f5e18ce42c0f33 1-128
+src/python/chunky/CacheProviders/file_cache_provider/maintenance_store.py
+  s_85d5eeb68e8d8a::t_e037b7866a63f0 1-316
+src/python/chunky/CacheProviders/file_cache_provider/metadata_store.py
+  s_85d5eeb68e8d8a::t_3d34a425af2618 1-772
+src/python/chunky/CacheProviders/file_cache_provider/models.py
+  s_85d5eeb68e8d8a::t_76c8d89d47d4ce 1-48
+src/python/chunky/CacheProviders/file_cache_provider/provider.py
+  s_85d5eeb68e8d8a::t_25259ae81b5863 1-374
+src/python/chunky/CacheProviders/file_cache_provider/sqlite_file_cache.py
+  s_85d5eeb68e8d8a::t_fc86d69431a8aa 1-38
+src/python/chunky/ExampleFeatures/artifact_codex_example.py
+  s_85d5eeb68e8d8a::t_b36e227418c61a 1-49
+src/python/chunky/Planning/__init__.py
+  s_9260a57739f5ab::t_f1ac77f11853ff 1
+src/rust/Cargo.lock
+  s_b5ff21155c4278::t_b292ad3cb94fdb 1-967
+src/rust/crates/chunky/src/Artifacts/artifact_bindings.rs
+  s_2c5e2bc2093ac0::t_8d5570ee76a2e0 1-357
+src/rust/crates/chunky/src/CacheProviders/file_cache_provider/filesystem.rs
+  s_b5ff21155c4278::t_9aa6580123a184 1-158
+src/rust/crates/chunky/src/CacheProviders/file_cache_provider/provider.rs
+  s_2c5e2bc2093ac0::t_45d3145169a904 1-471
+src/rust/crates/chunky/tests/execution_cache_contract.rs
+  s_2878f32563fa74::t_39fd4c480c14f1 1-262
+src/rust/crates/chunky/tests/planner_evaluation.rs
+  s_2c5e2bc2093ac0::t_bdd7a7800eae6f 1-490
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "654cfc39e4d247d1d0545dc49042646a672b1345",
+  "prompts": {},
+  "humans": {
+    "h_b23a6a8439c0dd": {
+      "author": "unknown"
+    }
+  },
+  "sessions": {
+    "s_2878f32563fa74": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "4a12b1c4-af7f-47df-899a-b0f257c2cc30",
+        "model": "gpt-5.5"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_2c5e2bc2093ac0": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "5c459e8d-df99-49e5-bc54-1e45cad947df",
+        "model": "gpt-5.5"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_85d5eeb68e8d8a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f079b-dcfd-7681-bdb3-54fdb6d58059",
+        "model": "gpt-5.5"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_9260a57739f5ab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e5562cba-4f12-4ef8-b2cf-c5cc5de25503",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_b5ff21155c4278": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f25f1-d9f7-7183-9580-c414f339a3d9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}

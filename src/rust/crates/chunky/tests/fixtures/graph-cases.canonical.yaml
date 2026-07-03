@@ -1,0 +1,3030 @@
+schema: chunky.graph_cases.v1
+source:
+  preferred_source: Graph cases (1).json
+  alternate_source:
+    path: Graph cases (1).csv
+    rows: 921
+  document_title: Graph cases
+  lucid_document_id: 738510e6-4a0d-4fbb-8235-e691520b5df1
+  page: Page 1
+normalization:
+  labels: trimmed, lower-cased, spelling-normalized, and used as semantic node IDs
+  duplicate_label_nodes: collapsed within each plan because duplicated Lucid shapes represent the same semantic
+    stage/artifact edge
+  edge_direction: artifact -> stage for inputs and stage -> artifact for outputs
+  source_ids: Lucid shape/container IDs retained for traceability
+groups:
+  basic:
+    title: Basic
+    source:
+      lucid_container_id: tfh_m7YqsQjf
+      original_group_label: Basic
+    cases:
+      case_1:
+        title: Case 1
+        description: Linear dependency path from one input to one output.
+        source:
+          lucid_container_id: 9.f_Y1NEEXdW
+        plans:
+          task:
+            nodes:
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            inputs:
+            - in_a
+            outputs:
+            - out_a
+            source:
+              lucid_container_id: qag_.yD76dIE
+          proposed:
+            nodes:
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            edges:
+            - - stage_b
+              - out_a
+            - - int_a
+              - stage_b
+            - - stage_a
+              - int_a
+            - - in_a
+              - stage_a
+            source:
+              lucid_container_id: P9f_OOA1nHGF
+          evaluated:
+            nodes:
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            edges:
+            - - in_a
+              - stage_a
+            - - stage_a
+              - int_a
+            - - int_a
+              - stage_b
+            - - stage_b
+              - out_a
+            source:
+              lucid_container_id: l.f_HAoXP4wH
+      case_2:
+        title: Case 2
+        description: A single upstream stage fans out into two intermediates that both converge before the target
+          output.
+        source:
+          lucid_container_id: bdg_j7e59Tj_
+        plans:
+          task:
+            nodes:
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            inputs:
+            - in_a
+            outputs:
+            - out_a
+            source:
+              lucid_container_id: bdg_JsS8hrAH
+          proposed:
+            nodes:
+            - id: stage_d
+              label: stage-d
+              kind: stage
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: int_b_optional
+              label: int-b (optional)
+              kind: artifact
+              role: intermediate
+              optional: true
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: int_d
+              label: int-d
+              kind: artifact
+              role: intermediate
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: int_c
+              label: int-c
+              kind: artifact
+              role: intermediate
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            edges:
+            - - int_c
+              - stage_d
+            - - int_d
+              - stage_d
+            - - stage_d
+              - out_a
+            - - stage_b
+              - int_c
+            - - int_b
+              - stage_c
+            - - int_a
+              - stage_b
+            - - stage_c
+              - int_d
+            - - in_a
+              - stage_a
+            - - stage_a
+              - int_a
+            - - stage_a
+              - int_b
+            source:
+              lucid_container_id: bdg_mxOkr~uQ
+          evaluated:
+            nodes:
+            - id: stage_d
+              label: stage-d
+              kind: stage
+            - id: int_c
+              label: int-c
+              kind: artifact
+              role: intermediate
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: int_b_optional
+              label: int-b (optional)
+              kind: artifact
+              role: intermediate
+              optional: true
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: int_d
+              label: int-d
+              kind: artifact
+              role: intermediate
+            edges:
+            - - stage_a
+              - int_a
+            - - in_a
+              - stage_a
+            - - stage_a
+              - int_b
+            - - int_a
+              - stage_b
+            - - int_b
+              - stage_c
+            - - stage_b
+              - int_c
+            - - stage_c
+              - int_d
+            - - int_c
+              - stage_d
+            - - int_d
+              - stage_d
+            - - stage_d
+              - out_a
+            source:
+              lucid_container_id: bdg_HiL-Zggc
+  multi_output:
+    title: Multi output
+    source:
+      lucid_container_id: 8ug_pnGOlnu9
+      original_group_label: Multi Output
+    cases:
+      case_1:
+        title: Case 1
+        description: Only one of two possible target outputs is requested, so the unrelated output branch is pruned.
+        source:
+          lucid_container_id: Vcg_Lvyi1h0i
+        plans:
+          task:
+            nodes:
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            inputs:
+            - in_a
+            outputs:
+            - out_a
+            source:
+              lucid_container_id: Rbg_KD4A2-Na
+          proposed:
+            nodes:
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            edges:
+            - - stage_b
+              - out_a
+            - - stage_c
+              - out_b
+            - - int_b
+              - stage_c
+            - - stage_a
+              - int_a
+            - - stage_a
+              - int_b
+            - - in_a
+              - stage_a
+            - - int_a
+              - stage_b
+            source:
+              lucid_container_id: .ag_LxJPSQEc
+          evaluated:
+            nodes:
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            edges:
+            - - in_a
+              - stage_a
+            - - int_a
+              - stage_b
+            - - stage_a
+              - int_a
+            - - stage_b
+              - out_a
+            source:
+              lucid_container_id: kcg_9lE11H1h
+      case_2:
+        title: Case 2
+        description: Two target outputs are requested and share the same upstream producer path.
+        source:
+          lucid_container_id: Lsg_KVg_zTCY
+        plans:
+          task:
+            nodes:
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            inputs:
+            - in_a
+            outputs:
+            - out_a
+            - out_b
+            source:
+              lucid_container_id: Lsg_srQmFUSX
+          proposed:
+            nodes:
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            edges:
+            - - in_a
+              - stage_a
+            - - stage_b
+              - out_a
+            - - stage_c
+              - out_b
+            - - int_b
+              - stage_c
+            - - stage_a
+              - int_a
+            - - int_a
+              - stage_b
+            - - stage_a
+              - int_b
+            source:
+              lucid_container_id: Lsg_cjQQQP7w
+          evaluated:
+            nodes:
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            edges:
+            - - stage_a
+              - int_a
+            - - stage_a
+              - int_b
+            - - stage_b
+              - out_a
+            - - in_a
+              - stage_a
+            - - int_b
+              - stage_c
+            - - stage_c
+              - out_b
+            - - int_a
+              - stage_b
+            source:
+              lucid_container_id: Lsg_Q2teQ4Z.
+  multi_input:
+    title: Multi input
+    source:
+      lucid_container_id: Mvg_INiwXqix
+      original_group_label: Multi Input
+    cases:
+      case_1:
+        title: Case 1
+        description: Only the input needed for the requested output path is supplied, so the unused secondary input
+          branch is pruned.
+        source:
+          lucid_container_id: Mvg_.PR3fUzf
+        plans:
+          task:
+            nodes:
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            inputs:
+            - in_a
+            outputs:
+            - out_a
+            source:
+              lucid_container_id: Mvg_We_3mbMH
+          proposed:
+            nodes:
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: int_b_optional
+              label: int-b (optional)
+              kind: artifact
+              role: intermediate
+              optional: true
+            edges:
+            - - in_b
+              - stage_b
+            - - stage_c
+              - out_a
+            - - int_a
+              - stage_c
+            - - in_a
+              - stage_a
+            - - stage_a
+              - int_a
+            - - stage_b
+              - int_b_optional
+            - - int_b_optional
+              - stage_c
+            source:
+              lucid_container_id: Mvg_ZSZJabQP
+          evaluated:
+            nodes:
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            edges:
+            - - in_a
+              - stage_a
+            - - int_a
+              - stage_c
+            - - stage_a
+              - int_a
+            - - stage_c
+              - out_a
+            source:
+              lucid_container_id: Mvg__GkYMZSX
+      case_2:
+        title: Case 2
+        description: Both inputs are supplied and both upstream branches are retained because the requested output
+          depends on both.
+        source:
+          lucid_container_id: Mvg_ttjfnKJ6
+        plans:
+          task:
+            nodes:
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            inputs:
+            - in_a
+            - in_b
+            outputs:
+            - out_a
+            source:
+              lucid_container_id: Mvg_1bsxVgXM
+          proposed:
+            nodes:
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            edges:
+            - - in_b
+              - stage_b
+            - - stage_a
+              - int_a
+            - - stage_c
+              - out_a
+            - - in_a
+              - stage_a
+            - - int_a
+              - stage_c
+            - - int_b
+              - stage_c
+            - - stage_b
+              - int_b
+            source:
+              lucid_container_id: Twg_vIIbLWj6
+          evaluated:
+            nodes:
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            edges:
+            - - in_b
+              - stage_b
+            - - int_a
+              - stage_c
+            - - int_b
+              - stage_c
+            - - in_a
+              - stage_a
+            - - stage_b
+              - int_b
+            - - stage_c
+              - out_a
+            - - stage_a
+              - int_a
+            source:
+              lucid_container_id: Mvg_ZZzqnRDR
+  multi_input_output:
+    title: Multi input and output
+    source:
+      lucid_container_id: 7xg_iZWrE_2f
+      original_group_label: Multi Input and Output
+    cases:
+      case_1:
+        title: Case 1
+        description: A multi-input, multi-output candidate graph is reduced to the branch needed for out-a.
+        source:
+          lucid_container_id: 7xg_I1P9AT3I
+        plans:
+          task:
+            nodes:
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            inputs:
+            - in_a
+            - in_b
+            outputs:
+            - out_a
+            source:
+              lucid_container_id: 7xg_rRPCej5S
+          proposed:
+            nodes:
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: stage_d
+              label: stage-d
+              kind: stage
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            edges:
+            - - stage_c
+              - out_a
+            - - stage_a
+              - int_a
+            - - in_b
+              - stage_b
+            - - in_a
+              - stage_a
+            - - int_a
+              - stage_c
+            - - stage_b
+              - int_b
+            - - int_b
+              - stage_c
+            - - int_b
+              - stage_d
+            - - stage_d
+              - out_b
+            source:
+              lucid_container_id: 7xg_4vyqSrEG
+          evaluated:
+            nodes:
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            edges:
+            - - int_a
+              - stage_c
+            - - in_a
+              - stage_a
+            - - in_b
+              - stage_b
+            - - stage_c
+              - out_a
+            - - int_b
+              - stage_c
+            - - stage_b
+              - int_b
+            - - stage_a
+              - int_a
+            source:
+              lucid_container_id: 7xg_VN5YiMk3
+      case_2:
+        title: Case 2
+        description: Both out-a and out-b are requested, so both output branches are retained while sharing the
+          common upstream inputs.
+        source:
+          lucid_container_id: 0Ag_ZmpheIvT
+        plans:
+          task:
+            nodes:
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            inputs:
+            - in_a
+            - in_b
+            outputs:
+            - out_b
+            - out_a
+            source:
+              lucid_container_id: 0Ag_MC6k8~bs
+          proposed:
+            nodes:
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: stage_d
+              label: stage-d
+              kind: stage
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            edges:
+            - - in_a
+              - stage_a
+            - - stage_d
+              - out_b
+            - - int_b
+              - stage_d
+            - - int_b
+              - stage_c
+            - - stage_c
+              - out_a
+            - - stage_a
+              - int_a
+            - - stage_b
+              - int_b
+            - - in_b
+              - stage_b
+            - - int_a
+              - stage_c
+            source:
+              lucid_container_id: 0Ag_AnJaEURv
+          evaluated:
+            nodes:
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: stage_d
+              label: stage-d
+              kind: stage
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            edges:
+            - - int_b
+              - stage_c
+            - - stage_c
+              - out_a
+            - - stage_b
+              - int_b
+            - - int_a
+              - stage_c
+            - - stage_d
+              - out_b
+            - - int_b
+              - stage_d
+            - - in_b
+              - stage_b
+            - - stage_a
+              - int_a
+            - - in_a
+              - stage_a
+            source:
+              lucid_container_id: 0Ag_YPYm1uWP
+      case_3:
+        title: Case 3
+        description: Independent input branches feed independent requested outputs in the same evaluated plan.
+        source:
+          lucid_container_id: qbh_1deVVHkE
+        plans:
+          task:
+            nodes:
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            inputs:
+            - in_b
+            - in_a
+            outputs:
+            - out_b
+            - out_a
+            source:
+              lucid_container_id: qbh_2q.YHBOw
+          proposed:
+            nodes:
+            - id: stage_d
+              label: stage-d
+              kind: stage
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            edges:
+            - - int_b
+              - stage_d
+            - - in_b
+              - stage_c
+            - - stage_c
+              - int_b
+            - - stage_d
+              - out_b
+            - - in_a
+              - stage_a
+            - - stage_b
+              - out_a
+            - - int_a
+              - stage_b
+            - - stage_a
+              - int_a
+            source:
+              lucid_container_id: qbh_CyNbONHP
+          evaluated:
+            nodes:
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: stage_d
+              label: stage-d
+              kind: stage
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            edges:
+            - - stage_c
+              - int_b
+            - - stage_b
+              - out_a
+            - - stage_a
+              - int_a
+            - - stage_d
+              - out_b
+            - - int_b
+              - stage_d
+            - - in_b
+              - stage_c
+            - - int_a
+              - stage_b
+            - - in_a
+              - stage_a
+            source:
+              lucid_container_id: qbh_V7uHF65b
+      case_4:
+        title: Case 4
+        description: Only out-a is requested, so the in-b/out-b branch is removed from the evaluated plan.
+        source:
+          lucid_container_id: ndh_B4C3R6Lb
+        plans:
+          task:
+            nodes:
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            inputs:
+            - in_a
+            outputs:
+            - out_a
+            source:
+              lucid_container_id: ndh_o2TSIg96
+          proposed:
+            nodes:
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: stage_d
+              label: stage-d
+              kind: stage
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            edges:
+            - - in_b
+              - stage_c
+            - - int_a
+              - stage_b
+            - - in_a
+              - stage_a
+            - - int_b
+              - stage_d
+            - - stage_c
+              - int_b
+            - - stage_d
+              - out_b
+            - - stage_b
+              - out_a
+            - - stage_a
+              - int_a
+            source:
+              lucid_container_id: ndh_xewqchoK
+          evaluated:
+            nodes:
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            edges:
+            - - in_a
+              - stage_a
+            - - int_a
+              - stage_b
+            - - stage_a
+              - int_a
+            - - stage_b
+              - out_a
+            source:
+              lucid_container_id: ndh_VCmNXL47
+  optional:
+    title: Optional inputs
+    source:
+      lucid_container_id: yDg_zH__XPec
+      original_group_label: Optional
+    cases:
+      case_1:
+        title: Case 1
+        description: An optional task input is not supplied; the optional edge is removed and the required path
+          remains valid.
+        source:
+          lucid_container_id: Sfg_CXQivkSS
+        plans:
+          task:
+            nodes:
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            inputs:
+            - in_a
+            outputs:
+            - out_a
+            source:
+              lucid_container_id: Sfg_j-00U0eF
+          proposed:
+            nodes:
+            - id: in_b_optional
+              label: in-b (optional)
+              kind: artifact
+              role: input
+              optional: true
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            edges:
+            - - in_b_optional
+              - stage_b
+            - - in_a
+              - stage_a
+            - - int_a
+              - stage_b
+            - - stage_a
+              - int_a
+            - - stage_b
+              - out_a
+            source:
+              lucid_container_id: Sfg_QTcdFYg~
+          evaluated:
+            nodes:
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            edges:
+            - - int_a
+              - stage_b
+            - - in_a
+              - stage_a
+            - - stage_b
+              - out_a
+            - - stage_a
+              - int_a
+            source:
+              lucid_container_id: Sfg_onHZeUn9
+      case_2:
+        title: Case 2
+        description: An optional upstream producer exists but its source is not supplied; the optional dependency
+          is ignored.
+        source:
+          lucid_container_id: Ijg_OyVDrnyR
+        plans:
+          task:
+            nodes:
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            inputs:
+            - in_a
+            outputs:
+            - out_a
+            source:
+              lucid_container_id: Ijg_h1Y3ya2j
+          proposed:
+            nodes:
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: int_b_optional
+              label: int-b (optional)
+              kind: artifact
+              role: intermediate
+              optional: true
+            edges:
+            - - in_a
+              - stage_a
+            - - int_a
+              - stage_b
+            - - stage_a
+              - int_a
+            - - in_b
+              - stage_c
+            - - stage_b
+              - out_a
+            - - stage_c
+              - int_b_optional
+            - - int_b_optional
+              - stage_b
+            source:
+              lucid_container_id: Ijg_MMYr3RSI
+          evaluated:
+            nodes:
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            edges:
+            - - stage_a
+              - int_a
+            - - stage_b
+              - out_a
+            - - in_a
+              - stage_a
+            - - int_a
+              - stage_b
+            source:
+              lucid_container_id: Ijg_RYshddZs
+      case_3:
+        title: Case 3
+        description: A deeper optional dependency chain is not reachable from the task inputs, so it is pruned.
+        source:
+          lucid_container_id: dlg_uP91-lvE
+        plans:
+          task:
+            nodes:
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            inputs:
+            - in_a
+            outputs:
+            - out_a
+            source:
+              lucid_container_id: dlg_lo.Zh7rE
+          proposed:
+            nodes:
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: stage_d
+              label: stage-d
+              kind: stage
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: int_c_optional
+              label: int-c (optional)
+              kind: artifact
+              role: intermediate
+              optional: true
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            edges:
+            - - int_b
+              - stage_d
+            - - stage_c
+              - int_b
+            - - in_a
+              - stage_a
+            - - in_b
+              - stage_c
+            - - stage_a
+              - int_a
+            - - int_c_optional
+              - stage_b
+            - - stage_b
+              - out_a
+            - - stage_d
+              - int_c_optional
+            - - int_a
+              - stage_b
+            source:
+              lucid_container_id: dlg_8jSyi78g
+          evaluated:
+            nodes:
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            edges:
+            - - stage_b
+              - out_a
+            - - int_a
+              - stage_b
+            - - in_a
+              - stage_a
+            - - stage_a
+              - int_a
+            source:
+              lucid_container_id: dlg_uXBcNQVv
+      case_4:
+        title: Case 4
+        description: The optional chain is reachable because the optional source is supplied, so the optional dependency
+          is included.
+        source:
+          lucid_container_id: jng_5TcXKeb.
+        plans:
+          task:
+            nodes:
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            inputs:
+            - in_b
+            - in_a
+            outputs:
+            - out_a
+            source:
+              lucid_container_id: jng_jPUGyXVi
+          proposed:
+            nodes:
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: int_c_optional
+              label: int-c (optional)
+              kind: artifact
+              role: intermediate
+              optional: true
+            - id: stage_d
+              label: stage-d
+              kind: stage
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            edges:
+            - - int_b
+              - stage_d
+            - - int_c_optional
+              - stage_b
+            - - stage_b
+              - out_a
+            - - in_b
+              - stage_c
+            - - in_a
+              - stage_a
+            - - stage_c
+              - int_b
+            - - stage_d
+              - int_c_optional
+            - - int_a
+              - stage_b
+            - - stage_a
+              - int_a
+            source:
+              lucid_container_id: jng_H8UmVvaa
+          evaluated:
+            nodes:
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: int_c
+              label: int-c
+              kind: artifact
+              role: intermediate
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: stage_d
+              label: stage-d
+              kind: stage
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            edges:
+            - - int_a
+              - stage_b
+            - - stage_c
+              - int_b
+            - - in_b
+              - stage_c
+            - - int_c
+              - stage_b
+            - - int_b
+              - stage_d
+            - - stage_b
+              - out_a
+            - - stage_d
+              - int_c
+            - - stage_a
+              - int_a
+            - - in_a
+              - stage_a
+            source:
+              lucid_container_id: jng_Yib41hdt
+  settings_propagation:
+    title: Settings propagation
+    source:
+      lucid_container_id: ueh_G-lphnY0
+      original_group_label: Optional
+    cases:
+      case_1:
+        title: Case 1
+        description: A requested setting override is propagated upstream and changes the effective invocation used
+          by stage-b.
+        source:
+          lucid_container_id: 6pg_0odTIKjR
+        plans:
+          task:
+            nodes:
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: setting_a_override_stage_b
+              label: setting-a (override stage b)
+              kind: setting
+              override_targets:
+              - stage-b
+            inputs:
+            - in_a
+            - in_b
+            outputs:
+            - out_a
+            settings:
+            - setting_a_override_stage_b
+            source:
+              lucid_container_id: 6pg_A0AM7.IH
+          proposed:
+            nodes:
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: int_c
+              label: int-c
+              kind: artifact
+              role: intermediate
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: stage_d
+              label: stage-d
+              kind: stage
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: setting_a
+              label: setting-a
+              kind: setting
+            edges:
+            - - stage_d
+              - int_c
+            - - stage_c
+              - int_b
+            - - in_a
+              - stage_a
+            - - stage_b
+              - out_a
+            - - stage_a
+              - int_a
+            - - in_b
+              - stage_c
+            - - int_a
+              - stage_b
+            - - int_b
+              - stage_d
+            - - int_c
+              - stage_b
+            - - setting_a
+              - stage_d
+            source:
+              lucid_container_id: 6pg_6YJS2BtH
+          evaluated:
+            nodes:
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: stage_d
+              label: stage-d
+              kind: stage
+            - id: int_c
+              label: int-c
+              kind: artifact
+              role: intermediate
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: setting_a_override_stage_b
+              label: setting-a (override stage b)
+              kind: setting
+              override_targets:
+              - stage-b
+            edges:
+            - - in_a
+              - stage_a
+            - - in_b
+              - stage_c
+            - - int_a
+              - stage_b
+            - - int_b
+              - stage_d_setting_a_override_b
+            - - int_c_override_b
+              - stage_b
+            - - setting_a_override_stage_b
+              - stage_d_setting_a_override_b
+            - - stage_a
+              - int_a
+            - - stage_b
+              - out_a
+            - - stage_c
+              - int_b
+            - - stage_d_setting_a_override_b
+              - int_c_override_b
+            source:
+              lucid_container_id: 6pg_WIsefY4q
+      case_2:
+        title: Case 2
+        description: Only one requested output needs the setting override, so the shared upstream producer is duplicated
+          by effective settings.
+        source:
+          lucid_container_id: mLg_HFzL-o6p
+        plans:
+          task:
+            nodes:
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: setting_a_override_stage_b
+              label: setting-a (override stage b)
+              kind: setting
+              override_targets:
+              - stage-b
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            inputs:
+            - in_b
+            - in_a
+            outputs:
+            - out_a
+            - out_b
+            settings:
+            - setting_a
+            - setting_a_override_stage_b
+            source:
+              lucid_container_id: mLg_TOQ_VXSa
+          proposed:
+            nodes:
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: stage_e
+              label: stage-e
+              kind: stage
+            - id: stage_d
+              label: stage-d
+              kind: stage
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: setting_a
+              label: setting-a
+              kind: setting
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: int_c
+              label: int-c
+              kind: artifact
+              role: intermediate
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            edges:
+            - - stage_b
+              - out_a
+            - - stage_a
+              - int_a
+            - - stage_c
+              - int_b
+            - - int_a
+              - stage_b
+            - - stage_d
+              - int_c
+            - - in_b
+              - stage_c
+            - - stage_e
+              - out_b
+            - - setting_a
+              - stage_d
+            - - int_c
+              - stage_e
+            - - in_a
+              - stage_a
+            - - int_c
+              - stage_b
+            - - int_b
+              - stage_d
+            source:
+              lucid_container_id: mLg_qYqn92K6
+          evaluated:
+            nodes:
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: setting_a_override_stage_b
+              label: setting-a (override stage b)
+              kind: setting
+              override_targets:
+              - stage-b
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: int_c_override_b
+              label: int-c (override b)
+              kind: artifact
+              role: intermediate
+              override_targets:
+              - stage-b
+            - id: stage_e
+              label: stage-e
+              kind: stage
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: stage_d_setting_a_override_b
+              label: stage-d (setting-a override b)
+              kind: stage
+              override_targets:
+              - stage-b
+              resolved_settings:
+                setting_a: setting_a_override_stage_b
+            - id: setting_a
+              label: setting-a
+              kind: setting
+            - id: stage_d
+              label: stage-d
+              kind: stage
+              resolved_settings:
+                setting_a: setting_a
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: int_c
+              label: int-c
+              kind: artifact
+              role: intermediate
+            edges:
+            - - stage_c
+              - int_b
+            - - int_c_override_b
+              - stage_b
+            - - int_c
+              - stage_e
+            - - stage_d
+              - int_c
+            - - in_a
+              - stage_a
+            - - stage_d_setting_a_override_b
+              - int_c_override_b
+            - - stage_e
+              - out_b
+            - - stage_b
+              - out_a
+            - - in_b
+              - stage_c
+            - - setting_a_override_stage_b
+              - stage_d_setting_a_override_b
+            - - int_a
+              - stage_b
+            - - int_b
+              - stage_d_setting_a_override_b
+            - - int_b
+              - stage_d
+            - - stage_a
+              - int_a
+            - - setting_a
+              - stage_d
+            source:
+              lucid_container_id: mLg_leRPPxss
+      case_3:
+        title: Case 3
+        description: Two outputs request different setting override contexts and require separate upstream producer
+          invocations.
+        source:
+          lucid_container_id: OEg_RIcY~Twc
+        plans:
+          task:
+            nodes:
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: setting_a_override_stage_b
+              label: setting-a (override stage b)
+              kind: setting
+              override_targets:
+              - stage-b
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: setting_a_override_stage_e
+              label: setting-a (override stage e)
+              kind: setting
+              override_targets:
+              - stage-e
+            inputs:
+            - in_a
+            - in_b
+            outputs:
+            - out_b
+            - out_a
+            settings:
+            - setting_a_override_stage_b
+            - setting_a_override_stage_e
+            source:
+              lucid_container_id: OEg_6w-7~0PZ
+          proposed:
+            nodes:
+            - id: int_c
+              label: int-c
+              kind: artifact
+              role: intermediate
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: setting_a
+              label: setting-a
+              kind: setting
+            - id: stage_d
+              label: stage-d
+              kind: stage
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: stage_e
+              label: stage-e
+              kind: stage
+            edges:
+            - - int_b
+              - stage_d
+            - - stage_c
+              - int_b
+            - - int_a
+              - stage_b
+            - - stage_d
+              - int_c
+            - - int_c
+              - stage_b
+            - - in_b
+              - stage_c
+            - - stage_a
+              - int_a
+            - - setting_a
+              - stage_d
+            - - stage_b
+              - out_a
+            - - in_a
+              - stage_a
+            - - stage_e
+              - out_b
+            - - int_c
+              - stage_e
+            source:
+              lucid_container_id: OEg_UFsesUWN
+          evaluated:
+            nodes:
+            - id: stage_d_setting_a_override_e
+              label: stage-d (setting-a override e)
+              kind: stage
+              override_targets:
+              - stage-e
+            - id: setting_a_override_stage_b
+              label: setting-a (override stage b)
+              kind: setting
+              override_targets:
+              - stage-b
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: stage_d_setting_a_override_b
+              label: stage-d (setting-a override b)
+              kind: stage
+              override_targets:
+              - stage-b
+            - id: int_c_override_b
+              label: int-c (override b)
+              kind: artifact
+              role: intermediate
+              override_targets:
+              - stage-b
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: int_c_override_e
+              label: int-c (override e)
+              kind: artifact
+              role: intermediate
+              override_targets:
+              - stage-e
+            - id: stage_e
+              label: stage-e
+              kind: stage
+            - id: setting_a_override_stage_e
+              label: setting-a (override stage e)
+              kind: setting
+              override_targets:
+              - stage-e
+            edges:
+            - - stage_c
+              - int_b
+            - - stage_d_setting_a_override_e
+              - int_c_override_e
+            - - in_b
+              - stage_c
+            - - int_c_override_b
+              - stage_b
+            - - stage_d_setting_a_override_b
+              - int_c_override_b
+            - - int_b
+              - stage_d_setting_a_override_b
+            - - stage_b
+              - out_a
+            - - in_a
+              - stage_a
+            - - int_a
+              - stage_b
+            - - stage_a
+              - int_a
+            - - setting_a_override_stage_b
+              - stage_d_setting_a_override_b
+            - - int_c_override_e
+              - stage_e
+            - - stage_e
+              - out_b
+            - - setting_a_override_stage_e
+              - stage_d_setting_a_override_e
+            - - int_b
+              - stage_d_setting_a_override_e
+            source:
+              lucid_container_id: OEg_ziIHqkCH
+      case_4:
+        title: Case 4
+        description: Two requested outputs share semantically equivalent settings, so the overridden producer path
+          can be reused.
+        source:
+          lucid_container_id: A0g_ETR8xP7m
+        plans:
+          task:
+            nodes:
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: setting_a_override_stage_b_e
+              label: setting-a (override stage b/e)
+              kind: setting
+              override_targets:
+              - stage-b
+              - stage-e
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            inputs:
+            - in_a
+            - in_b
+            outputs:
+            - out_a
+            - out_b
+            settings:
+            - setting_a_override_stage_b_e
+            source:
+              lucid_container_id: A0g_MPKrKY0q
+          proposed:
+            nodes:
+            - id: setting_a
+              label: setting-a
+              kind: setting
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: int_c
+              label: int-c
+              kind: artifact
+              role: intermediate
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: stage_e
+              label: stage-e
+              kind: stage
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: stage_d
+              label: stage-d
+              kind: stage
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            edges:
+            - - in_b
+              - stage_c
+            - - int_c
+              - stage_e
+            - - setting_a
+              - stage_d
+            - - stage_d
+              - int_c
+            - - stage_e
+              - out_b
+            - - stage_c
+              - int_b
+            - - stage_a
+              - int_a
+            - - int_a
+              - stage_b
+            - - int_c
+              - stage_b
+            - - int_b
+              - stage_d
+            - - in_a
+              - stage_a
+            - - stage_b
+              - out_a
+            source:
+              lucid_container_id: A0g_C.vVo7__
+          evaluated:
+            nodes:
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: stage_e
+              label: stage-e
+              kind: stage
+            - id: stage_d_setting_a_override_b
+              label: stage-d (setting-a override b)
+              kind: stage
+              override_targets:
+              - stage-b
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: int_c_override_b_e
+              label: int-c (override b/e)
+              kind: artifact
+              role: intermediate
+              override_targets:
+              - stage-b
+              - stage-e
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: setting_a_override_stage_b_e
+              label: setting-a (override stage b/e)
+              kind: setting
+              override_targets:
+              - stage-b
+              - stage-e
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            edges:
+            - - in_a
+              - stage_a
+            - - in_b
+              - stage_c
+            - - int_a
+              - stage_b
+            - - int_b
+              - stage_d_setting_a_override_b_e
+            - - int_c_override_b_e
+              - stage_b
+            - - int_c_override_b_e
+              - stage_e
+            - - setting_a_override_stage_b_e
+              - stage_d_setting_a_override_b_e
+            - - stage_a
+              - int_a
+            - - stage_b
+              - out_a
+            - - stage_c
+              - int_b
+            - - stage_d_setting_a_override_b_e
+              - int_c_override_b_e
+            - - stage_e
+              - out_b
+            source:
+              lucid_container_id: A0g_yHMRNr5i
+      case_5:
+        title: Case 5
+        description: A setting override applies to an earlier producer and must be propagated through multiple downstream
+          branches.
+        source:
+          lucid_container_id: Z_g_qzUlTOfx
+        plans:
+          task:
+            nodes:
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: setting_a_override_stage_b
+              label: setting-a (override stage b)
+              kind: setting
+              override_targets:
+              - stage-b
+            - id: setting_a_override_stage_e
+              label: setting-a (override stage e)
+              kind: setting
+              override_targets:
+              - stage-e
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            inputs:
+            - in_a
+            - in_b
+            outputs:
+            - out_b
+            - out_a
+            settings:
+            - setting_a_override_stage_b
+            - setting_a_override_stage_e
+            source:
+              lucid_container_id: Z_g_.hJ0T1Ad
+          proposed:
+            nodes:
+            - id: int_c
+              label: int-c
+              kind: artifact
+              role: intermediate
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: stage_e
+              label: stage-e
+              kind: stage
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: setting_a
+              label: setting-a
+              kind: setting
+            - id: stage_d
+              label: stage-d
+              kind: stage
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            edges:
+            - - setting_a
+              - stage_c
+            - - stage_c
+              - int_b
+            - - int_c
+              - stage_b
+            - - int_c
+              - stage_e
+            - - in_a
+              - stage_a
+            - - stage_b
+              - out_a
+            - - stage_d
+              - int_c
+            - - stage_e
+              - out_b
+            - - in_b
+              - stage_c
+            - - stage_a
+              - int_a
+            - - int_b
+              - stage_d
+            - - int_a
+              - stage_b
+            source:
+              lucid_container_id: Z_g_wUryc.QQ
+          evaluated:
+            nodes:
+            - id: setting_a_override_stage_b
+              label: setting-a (override stage b)
+              kind: setting
+              override_targets:
+              - stage-b
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: int_c_override_e
+              label: int-c (override e)
+              kind: artifact
+              role: intermediate
+              override_targets:
+              - stage-e
+            - id: stage_c_setting_a_override_b
+              label: stage-c (setting-a override b)
+              kind: stage
+              override_targets:
+              - stage-b
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: setting_a_override_stage_e
+              label: setting-a (override stage e)
+              kind: setting
+              override_targets:
+              - stage-e
+            - id: int_c_override_b
+              label: int-c (override b)
+              kind: artifact
+              role: intermediate
+              override_targets:
+              - stage-b
+            - id: int_b_override_b
+              label: int-b (override b)
+              kind: artifact
+              role: intermediate
+              override_targets:
+              - stage-b
+            - id: stage_d_setting_a_override_e
+              label: stage-d (setting-a override e)
+              kind: stage
+              override_targets:
+              - stage-e
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: stage_e
+              label: stage-e
+              kind: stage
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: stage_d_setting_a_override_b
+              label: stage-d (setting-a override b)
+              kind: stage
+              override_targets:
+              - stage-b
+            edges:
+            - - in_a
+              - stage_a
+            - - in_b
+              - stage_c_setting_a_override_b
+            - - in_b
+              - stage_c_setting_a_override_e
+            - - int_a
+              - stage_b
+            - - int_b_override_b
+              - stage_d_setting_a_override_b
+            - - int_b_override_e
+              - stage_d_setting_a_override_e
+            - - int_c_override_b
+              - stage_b
+            - - int_c_override_e
+              - stage_e
+            - - setting_a_override_stage_b
+              - stage_c_setting_a_override_b
+            - - setting_a_override_stage_e
+              - stage_c_setting_a_override_e
+            - - stage_a
+              - int_a
+            - - stage_b
+              - out_a
+            - - stage_c_setting_a_override_b
+              - int_b_override_b
+            - - stage_c_setting_a_override_e
+              - int_b_override_e
+            - - stage_d_setting_a_override_b
+              - int_c_override_b
+            - - stage_d_setting_a_override_e
+              - int_c_override_e
+            - - stage_e
+              - out_b
+            source:
+              lucid_container_id: Z_g_UimAgFyS
+      case_6:
+        title: Case 6
+        description: Multiple setting artifacts propagate through the same graph and split invocations by effective
+          setting context.
+        source:
+          lucid_container_id: T3g_0uaamqvy
+        plans:
+          task:
+            nodes:
+            - id: setting_b_override_stage_e
+              label: setting-b (override stage e)
+              kind: setting
+              override_targets:
+              - stage-e
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: setting_a_override_stage_b
+              label: setting-a (override stage b)
+              kind: setting
+              override_targets:
+              - stage-b
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: setting_a_override_stage_e
+              label: setting-a (override stage e)
+              kind: setting
+              override_targets:
+              - stage-e
+            - id: setting_b_override_stage_b
+              label: setting-b (override stage b)
+              kind: setting
+              override_targets:
+              - stage-b
+            inputs:
+            - in_b
+            - in_a
+            outputs:
+            - out_a
+            - out_b
+            settings:
+            - setting_b_override_stage_e
+            - setting_a_override_stage_b
+            - setting_a_override_stage_e
+            - setting_b_override_stage_b
+            source:
+              lucid_container_id: f5g_6l5AvJOt
+          proposed:
+            nodes:
+            - id: stage_c
+              label: stage-c
+              kind: stage
+            - id: int_b
+              label: int-b
+              kind: artifact
+              role: intermediate
+            - id: int_c
+              label: int-c
+              kind: artifact
+              role: intermediate
+            - id: setting_b
+              label: setting-b
+              kind: setting
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: stage_e
+              label: stage-e
+              kind: stage
+            - id: stage_d
+              label: stage-d
+              kind: stage
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: setting_a
+              label: setting-a
+              kind: setting
+            edges:
+            - - setting_b
+              - stage_d
+            - - stage_d
+              - int_c
+            - - int_a
+              - stage_b
+            - - stage_c
+              - int_b
+            - - stage_a
+              - int_a
+            - - int_c
+              - stage_b
+            - - int_c
+              - stage_e
+            - - stage_b
+              - out_a
+            - - int_b
+              - stage_d
+            - - stage_e
+              - out_b
+            - - in_a
+              - stage_a
+            - - in_b
+              - stage_c
+            - - setting_a
+              - stage_c
+            source:
+              lucid_container_id: T3g_Ct.iobLM
+          evaluated:
+            nodes:
+            - id: setting_a_override_stage_e
+              label: setting-a (override stage e)
+              kind: setting
+              override_targets:
+              - stage-e
+            - id: stage_c_setting_a_override_b
+              label: stage-c (setting-a override b)
+              kind: stage
+              override_targets:
+              - stage-b
+            - id: setting_b_override_stage_e
+              label: setting-b (override stage e)
+              kind: setting
+              override_targets:
+              - stage-e
+            - id: int_b_override_b
+              label: int-b (override b)
+              kind: artifact
+              role: intermediate
+              override_targets:
+              - stage-b
+            - id: stage_b
+              label: stage-b
+              kind: stage
+            - id: stage_a
+              label: stage-a
+              kind: stage
+            - id: stage_d_setting_a_override_b
+              label: stage-d (setting-a override b)
+              kind: stage
+              override_targets:
+              - stage-b
+            - id: in_b
+              label: in-b
+              kind: artifact
+              role: input
+            - id: int_a
+              label: int-a
+              kind: artifact
+              role: intermediate
+            - id: int_c_override_e
+              label: int-c (override e)
+              kind: artifact
+              role: intermediate
+              override_targets:
+              - stage-e
+            - id: in_a
+              label: in-a
+              kind: artifact
+              role: input
+            - id: out_b
+              label: out-b
+              kind: artifact
+              role: output
+            - id: int_c_override_b
+              label: int-c (override b)
+              kind: artifact
+              role: intermediate
+              override_targets:
+              - stage-b
+            - id: setting_b_override_stage_b
+              label: setting-b (override stage b)
+              kind: setting
+              override_targets:
+              - stage-b
+            - id: out_a
+              label: out-a
+              kind: artifact
+              role: output
+            - id: stage_e
+              label: stage-e
+              kind: stage
+            - id: stage_d_setting_a_override_e
+              label: stage-d (setting-a override e)
+              kind: stage
+              override_targets:
+              - stage-e
+            - id: setting_a_override_stage_b
+              label: setting-a (override stage b)
+              kind: setting
+              override_targets:
+              - stage-b
+            edges:
+            - - in_a
+              - stage_a
+            - - in_b
+              - stage_c_setting_a_override_b
+            - - in_b
+              - stage_c_setting_a_override_e
+            - - int_a
+              - stage_b
+            - - int_b_override_b
+              - stage_d_setting_a_override_b
+            - - int_b_override_e
+              - stage_d_setting_a_override_e
+            - - int_c_override_b
+              - stage_b
+            - - int_c_override_e
+              - stage_e
+            - - setting_a_override_stage_b
+              - stage_c_setting_a_override_b
+            - - setting_a_override_stage_e
+              - stage_c_setting_a_override_e
+            - - setting_b_override_stage_b
+              - stage_d_setting_a_override_b
+            - - setting_b_override_stage_e
+              - stage_d_setting_a_override_e
+            - - stage_a
+              - int_a
+            - - stage_b
+              - out_a
+            - - stage_c_setting_a_override_b
+              - int_b_override_b
+            - - stage_c_setting_a_override_e
+              - int_b_override_e
+            - - stage_d_setting_a_override_b
+              - int_c_override_b
+            - - stage_d_setting_a_override_e
+              - int_c_override_e
+            - - stage_e
+              - out_b
+            source:
+              lucid_container_id: 75g_L_xEQjVv

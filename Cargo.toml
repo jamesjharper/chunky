@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "src/rust/crates/chunky",
+    "src/rust/crates/chunky_demo",
+    "src/rust/crates/chunky_bench",
+]
+resolver = "2"

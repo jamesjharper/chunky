@@ -12,21 +12,12 @@ from .binding_models import PlannedInputBinding, PlannedOutputBinding
 class PlannedInvocation:
     invocation_id: str
     registration: ManifestStageRegistration
-    required_input_bindings: tuple[PlannedInputBinding, ...]
-    optional_input_bindings: tuple[PlannedInputBinding, ...]
+    input_bindings: tuple[PlannedInputBinding, ...]
     requested_output_bindings: tuple[PlannedOutputBinding, ...]
     effective_settings_fingerprint: str
     resolved_resource_policy: ResourcePolicy
     pedigree_fingerprint: str | None = None
     resolved_settings: ResolvedSettingsView = field(default_factory=ResolvedSettingsView)
-
-    @property
-    def required_input_ids(self) -> tuple[ArtifactKey, ...]:
-        return tuple(binding.resolved_artifact_id for binding in self.required_input_bindings)
-
-    @property
-    def optional_input_ids(self) -> tuple[ArtifactKey, ...]:
-        return tuple(binding.resolved_artifact_id for binding in self.optional_input_bindings)
 
     @property
     def requested_output_ids(self) -> tuple[ArtifactKey, ...]:

@@ -22,22 +22,6 @@ pub struct PlannedInvocation<'a> {
 }
 
 impl<'a> PlannedInvocation<'a> {
-    pub fn required_input_ids(&self) -> Vec<ArtifactKey> {
-        self.input_bindings
-            .iter()
-            .filter(|binding| binding.required)
-            .map(|binding| binding.resolved_artifact_id.clone())
-            .collect()
-    }
-
-    pub fn optional_input_ids(&self) -> Vec<ArtifactKey> {
-        self.input_bindings
-            .iter()
-            .filter(|binding| !binding.required)
-            .map(|binding| binding.resolved_artifact_id.clone())
-            .collect()
-    }
-
     pub fn input_ids(&self) -> Vec<ArtifactKey> {
         self.input_bindings
             .iter()

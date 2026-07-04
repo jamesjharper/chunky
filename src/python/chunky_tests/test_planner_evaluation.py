@@ -824,8 +824,22 @@ class CanonicalGraphCaseTests(unittest.IsolatedAsyncioTestCase):
             for invocation in plan.invocations
             if invocation.registration.stage_id == "stage_b"
         )
-        self.assertEqual((ArtifactKey.parse("graph//int_a"),), stage_b.required_input_ids)
-        self.assertEqual((ArtifactKey.parse("graph//int_c"),), stage_b.optional_input_ids)
+        self.assertEqual(
+            (ArtifactKey.parse("graph//int_a"),),
+            tuple(
+                binding.resolved_artifact_id
+                for binding in stage_b.input_bindings
+                if binding.required
+            ),
+        )
+        self.assertEqual(
+            (ArtifactKey.parse("graph//int_c"),),
+            tuple(
+                binding.resolved_artifact_id
+                for binding in stage_b.input_bindings
+                if not binding.required
+            ),
+        )
 
 
 class PlannerEvaluationOptionalPruningTests(unittest.IsolatedAsyncioTestCase):
@@ -863,8 +877,22 @@ class PlannerEvaluationOptionalPruningTests(unittest.IsolatedAsyncioTestCase):
 
         [invocation] = plan.invocations
         self.assertEqual("stage_b", invocation.registration.stage_id)
-        self.assertEqual((in_a,), invocation.required_input_ids)
-        self.assertEqual((), invocation.optional_input_ids)
+        self.assertEqual(
+            (in_a,),
+            tuple(
+                binding.resolved_artifact_id
+                for binding in invocation.input_bindings
+                if binding.required
+            ),
+        )
+        self.assertEqual(
+            (),
+            tuple(
+                binding.resolved_artifact_id
+                for binding in invocation.input_bindings
+                if not binding.required
+            ),
+        )
 
     async def test_two_stage_optional_path_is_pruned_when_required_source_is_missing(self) -> None:
         # Graph diagrams:
@@ -944,9 +972,20 @@ class PlannerEvaluationOptionalPruningTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             (int_a,),
-            invocations_by_stage["stage_consumer"].required_input_ids,
+            tuple(
+                binding.resolved_artifact_id
+                for binding in invocations_by_stage["stage_consumer"].input_bindings
+                if binding.required
+            ),
         )
-        self.assertEqual((), invocations_by_stage["stage_consumer"].optional_input_ids)
+        self.assertEqual(
+            (),
+            tuple(
+                binding.resolved_artifact_id
+                for binding in invocations_by_stage["stage_consumer"].input_bindings
+                if not binding.required
+            ),
+        )
 
     async def test_optional_ambiguous_producer_path_is_pruned_when_no_candidates_are_valid(self) -> None:
         in_a = _artifact_key("in_a")
@@ -990,7 +1029,14 @@ class PlannerEvaluationOptionalPruningTests(unittest.IsolatedAsyncioTestCase):
 
         [invocation] = plan.invocations
         self.assertEqual("stage_consumer", invocation.registration.stage_id)
-        self.assertEqual((), invocation.optional_input_ids)
+        self.assertEqual(
+            (),
+            tuple(
+                binding.resolved_artifact_id
+                for binding in invocation.input_bindings
+                if not binding.required
+            ),
+        )
 
     async def test_optional_ambiguous_producer_path_raises_when_multiple_candidates_are_valid(self) -> None:
         in_a = _artifact_key("in_a")
@@ -1086,7 +1132,14 @@ class PlannerEvaluationSuppliedIntermediateTests(unittest.IsolatedAsyncioTestCas
 
         self.assertEqual(["stage_b"], [inv.registration.stage_id for inv in plan.invocations])
         [stage_b_invocation] = plan.invocations
-        self.assertEqual((int_a,), stage_b_invocation.required_input_ids)
+        self.assertEqual(
+            (int_a,),
+            tuple(
+                binding.resolved_artifact_id
+                for binding in stage_b_invocation.input_bindings
+                if binding.required
+            ),
+        )
         self.assertEqual(
             f"{int_a}",
             stage_b_invocation.input_bindings[0].resolved_instance_id,
@@ -1224,7 +1277,14 @@ class PlannerEvaluationSuppliedIntermediateTests(unittest.IsolatedAsyncioTestCas
 
         self.assertEqual(["stage_render"], [inv.registration.stage_id for inv in plan.invocations])
         [render_invocation] = plan.invocations
-        self.assertEqual((completed,), render_invocation.required_input_ids)
+        self.assertEqual(
+            (completed,),
+            tuple(
+                binding.resolved_artifact_id
+                for binding in render_invocation.input_bindings
+                if binding.required
+            ),
+        )
 
     async def test_supplied_concrete_phase_satisfies_bounded_requirement_but_not_completed_family(self) -> None:
         # Graph diagrams:
@@ -1287,7 +1347,14 @@ class PlannerEvaluationSuppliedIntermediateTests(unittest.IsolatedAsyncioTestCas
             ["stage_bounded_consumer"],
             [inv.registration.stage_id for inv in bounded_plan.invocations],
         )
-        self.assertEqual((phase_100,), bounded_plan.invocations[0].required_input_ids)
+        self.assertEqual(
+            (phase_100,),
+            tuple(
+                binding.resolved_artifact_id
+                for binding in bounded_plan.invocations[0].input_bindings
+                if binding.required
+            ),
+        )
 
         completed_plan = await _evaluate(manifest, supplied=supplied, requested={out_completed})
         self.assertEqual(
@@ -1668,7 +1735,14 @@ class PlannerEvaluationPhaseTests(unittest.IsolatedAsyncioTestCase):
             ["stage_150", "stage_consumer"],
             [inv.registration.stage_id for inv in plan.invocations],
         )
-        self.assertEqual((phase_150,), plan.invocations[1].required_input_ids)
+        self.assertEqual(
+            (phase_150,),
+            tuple(
+                binding.resolved_artifact_id
+                for binding in plan.invocations[1].input_bindings
+                if binding.required
+            ),
+        )
 
     async def test_exact_phase_request_does_not_fall_back_to_lower_phase(self) -> None:
         # Graph diagrams:
@@ -1743,7 +1817,14 @@ class PlannerEvaluationOutputSubsetTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, len(plan.invocations))
         invocation = plan.invocations[0]
         self.assertEqual({out_a, out_b}, set(invocation.requested_output_ids))
-        self.assertEqual({in_a, in_b}, set(invocation.required_input_ids))
+        self.assertEqual(
+            {in_a, in_b},
+            {
+                binding.resolved_artifact_id
+                for binding in invocation.input_bindings
+                if binding.required
+            },
+        )
 
     async def test_supplied_target_does_not_prune_shared_stage_needed_for_other_target(self) -> None:
         # Graph diagrams:
@@ -1903,7 +1984,14 @@ class PlannerEvaluationProducerSelectionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(["stage_a"], [inv.registration.stage_id for inv in plan.invocations])
         [stage_a_invocation] = plan.invocations
-        self.assertEqual((in_a,), stage_a_invocation.required_input_ids)
+        self.assertEqual(
+            (in_a,),
+            tuple(
+                binding.resolved_artifact_id
+                for binding in stage_a_invocation.input_bindings
+                if binding.required
+            ),
+        )
 
     async def test_explicit_default_producer_preference_selects_one_of_multiple_candidates(self) -> None:
         # Graph diagrams:
@@ -2375,7 +2463,14 @@ class PlannerEvaluationDynamicOutputSelectionTests(unittest.IsolatedAsyncioTestC
 
         [invocation] = plan.invocations
         self.assertEqual((out_a,), invocation.requested_output_ids)
-        self.assertEqual((in_a,), invocation.required_input_ids)
+        self.assertEqual(
+            (in_a,),
+            tuple(
+                binding.resolved_artifact_id
+                for binding in invocation.input_bindings
+                if binding.required
+            ),
+        )
 
 
 class PlannerEvaluationSettingsPrecedenceTests(unittest.IsolatedAsyncioTestCase):
@@ -2408,7 +2503,14 @@ class PlannerEvaluationSettingsPrecedenceTests(unittest.IsolatedAsyncioTestCase)
         )
 
         [invocation] = plan.invocations
-        self.assertEqual({in_a, base_setting}, set(invocation.required_input_ids))
+        self.assertEqual(
+            {in_a, base_setting},
+            {
+                binding.resolved_artifact_id
+                for binding in invocation.input_bindings
+                if binding.required
+            },
+        )
         self.assertEqual({"mode": "user"}, invocation.resolved_settings.require(base_setting))
 
     async def test_inherited_setting_wins_over_user_configured_base_setting(self) -> None:

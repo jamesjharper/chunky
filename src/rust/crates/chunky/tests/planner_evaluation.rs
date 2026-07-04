@@ -537,7 +537,12 @@ async fn shared_stage_output_subset_expands_and_requirements_are_re_resolved() -
     );
     assert_eq!(
         set([in_a.artifact_id().clone(), in_b.artifact_id().clone()]),
-        shared.required_input_ids().into_iter().collect()
+        shared
+            .input_bindings
+            .iter()
+            .filter(|binding| binding.required)
+            .map(|binding| binding.resolved_artifact_id.clone())
+            .collect()
     );
     Ok(())
 }

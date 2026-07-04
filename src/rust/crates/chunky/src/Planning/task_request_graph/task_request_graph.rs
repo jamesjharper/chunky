@@ -156,7 +156,6 @@ impl<'ctx, 'a> TaskRequestGraphBuilder<'ctx, 'a> {
             requested_output_bindings,
             effective_settings_fingerprint: invocation.effective_settings_fingerprint.clone(),
             resolved_resource_policy: resource_policy,
-            pedigree_fingerprint: None,
             resolved_settings: invocation.resolved_settings.clone(),
         })
     }

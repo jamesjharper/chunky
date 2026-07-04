@@ -7,6 +7,7 @@ from .binding_models import (
     PlannedInputBinding,
     PlannedOutputBinding,
     RequestedOutputBinding,
+    TaskOutputBinding,
 )
 from .graph_state_models import (
     GraphBuildState,
@@ -22,6 +23,7 @@ from .graph_walker import (
 from .invocation_models import (
     InvocationDraft,
     PlannedInvocation,
+    RunnableInvocation,
 )
 from .producers import (
     AmbiguousProducerSelection,
@@ -56,8 +58,10 @@ __all__ = [
     "ProducerSelector",
     "ProducedArtifact",
     "RequestedOutputBinding",
+    "RunnableInvocation",
     "SpeculativeGraphBranch",
     "StageManifestGraphWalker",
+    "TaskOutputBinding",
     "TaskRequestContext",
     "TaskRequestGraph",
     "TaskRequestGraphBuilder",

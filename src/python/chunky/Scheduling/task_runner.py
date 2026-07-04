@@ -26,7 +26,7 @@ from ..Stages.stage_models import (
     build_stage_logger,
 )
 from ..Planning.task_run_graph import TaskRunGraph
-from ..Planning.TaskRequestGraph.invocation_models import PlannedInvocation
+from ..Planning.TaskRequestGraph.invocation_models import RunnableInvocation
 from .progress_models import (
     RunProgressTracker,
     StageBlockedReason,
@@ -63,7 +63,7 @@ class ArtifactRunState:
 
     def resolve_inputs(
         self,
-        invocation: PlannedInvocation,
+        invocation: RunnableInvocation,
     ) -> tuple[tuple[ArtifactInstance[Any], ...], dict[ArtifactKey, ArtifactKey]]:
         result: list[ArtifactInstance[Any]] = []
         aliases: dict[ArtifactKey, ArtifactKey] = {}
@@ -205,7 +205,7 @@ class ExampleTaskRunner:
         *,
         task_id: str,
         state: ArtifactRunState,
-        invocation: PlannedInvocation,
+        invocation: RunnableInvocation,
         cancellation: CancellationSource,
         progress_tracker: RunProgressTracker,
     ) -> InvocationRunResult:

@@ -16,7 +16,21 @@ class PlannedInvocation:
     requested_output_bindings: tuple[PlannedOutputBinding, ...]
     effective_settings_fingerprint: str
     resolved_resource_policy: ResourcePolicy
-    pedigree_fingerprint: str | None = None
+    resolved_settings: ResolvedSettingsView = field(default_factory=ResolvedSettingsView)
+
+    @property
+    def requested_output_ids(self) -> tuple[ArtifactKey, ...]:
+        return tuple(binding.resolved_artifact_id for binding in self.requested_output_bindings)
+
+
+@dataclass(frozen=True)
+class RunnableInvocation:
+    invocation_id: str
+    registration: ManifestStageRegistration
+    input_bindings: tuple[PlannedInputBinding, ...]
+    requested_output_bindings: tuple[PlannedOutputBinding, ...]
+    resolved_resource_policy: ResourcePolicy
+    pedigree_fingerprint: str
     resolved_settings: ResolvedSettingsView = field(default_factory=ResolvedSettingsView)
 
     @property

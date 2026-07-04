@@ -24,7 +24,7 @@ use crate::stage_models::{
     build_stage_logger, CancellationSource, CancellationToken, InMemoryStageProgressReporter,
     StageExecutionContext, StageProgressReporter as StageScopedProgressReporter,
 };
-use crate::task_request_graph::{PlannedInvocation, RequestedOutputBinding};
+use crate::task_request_graph::{RunnableInvocation, TaskOutputBinding};
 
 use crate::progress_models::{RunProgressTracker, StageBlockedReason, TaskState};
 
@@ -54,8 +54,8 @@ pub struct TaskRunResult {
 /// reads it as immutable work; it must not mutate graph shape while running.
 pub struct TaskRunGraph<'a> {
     pub manifest_id: String,
-    pub invocations: Vec<PlannedInvocation<'a>>,
-    pub requested_output_bindings: Vec<RequestedOutputBinding>,
+    pub invocations: Vec<RunnableInvocation<'a>>,
+    pub requested_output_bindings: Vec<TaskOutputBinding>,
 }
 
 pub struct ArtifactRunState {
@@ -77,7 +77,7 @@ impl ArtifactRunState {
 
     pub fn resolve_inputs(
         &self,
-        invocation: &PlannedInvocation<'_>,
+        invocation: &RunnableInvocation<'_>,
     ) -> Result<(Vec<AnyArtifactInstance>, HashMap<ArtifactKey, ArtifactKey>)> {
         let mut result = Vec::new();
         let mut aliases = HashMap::new();
@@ -256,18 +256,13 @@ impl ExampleTaskRunner {
         &self,
         task_id: &str,
         state: &ArtifactRunState,
-        invocation: &PlannedInvocation<'_>,
+        invocation: &RunnableInvocation<'_>,
         cancellation: &CancellationSource,
         progress_tracker: &RunProgressTracker,
     ) -> Result<InvocationRunResult> {
         progress_tracker.mark_running(&invocation.invocation_id);
         let (input_instances, input_aliases) = state.resolve_inputs(invocation)?;
-        let pedigree_fingerprint = invocation.pedigree_fingerprint.as_ref().ok_or_else(|| {
-            anyhow!(
-                "execution plan is missing planner-finalized pedigree fingerprint for {}",
-                invocation.invocation_id
-            )
-        })?;
+        let pedigree_fingerprint = &invocation.pedigree_fingerprint;
 
         let output_declarations = invocation
             .requested_output_bindings
@@ -385,7 +380,7 @@ impl ExampleTaskRunner {
 }
 
 fn validate_output_fingerprints(
-    invocation: &PlannedInvocation<'_>,
+    invocation: &RunnableInvocation<'_>,
     resolution: &ResolvedStageOutputBindings,
 ) -> Result<()> {
     let expected = invocation

@@ -17,11 +17,37 @@ pub struct PlannedInvocation<'a> {
     pub requested_output_bindings: Vec<PlannedOutputBinding>,
     pub effective_settings_fingerprint: String,
     pub resolved_resource_policy: ResourcePolicy,
-    pub pedigree_fingerprint: Option<String>,
     pub resolved_settings: ResolvedSettingsView,
 }
 
 impl<'a> PlannedInvocation<'a> {
+    pub fn input_ids(&self) -> Vec<ArtifactKey> {
+        self.input_bindings
+            .iter()
+            .map(|binding| binding.resolved_artifact_id.clone())
+            .collect()
+    }
+
+    pub fn requested_output_ids(&self) -> Vec<ArtifactKey> {
+        self.requested_output_bindings
+            .iter()
+            .map(|binding| binding.resolved_artifact_id.clone())
+            .collect()
+    }
+}
+
+#[derive(Clone)]
+pub struct RunnableInvocation<'a> {
+    pub invocation_id: String,
+    pub registration: ManifestStageRegistration<'a>,
+    pub input_bindings: Vec<PlannedInputBinding>,
+    pub requested_output_bindings: Vec<PlannedOutputBinding>,
+    pub resolved_resource_policy: ResourcePolicy,
+    pub pedigree_fingerprint: String,
+    pub resolved_settings: ResolvedSettingsView,
+}
+
+impl<'a> RunnableInvocation<'a> {
     pub fn input_ids(&self) -> Vec<ArtifactKey> {
         self.input_bindings
             .iter()

@@ -1,22 +1,22 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any
 
 from ..Artifacts.artifact_models import ArtifactKey
 from ..Artifacts.binding_models import ArtifactInstance
 from ..Artifacts.fingerprints import FingerprintProvider
 from ..Stages.stage_manifest import StageManifest
-from .TaskRequestGraph.binding_models import PlannedOutputBinding, RequestedOutputBinding
-from .TaskRequestGraph.invocation_models import PlannedInvocation
+from .TaskRequestGraph.binding_models import PlannedOutputBinding, TaskOutputBinding
+from .TaskRequestGraph.invocation_models import RunnableInvocation
 from .TaskRequestGraph.task_request_graph import TaskRequestGraph
 
 
 @dataclass(frozen=True)
 class TaskRunGraph:
     manifest_id: str
-    invocations: tuple[PlannedInvocation, ...]
-    requested_output_bindings: tuple[RequestedOutputBinding, ...]
+    invocations: tuple[RunnableInvocation, ...]
+    requested_output_bindings: tuple[TaskOutputBinding, ...]
 
 
 class TaskRunGraphBuilder:
@@ -39,7 +39,7 @@ class TaskRunGraphBuilder:
             for artifact_id, instance in supplied_instances.items()
         }
 
-        invocations: list[PlannedInvocation] = []
+        invocations: list[RunnableInvocation] = []
         for invocation in task_request_graph.invocations:
             input_fingerprints: dict[str, str] = {}
             for binding in invocation.input_bindings:
@@ -65,26 +65,42 @@ class TaskRunGraphBuilder:
                     pedigree,
                 )
                 planned_outputs.append(
-                    replace(binding, expected_fingerprint=expected)
+                    PlannedOutputBinding(
+                        declared_artifact_id=binding.declared_artifact_id,
+                        resolved_artifact_id=binding.resolved_artifact_id,
+                        instance_id=binding.instance_id,
+                        expected_fingerprint=expected,
+                    )
                 )
                 fingerprints_by_instance[binding.instance_id] = expected
 
             invocations.append(
-                replace(
-                    invocation,
+                RunnableInvocation(
+                    invocation_id=invocation.invocation_id,
+                    registration=invocation.registration,
+                    input_bindings=invocation.input_bindings,
                     pedigree_fingerprint=pedigree,
                     requested_output_bindings=tuple(planned_outputs),
+                    resolved_resource_policy=invocation.resolved_resource_policy,
+                    resolved_settings=invocation.resolved_settings,
                 )
             )
 
         return TaskRunGraph(
             manifest_id=task_request_graph.manifest_id,
             invocations=tuple(invocations),
-            requested_output_bindings=task_request_graph.requested_output_bindings,
+            requested_output_bindings=tuple(
+                TaskOutputBinding(
+                    requested_artifact_id=binding.requested_artifact_id,
+                    instance_id=binding.instance_id,
+                )
+                for binding in task_request_graph.requested_output_bindings
+            ),
         )
 
 
 __all__ = [
     "TaskRunGraph",
     "TaskRunGraphBuilder",
+    "TaskOutputBinding",
 ]

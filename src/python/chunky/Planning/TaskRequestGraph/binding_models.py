@@ -132,3 +132,9 @@ class PlannedOutputBinding:
 class RequestedOutputBinding:
     requested_artifact_id: ArtifactKey
     instance_id: str
+
+
+@dataclass(frozen=True)
+class TaskOutputBinding:
+    requested_artifact_id: ArtifactKey
+    instance_id: str

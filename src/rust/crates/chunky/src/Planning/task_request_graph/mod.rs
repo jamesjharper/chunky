@@ -13,14 +13,14 @@ pub mod task_request_graph;
 
 pub use binding_models::{
     ArtifactRequirementResult, ArtifactResolution, MissingOptionalArtifact, PlannedInputBinding,
-    PlannedOutputBinding, RequestedOutputBinding,
+    PlannedOutputBinding, RequestedOutputBinding, TaskOutputBinding,
 };
 pub use graph_state_models::{GraphBuildState, InvocationIdentity};
 pub use graph_walker::{
     ArtifactRequirementResolver, GraphWorkItem, GraphWorkQueue, InvocationRequirementResolver,
     SpeculativeGraphBranch, StageManifestGraphWalker,
 };
-pub use invocation_models::{InvocationDraft, PlannedInvocation};
+pub use invocation_models::{InvocationDraft, PlannedInvocation, RunnableInvocation};
 pub use producers::{
     AmbiguousProducerSelection, InvalidProducerCandidate, ProducerCandidateProbeResult,
     ProducerPathUnavailable, ProducerSelector, ValidProducerCandidate,

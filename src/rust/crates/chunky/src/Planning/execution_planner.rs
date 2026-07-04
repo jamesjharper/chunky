@@ -16,8 +16,8 @@ use crate::stage_models::PlanningRunPolicy;
 use super::manifest_graph::StageManifestGraphBuilder;
 use super::task_request_graph::{
     PlannedInputBinding, PlannedInvocation, PlannedOutputBinding, PlannerRequestSettings,
-    PlannerSettingsResolver, ProducerSelector, RequestedOutputBinding, TaskRequestContext,
-    TaskRequestGraph, TaskRequestGraphBuilder,
+    PlannerSettingsResolver, ProducerSelector, RequestedOutputBinding, RunnableInvocation,
+    TaskOutputBinding, TaskRequestContext, TaskRequestGraph, TaskRequestGraphBuilder,
 };
 
 /// External seam for producing the execution graph from a request graph.
@@ -112,3 +112,5 @@ pub type TaskRunPlannerPlannedInputBinding = PlannedInputBinding;
 pub type TaskRunPlannerPlannedOutputBinding = PlannedOutputBinding;
 pub type TaskRunPlannerPlannedInvocation<'a> = PlannedInvocation<'a>;
 pub type TaskRunPlannerRequestedOutputBinding = RequestedOutputBinding;
+pub type TaskRunPlannerRunnableInvocation<'a> = RunnableInvocation<'a>;
+pub type TaskRunPlannerTaskOutputBinding = TaskOutputBinding;

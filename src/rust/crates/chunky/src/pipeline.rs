@@ -293,7 +293,7 @@ impl<'a> TaskRunGraphBuilder<'a, TaskRunGraph<'a>> for ExampleTaskRunGraphBuilde
                 .collect::<BTreeMap<_, _>>();
 
             let mut invocations = Vec::new();
-            for mut invocation in task_request_graph.invocations {
+            for invocation in task_request_graph.invocations {
                 let mut input_fingerprints = BTreeMap::new();
                 for binding in invocation.input_bindings.iter() {
                     if let Some(fingerprint) =
@@ -310,8 +310,9 @@ impl<'a> TaskRunGraphBuilder<'a, TaskRunGraph<'a>> for ExampleTaskRunGraphBuilde
                     &invocation.effective_settings_fingerprint,
                 )?;
 
-                invocation.pedigree_fingerprint = Some(pedigree.clone());
-                for binding in &mut invocation.requested_output_bindings {
+                let mut requested_output_bindings = Vec::new();
+                for binding in &invocation.requested_output_bindings {
+                    let mut binding = binding.clone();
                     let declaration = invocation.registration.manifest.find_output_declaration(
                         &binding.declared_artifact_id,
                         &binding.resolved_artifact_id,
@@ -321,14 +322,30 @@ impl<'a> TaskRunGraphBuilder<'a, TaskRunGraph<'a>> for ExampleTaskRunGraphBuilde
                         .await?;
                     binding.expected_fingerprint = Some(expected.clone());
                     fingerprints_by_instance.insert(binding.instance_id.clone(), expected);
+                    requested_output_bindings.push(binding);
                 }
-                invocations.push(invocation);
+                invocations.push(crate::task_request_graph::RunnableInvocation {
+                    invocation_id: invocation.invocation_id,
+                    registration: invocation.registration,
+                    input_bindings: invocation.input_bindings,
+                    requested_output_bindings,
+                    resolved_resource_policy: invocation.resolved_resource_policy,
+                    pedigree_fingerprint: pedigree,
+                    resolved_settings: invocation.resolved_settings,
+                });
             }
 
             Ok(TaskRunGraph {
                 manifest_id: task_request_graph.manifest_id,
                 invocations,
-                requested_output_bindings: task_request_graph.requested_output_bindings,
+                requested_output_bindings: task_request_graph
+                    .requested_output_bindings
+                    .into_iter()
+                    .map(|binding| crate::task_request_graph::TaskOutputBinding {
+                        requested_artifact_id: binding.requested_artifact_id,
+                        instance_id: binding.instance_id,
+                    })
+                    .collect(),
             })
         })
     }

@@ -45,8 +45,9 @@ from .Planning.TaskRequestGraph.binding_models import (
     PlannedInputBinding,
     PlannedOutputBinding,
     RequestedOutputBinding,
+    TaskOutputBinding,
 )
-from .Planning.TaskRequestGraph.invocation_models import PlannedInvocation
+from .Planning.TaskRequestGraph.invocation_models import PlannedInvocation, RunnableInvocation
 from .Planning.task_run_graph import TaskRunGraph
 from .Planning.TaskRequestGraph import TaskRequestGraph
 
@@ -76,6 +77,7 @@ __all__ = [
     "PlannedOutputBinding",
     "PlannedInvocation",
     "RequestedOutputBinding",
+    "RunnableInvocation",
     "ResourcePolicy",
     "ResolvedStageRequirements",
     "RunHandle",
@@ -88,6 +90,7 @@ __all__ = [
     "StagePlanningContext",
     "StageRegistration",
     "TaskRequestGraph",
+    "TaskOutputBinding",
     "TaskRunGraph",
     "EvaluatedPlan",
     "chunky_run",

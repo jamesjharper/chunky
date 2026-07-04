@@ -153,3 +153,9 @@ pub struct RequestedOutputBinding {
     pub requested_artifact_id: ArtifactKey,
     pub instance_id: String,
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TaskOutputBinding {
+    pub requested_artifact_id: ArtifactKey,
+    pub instance_id: String,
+}

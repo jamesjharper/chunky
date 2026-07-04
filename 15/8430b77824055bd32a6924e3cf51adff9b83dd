@@ -1,0 +1,29 @@
+src/python/chunky/Planning/TaskRequestGraph/invocation_models.py
+  s_f9e8de3dc0d93d::t_abdc464637412f 15
+src/python/chunky_tests/test_planner_evaluation.py
+  s_f9e8de3dc0d93d::t_f5cc0cc3b706d3 827-828,834-836,842,880-881,887-889,895,975-976,979-984,987,1032-1033,1039,1135-1138,1141-1142,1280-1283,1286-1287,1350-1353,1356-1357,1738-1741,1744-1745,1820-1823,1826-1827,1987-1990,1993-1994,2466-2467,2473,2506-2509,2512-2513
+  s_f9e8de3dc0d93d::t_abdc464637412f 829-833,837-841,882-886,890-894,977-978,985-986,1034-1038,1139-1140,1284-1285,1354-1355,1742-1743,1824-1825,1991-1992,2468-2472,2510-2511
+src/rust/crates/chunky/tests/planner_evaluation.rs
+  s_f9e8de3dc0d93d::t_f5cc0cc3b706d3 540-545
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "158430b77824055bd32a6924e3cf51adff9b83dd",
+  "prompts": {},
+  "humans": {
+    "h_6046a6be1688c0": {
+      "author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  },
+  "sessions": {
+    "s_f9e8de3dc0d93d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f2c77-6c77-7003-a407-1ef255b4cd5a",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}

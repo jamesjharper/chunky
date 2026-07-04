@@ -1,0 +1,52 @@
+src/python/chunky/Planning/task_run_graph.py
+  s_cac3509e9ef5bb::t_146ce161415354 3,10,18-19,42,68-73,78-81,84-85,92-98,105
+  s_cac3509e9ef5bb::t_cf5050ea64af17 11
+src/python/chunky/Planning/TaskRequestGraph/__init__.py
+  s_cac3509e9ef5bb::t_146ce161415354 10,26,61,64
+src/rust/crates/chunky/src/Planning/task_request_graph/mod.rs
+  s_cac3509e9ef5bb::t_146ce161415354 16,23
+src/python/chunky/Planning/TaskRequestGraph/binding_models.py
+  s_cac3509e9ef5bb::t_146ce161415354 135-140
+src/rust/crates/chunky/src/pipeline.rs
+  s_cac3509e9ef5bb::t_146ce161415354 296,313,315,325,327-335,341-348
+  s_cac3509e9ef5bb::t_cf5050ea64af17 314
+src/python/chunky/Planning/TaskRequestGraph/invocation_models.py
+  s_cac3509e9ef5bb::t_146ce161415354 26-33
+  s_cac3509e9ef5bb::t_8ec46b81e522d6 23-25
+  s_cac3509e9ef5bb::t_50a9d7f9690e78 19-22
+src/rust/crates/chunky/src/Planning/task_request_graph/binding_models.rs
+  s_cac3509e9ef5bb::t_146ce161415354 156-161
+src/python/chunky/Planning/execution_planner.py
+  s_cac3509e9ef5bb::t_146ce161415354 29-30,111,114
+src/rust/crates/chunky/src/Planning/execution_planner.rs
+  s_cac3509e9ef5bb::t_146ce161415354 19-20,115-116
+src/rust/crates/chunky/src/Planning/task_request_graph/invocation_models.rs
+  s_cac3509e9ef5bb::t_146ce161415354 39-65
+src/python/chunky/__init__.py
+  s_cac3509e9ef5bb::t_146ce161415354 48,50,80,93
+src/python/chunky/Scheduling/task_runner.py
+  s_cac3509e9ef5bb::t_146ce161415354 29,66,208
+src/rust/crates/chunky/src/Scheduling/task_runner.rs
+  s_cac3509e9ef5bb::t_146ce161415354 27,57-58,80,259,265,383
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "992d77239ce88c03a67450b814e4de3112233feb",
+  "prompts": {},
+  "humans": {
+    "h_6046a6be1688c0": {
+      "author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  },
+  "sessions": {
+    "s_cac3509e9ef5bb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f2c80-8f57-7232-a7e6-d073ed20a8f0",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}

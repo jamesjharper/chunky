@@ -1,0 +1,182 @@
+src/rust/crates/chunky/tests/execution_cache_contract.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 91-92,98-103,119-120,128-139,157-158,169-171,184-187,210-213,218-219,229-231,241-244,249-250,253-255,268-272,280-282,286-291
+src/rust/crates/chunky_bench/src/main.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 44-46,50-52,56-58,62-64,103-107,109-113
+src/rust/crates/chunky/src/Scheduling/task_runner.rs
+  s_6f195ab5108623::t_6808da955f0c02 86,93
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 98-101,152-153,196-198,332-333,395-398,444-450,452-453
+  h_6046a6be1688c0 3,55,140
+src/python/chunky/pipeline.py
+  s_cfa78214f40fa2::t_2debbd02ddbf18 186
+  h_6046a6be1688c0 16,47,217,236-237
+src/rust/crates/chunky/src/pipeline.rs
+  s_6f195ab5108623::t_a2afe68fddc19d 298
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 22,96-97,114-119,153-155,193-196,290-292,299-303
+  h_6046a6be1688c0 28,158,161,261,276,280,285,328
+src/rust/crates/chunky/src/Planning/task_request_graph/binding_models.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 6
+.gitignore
+  h_6046a6be1688c0 27
+src/python/chunky_tests/test_planner_evaluation.py
+  h_6046a6be1688c0 45,226
+  s_6f195ab5108623::t_b63330b515f488 299,1092,1159,1163,1297,1605
+src/rust/crates/chunky/src/CacheProviders/file_cache_provider/provider.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 9-11,13-16,67-68,73-74,168-172,180-190,228-235,298-300,307-309,313-315,322-323,329-332,356-360,382-387,453-458,475-479,486-489
+src/rust/crates/chunky/src/Planning/task_request_graph/task_request_graph.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 49-53,75-76,90-91,94-97,117-123,133-138,147-150,243-244,248-252
+  s_6f195ab5108623::t_626f20732bb363 155
+src/rust/crates/chunky/src/Planning/task_request_graph/requirement_models.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 53-56
+src/python/chunky/Planning/execution_planner.py
+  h_6046a6be1688c0 5,34-35,40,56,69,105,112
+  s_cfa78214f40fa2::t_2debbd02ddbf18 17,68
+src/rust/crates/chunky/src/Planning/mod.rs
+  h_6046a6be1688c0 10
+src/rust/crates/chunky/src/Artifacts/artifact_models.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 113-115,123-126,401-406
+src/rust/crates/chunky/src/benchmark_support.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 8-9,18-19,23-24,93-96,113,239-242
+src/rust/crates/chunky/src/Artifacts/phase_catalog.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 7
+src/rust/crates/chunky/src/example_features.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 13,17-18,30-47,82-84,103-104,108-157,166-167,177-178,214-217,230-235,243-250,258-263,269-280,288-293,298-308,316-321,325-332,340-345,351-362,370-375,390-393,411-418,424-426,435-440,443-447,460-462,471-479,482-493,505-507,516-521,524-534,545-547,555-557,559-566,578-580,589-597,600-608,621-623,632-643,646-655,666-675,693-695
+src/rust/crates/chunky/src/Stages/stage_models.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 464-465,519-521
+src/rust/crates/chunky/src/Planning/task_request_graph/graph_walker.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 13-15,59-61,96-97,186-190,350-355,358,376-381,384-388,398-401,411-414,417-420,460-463,466-472,482-485,498-501,522-525,535-538,554-558,617-620,624-632,648-652,661-662,670-678,683-686,689-690,712-716,727-728,731-734,761-766,777-780
+src/rust/crates/chunky/tests/support/mod.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 5-8,18-19,127-131,239,321-323,365-371,374-379,422-423
+specs/03-planning/gpt.md
+  h_6046a6be1688c0 20-21,26-28,32,36-38,41-48,50-58,60-64,66,68-70,72-76,78-83,85,87,91,93,95,104-124,126,128-129,131,133,135-158,164-174,176-177,198-200,217,232-247,249-282,311,313
+  s_6f195ab5108623::t_410f21ba2c5538 23,25,30,34-35,39-40,49,59,65,67,71,84,92,94,96-101,103,125,127
+  s_c6b10615c73787::t_a8bf5f04b039a4 134,159-162
+  s_6f195ab5108623::t_343d71ab579f85 77,89,248
+  s_6f195ab5108623::t_99c58707d7f0e9 130,132,163,175,196,203,215
+src/python/chunky/Scheduling/task_runner.py
+  s_6f195ab5108623::t_07ea510fa3981e 72,77
+  h_6046a6be1688c0 28,110
+src/rust/crates/chunky/tests/planner_refactor.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 6-7,22-24,40-47,51-52,66-71,86-89,112-115,193-196,202-203,205-207,211-213,223-226,231-236,241-244,249-256,261-264,269-276,281-284,289-294,313-327,329-335,337-343
+src/python/chunky/Planning/TaskRequestGraph/request_models.py
+  s_cfa78214f40fa2::t_2debbd02ddbf18 3,27,29
+src/rust/crates/chunky/src/CacheProviders/file_cache_provider/filesystem.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 26-30,40-44,55-58,60-62,129-132
+src/rust/crates/chunky/src/Planning/task_request_graph/graph_state_models.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 11-13,67-69,78-81,155-158
+src/rust/crates/chunky/src/CacheProviders/file_cache_provider/metadata_store.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 10-12,80-82,89-90,198-201,231-236,262-264,389-428,454-458,467-472,573-575,714-718,723-730,801-806,832-838,842-848,933-935
+src/rust/crates/chunky/src/Planning/task_request_graph/invocation_models.rs
+  s_6f195ab5108623::t_db4e4be0848e5c 16,26,28,34-42
+src/rust/crates/chunky/src/CacheProviders/file_cache_provider/maintenance.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 43-44,47-50,69-71,98-100,102-103,123-124
+src/rust/crates/chunky/src/Scheduling/progress_models.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 494,578,604
+src/python/chunky/Planning/TaskRequestGraph/task_request_graph.py
+  s_6f195ab5108623::t_ca224889913889 134
+src/rust/crates/chunky/src/Artifacts/artifact_binding_models.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 392-395,397-401,477-480,482-484,486-493,524-527
+src/rust/crates/chunky/src/Planning/task_request_graph/producers.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 23-25,87-90,140-148,160-164,169-171,182-189,192-193,201-204,217-219,228-234,240-247,250-254
+src/python/chunky/__init__.py
+  h_6046a6be1688c0 50,91
+src/rust/crates/chunky/src/Planning/execution_planner.rs
+  s_cfa78214f40fa2::t_2debbd02ddbf18 67
+  s_cfa78214f40fa2::t_fb2e096d5cb2c9 83-84,98-102
+  h_6046a6be1688c0 3,24,32,38,40,111-114
+src/rust/crates/chunky/src/Artifacts/artifact_bindings.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 9-10,67-68,75-76,185,302-303
+src/python/chunky/Planning/task_run_graph.py
+  s_6f195ab5108623::t_8e906c48d6b768 45
+  s_6f195ab5108623::t_4dceba6a230c17 16,22,36,80,88-89
+src/rust/crates/chunky/src/Stages/stage_manifest.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 117-119,259-260,601-607,621-624
+src/rust/crates/chunky/src/demo_support.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 12-13,28-30,32-35,64
+src/rust/crates/chunky/tests/planner_evaluation.rs
+  s_6f195ab5108623::t_0e3ad98d19fe76 39,82,130,203,207,451
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 4-6,66-70,109-113,137-138,172-178,183-190,204-205,208-209,249-260,270-274,297-308,320-324,341-354,364-368,371-378,390-401,403-420,425-434,437-444,449-450,452,484-501,503-510,515-522,524-531,534-541,547-554,571-574,579-586,590-596,601-612,624-627,635-652,671-674
+src/rust/crates/chunky/src/Artifacts/artifact_handles_examples.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 10-13,181-183
+src/rust/crates/chunky/src/Planning/task_request_graph/request_models.rs
+  s_cfa78214f40fa2::t_fb2e096d5cb2c9 38-39,51,65-68
+  s_cfa78214f40fa2::t_2debbd02ddbf18 7,25,28-37
+src/rust/crates/chunky/src/CacheProviders/file_cache_provider/maintenance_store.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 7-9,14-17,46-51,66-71,84-85,151-154,216-220,243-249,310-324,330-337
+src/rust/crates/chunky/src/CacheProviders/file_cache_provider/handles.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 18-26,55-58,69-72,92-101,116-119,175-179,220-222,289-294,349-359
+src/rust/crates/chunky/src/lib.rs
+  s_cfa78214f40fa2::t_3b6e33a6cbfc1d 13-14,17-18,31-32,36-37,94-96,98-100
+specs/02-stages/stages-spec.md
+  s_6f195ab5108623::t_828992eda2879a 900
+.serena/memories/conventions.md
+  s_ab772878a704a7::t_baa90d32494e43 1-12
+.serena/memories/core.md
+  s_ab772878a704a7::t_59256d5f330f16 1-16
+.serena/memories/memory_maintenance.md
+  s_a331cf8d09ee09::t_dbe5a79a6c6a34 1-33
+.serena/memories/python/core.md
+  s_ab772878a704a7::t_46468934fc9569 1-14
+.serena/memories/rust/core.md
+  s_ab772878a704a7::t_435697a9d06efc 1-13
+.serena/memories/specs/core.md
+  s_ab772878a704a7::t_0428050cdfd537 1-12
+.serena/memories/suggested_commands.md
+  s_ab772878a704a7::t_a0ceccac47c6ce 1-11
+.serena/memories/task_completion.md
+  s_ab772878a704a7::t_a2cdc8c5da0b61 1-8
+.serena/memories/tech_stack.md
+  s_ab772878a704a7::t_0798efc2a9ae04 1-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "efab641d1fdf1f9981659cfae1814b3111e37f43",
+  "prompts": {},
+  "humans": {
+    "h_6046a6be1688c0": {
+      "author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  },
+  "sessions": {
+    "s_6f195ab5108623": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f2c59-ce53-7c01-be6e-71a6cb013176",
+        "model": "gpt-5.5"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_a331cf8d09ee09": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f28bd-4801-7990-8e3f-dc048749faa4",
+        "model": "unknown"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_ab772878a704a7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f28ca-9fe7-75a2-a460-d7a41f15ec0b",
+        "model": "unknown"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_c6b10615c73787": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f2c1a-2b5c-77a3-9f39-130908d11c85",
+        "model": "gpt-5.5"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_cfa78214f40fa2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f2c4f-2297-7952-92d2-5019e9482869",
+        "model": "gpt-5.5"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}

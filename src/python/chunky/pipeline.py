@@ -13,7 +13,7 @@ from .Artifacts.bindings import ArtifactBindingsProvider, close_instances
 from .Artifacts.artifact_handles import ArtifactSourceHandle, ArtifactTargetHandle
 from .Artifacts.artifact_models import ArtifactDeclaration, ArtifactKey, ArtifactRole
 from .CacheProviders.cache_models import ArtifactCache
-from .Planning.execution_planner import ExecutionPlanner
+from .Planning.execution_planner import TaskRunPlanner
 from .Scheduling.progress_models import (
     ProgressDispatcher,
     RunProgressTracker,
@@ -44,7 +44,7 @@ class RunRequest:
 
 
 ArtifactBindingsProviderFactory = Callable[[ArtifactCache], ArtifactBindingsProvider]
-PlannerFactory = Callable[[StageManifest, ArtifactBindingsProvider], ExecutionPlanner]
+PlannerFactory = Callable[[StageManifest, ArtifactBindingsProvider], TaskRunPlanner]
 RunnerFactory = Callable[[StageManifest, ArtifactBindingsProvider], ExampleTaskRunner]
 
 
@@ -163,9 +163,6 @@ class ChunkyPipeline:
         input_sources = _flatten_request_artifacts(request.inputs)
         output_targets = _flatten_request_artifacts(request.outputs)
 
-        if not output_targets:
-            raise ValueError("run request must contain at least one output")
-
         task_cache = self._cache_for_task(task_id)
         artifact_bindings_provider = self._build_artifact_bindings_provider(task_cache)
         planner = self._build_planner(artifact_bindings_provider)
@@ -186,7 +183,7 @@ class ChunkyPipeline:
                 supplied_instances=supplied,
                 requested_outputs=set(output_targets),
                 run_policy=request.run_policy,
-                user_supplied_settings=frozenset(user_supplied_settings),
+                user_supplied_settings=user_supplied_settings,
             )
             self._register_plan_progress(progress_tracker, plan)
         except BaseException:
@@ -217,7 +214,7 @@ class ChunkyPipeline:
     def _build_planner(
         self,
         artifact_bindings_provider: ArtifactBindingsProvider,
-    ) -> ExecutionPlanner:
+    ) -> TaskRunPlanner:
         return self._planner_factory(self.stage_manifest, artifact_bindings_provider)
 
     def _build_runner(
@@ -236,8 +233,8 @@ class ChunkyPipeline:
     def _default_planner_factory(
         stage_manifest: StageManifest,
         artifact_bindings_provider: ArtifactBindingsProvider,
-    ) -> ExecutionPlanner:
-        return ExecutionPlanner(
+    ) -> TaskRunPlanner:
+        return TaskRunPlanner(
             stage_manifest,
             artifact_bindings_provider.fingerprint_provider,
         )

@@ -47,7 +47,7 @@ from .Planning.TaskRequestGraph.binding_models import (
     RequestedOutputBinding,
 )
 from .Planning.TaskRequestGraph.invocation_models import PlannedInvocation
-from .Planning.TaskExecutionGraph import TaskExecutionGraph
+from .Planning.task_run_graph import TaskRunGraph
 from .Planning.TaskRequestGraph import TaskRequestGraph
 
 EvaluatedPlan = TaskRequestGraph
@@ -88,7 +88,7 @@ __all__ = [
     "StagePlanningContext",
     "StageRegistration",
     "TaskRequestGraph",
-    "TaskExecutionGraph",
+    "TaskRunGraph",
     "EvaluatedPlan",
     "chunky_run",
     "chunky_run_away",

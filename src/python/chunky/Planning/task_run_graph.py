@@ -13,13 +13,13 @@ from .TaskRequestGraph.task_request_graph import TaskRequestGraph
 
 
 @dataclass(frozen=True)
-class TaskExecutionGraph:
+class TaskRunGraph:
     manifest_id: str
     invocations: tuple[PlannedInvocation, ...]
     requested_output_bindings: tuple[RequestedOutputBinding, ...]
 
 
-class TaskExecutionGraphBuilder:
+class TaskRunGraphBuilder:
     def __init__(
         self,
         manifest: StageManifest,
@@ -33,7 +33,7 @@ class TaskExecutionGraphBuilder:
         *,
         task_request_graph: TaskRequestGraph,
         supplied_instances: dict[ArtifactKey, ArtifactInstance[Any]],
-    ) -> TaskExecutionGraph:
+    ) -> TaskRunGraph:
         fingerprints_by_instance = {
             str(artifact_id): instance.fingerprint
             for artifact_id, instance in supplied_instances.items()
@@ -42,10 +42,7 @@ class TaskExecutionGraphBuilder:
         invocations: list[PlannedInvocation] = []
         for invocation in task_request_graph.invocations:
             input_fingerprints: dict[str, str] = {}
-            for binding in (
-                *invocation.required_input_bindings,
-                *invocation.optional_input_bindings,
-            ):
+            for binding in invocation.input_bindings:
                 fingerprint = fingerprints_by_instance.get(binding.resolved_instance_id)
                 if fingerprint is not None:
                     input_fingerprints[str(binding.selector)] = fingerprint
@@ -80,7 +77,7 @@ class TaskExecutionGraphBuilder:
                 )
             )
 
-        return TaskExecutionGraph(
+        return TaskRunGraph(
             manifest_id=task_request_graph.manifest_id,
             invocations=tuple(invocations),
             requested_output_bindings=task_request_graph.requested_output_bindings,
@@ -88,6 +85,6 @@ class TaskExecutionGraphBuilder:
 
 
 __all__ = [
-    "TaskExecutionGraph",
-    "TaskExecutionGraphBuilder",
+    "TaskRunGraph",
+    "TaskRunGraphBuilder",
 ]

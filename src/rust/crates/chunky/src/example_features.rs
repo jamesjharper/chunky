@@ -10,12 +10,12 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 use crate::artifact_binding_models::{InputArtifacts, OutputArtifacts};
+use crate::artifact_codecs_example::{BytesCodec, JsonCodec};
 use crate::artifact_handles::ArtifactSourceHandle;
 use crate::artifact_handles_examples::InMemorySource;
-use crate::artifact_codecs_example::{BytesCodec, JsonCodec};
 use crate::artifact_models::{
-    ArtifactCapability, ArtifactDeclaration, ArtifactKey, ArtifactRequirement, ArtifactRole,
-    Codec, DefaultValueSourceProvider, PhaseMatchMode,
+    ArtifactCapability, ArtifactDeclaration, ArtifactKey, ArtifactRequirement, ArtifactRole, Codec,
+    DefaultValueSourceProvider, PhaseMatchMode,
 };
 use crate::stage_manifest::StageManifestBuilder;
 use crate::stage_models::{
@@ -27,12 +27,24 @@ use crate::stage_models::{
 pub struct TextCodec;
 
 impl Codec<String> for TextCodec {
-    fn codec_id(&self) -> &'static str { "utf8-text" }
-    fn codec_version(&self) -> u32 { 1 }
-    fn mime_type(&self) -> &'static str { "text/plain" }
-    fn extension(&self) -> &'static str { ".txt" }
-    fn serialize(&self, value: &String) -> Result<Vec<u8>> { Ok(value.as_bytes().to_vec()) }
-    fn deserialize(&self, raw: &[u8]) -> Result<String> { Ok(String::from_utf8(raw.to_vec())?) }
+    fn codec_id(&self) -> &'static str {
+        "utf8-text"
+    }
+    fn codec_version(&self) -> u32 {
+        1
+    }
+    fn mime_type(&self) -> &'static str {
+        "text/plain"
+    }
+    fn extension(&self) -> &'static str {
+        ".txt"
+    }
+    fn serialize(&self, value: &String) -> Result<Vec<u8>> {
+        Ok(value.as_bytes().to_vec())
+    }
+    fn deserialize(&self, raw: &[u8]) -> Result<String> {
+        Ok(String::from_utf8(raw.to_vec())?)
+    }
 }
 
 #[derive(Clone, Copy, Default)]
@@ -67,7 +79,9 @@ impl DefaultValueSourceProvider<Value> for AudioSettingsDefaultValueSourceProvid
                     value
                         .as_ref()
                         .downcast_ref::<Value>()
-                        .ok_or_else(|| anyhow::anyhow!("audio settings source returned the wrong value type"))?
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("audio settings source returned the wrong value type")
+                        })?
                         .clone(),
                 )
             }
@@ -86,26 +100,61 @@ pub fn source_audio() -> ArtifactDeclaration<Vec<u8>> {
         1,
         BytesCodec,
         false,
-    ).expect("valid source declaration")
+    )
+    .expect("valid source declaration")
 }
 
 pub fn audio_settings() -> ArtifactDeclaration<Value> {
-    json_decl("audio_preprocessing//audio_settings", ArtifactRole::Settings, true)
-        .with_default_value_source_provider(Arc::new(AudioSettingsDefaultValueSourceProvider))
+    json_decl(
+        "audio_preprocessing//audio_settings",
+        ArtifactRole::Settings,
+        true,
+    )
+    .with_default_value_source_provider(Arc::new(AudioSettingsDefaultValueSourceProvider))
 }
-pub fn speech_audio_settings() -> ArtifactDeclaration<Value> { audio_settings().with_override_domain("speech_processing").expect("valid override") }
-pub fn music_audio_settings() -> ArtifactDeclaration<Value> { audio_settings().with_override_domain("music_processing").expect("valid override") }
-pub fn asr_settings() -> ArtifactDeclaration<Value> { json_decl("settings//asr", ArtifactRole::Settings, false) }
-pub fn language_settings() -> ArtifactDeclaration<Value> { json_decl("settings//language", ArtifactRole::Settings, false) }
-pub fn diarization_settings() -> ArtifactDeclaration<Value> { json_decl("settings//diarization", ArtifactRole::Settings, false) }
-pub fn alignment_settings() -> ArtifactDeclaration<Value> { json_decl("settings//alignment", ArtifactRole::Settings, false) }
-pub fn vtt_settings() -> ArtifactDeclaration<Value> { json_decl("settings//vtt", ArtifactRole::Settings, false) }
-pub fn render_settings() -> ArtifactDeclaration<Value> { json_decl("settings//render", ArtifactRole::Settings, false) }
-pub fn prepared_audio() -> ArtifactDeclaration<Value> { json_decl("audio//prepared", ArtifactRole::Intermediate, true) }
-pub fn token_text() -> ArtifactDeclaration<Value> { json_decl("transcript//token_text", ArtifactRole::Intermediate, true) }
-pub fn speaker_segments() -> ArtifactDeclaration<Value> { json_decl("speaker//segments", ArtifactRole::Intermediate, true) }
-pub fn music_spans() -> ArtifactDeclaration<Value> { json_decl("audio//music_spans", ArtifactRole::Intermediate, true) }
-pub fn timed_words() -> ArtifactDeclaration<Value> { json_decl("transcript//timed_words", ArtifactRole::Intermediate, true) }
+pub fn speech_audio_settings() -> ArtifactDeclaration<Value> {
+    audio_settings()
+        .with_override_domain("speech_processing")
+        .expect("valid override")
+}
+pub fn music_audio_settings() -> ArtifactDeclaration<Value> {
+    audio_settings()
+        .with_override_domain("music_processing")
+        .expect("valid override")
+}
+pub fn asr_settings() -> ArtifactDeclaration<Value> {
+    json_decl("settings//asr", ArtifactRole::Settings, false)
+}
+pub fn language_settings() -> ArtifactDeclaration<Value> {
+    json_decl("settings//language", ArtifactRole::Settings, false)
+}
+pub fn diarization_settings() -> ArtifactDeclaration<Value> {
+    json_decl("settings//diarization", ArtifactRole::Settings, false)
+}
+pub fn alignment_settings() -> ArtifactDeclaration<Value> {
+    json_decl("settings//alignment", ArtifactRole::Settings, false)
+}
+pub fn vtt_settings() -> ArtifactDeclaration<Value> {
+    json_decl("settings//vtt", ArtifactRole::Settings, false)
+}
+pub fn render_settings() -> ArtifactDeclaration<Value> {
+    json_decl("settings//render", ArtifactRole::Settings, false)
+}
+pub fn prepared_audio() -> ArtifactDeclaration<Value> {
+    json_decl("audio//prepared", ArtifactRole::Intermediate, true)
+}
+pub fn token_text() -> ArtifactDeclaration<Value> {
+    json_decl("transcript//token_text", ArtifactRole::Intermediate, true)
+}
+pub fn speaker_segments() -> ArtifactDeclaration<Value> {
+    json_decl("speaker//segments", ArtifactRole::Intermediate, true)
+}
+pub fn music_spans() -> ArtifactDeclaration<Value> {
+    json_decl("audio//music_spans", ArtifactRole::Intermediate, true)
+}
+pub fn timed_words() -> ArtifactDeclaration<Value> {
+    json_decl("transcript//timed_words", ArtifactRole::Intermediate, true)
+}
 
 pub fn webvtt_transcript() -> ArtifactDeclaration<String> {
     ArtifactDeclaration::new(
@@ -114,7 +163,8 @@ pub fn webvtt_transcript() -> ArtifactDeclaration<String> {
         1,
         TextCodec,
         false,
-    ).expect("valid vtt declaration")
+    )
+    .expect("valid vtt declaration")
 }
 
 fn json_decl(id: &str, role: ArtifactRole, cacheable: bool) -> ArtifactDeclaration<Value> {
@@ -124,7 +174,8 @@ fn json_decl(id: &str, role: ArtifactRole, cacheable: bool) -> ArtifactDeclarati
         1,
         JsonCodec::<Value>::default(),
         cacheable,
-    ).expect("valid example declaration")
+    )
+    .expect("valid example declaration")
 }
 
 fn required(key: &ArtifactKey) -> ArtifactRequirement {
@@ -160,7 +211,10 @@ fn unbound_resources() -> crate::stage_models::StageResourceResolver {
 fn payload(context: &StageExecutionContext, stage: &str, extra: Value) -> Value {
     let mut object = serde_json::Map::new();
     object.insert("stage".to_owned(), Value::String(stage.to_owned()));
-    object.insert("invocation_id".to_owned(), Value::String(context.invocation_id.clone()));
+    object.insert(
+        "invocation_id".to_owned(),
+        Value::String(context.invocation_id.clone()),
+    );
     if let Value::Object(extra) = extra {
         object.extend(extra);
     }
@@ -173,7 +227,12 @@ fn invocation_id_from(value: &Value) -> Value {
 
 pub struct PrepareAudioExecutor;
 impl StageExecutor for PrepareAudioExecutor {
-    fn execute<'a>(&'a mut self, inputs: &'a InputArtifacts, outputs: &'a OutputArtifacts, context: &'a StageExecutionContext) -> BoxFuture<'a, Result<()>> {
+    fn execute<'a>(
+        &'a mut self,
+        inputs: &'a InputArtifacts,
+        outputs: &'a OutputArtifacts,
+        context: &'a StageExecutionContext,
+    ) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
             let source = source_audio();
             let prepared = prepared_audio();
@@ -181,11 +240,14 @@ impl StageExecutor for PrepareAudioExecutor {
             let audio_settings_key = audio_settings().artifact_id().clone();
             let audio_settings = context.settings.require(&audio_settings_key)?.clone();
             context.cancellation.raise_if_cancelled()?;
-            outputs.get_artifact(&prepared)?.write(payload(
-                context,
-                "prepare_audio",
-                json!({"source_bytes": raw.len(), "audio_settings": audio_settings}),
-            )).await?;
+            outputs
+                .get_artifact(&prepared)?
+                .write(payload(
+                    context,
+                    "prepare_audio",
+                    json!({"source_bytes": raw.len(), "audio_settings": audio_settings}),
+                ))
+                .await?;
             Ok(())
         })
     }
@@ -193,21 +255,29 @@ impl StageExecutor for PrepareAudioExecutor {
 
 pub struct TranscribeExecutor;
 impl StageExecutor for TranscribeExecutor {
-    fn execute<'a>(&'a mut self, inputs: &'a InputArtifacts, outputs: &'a OutputArtifacts, context: &'a StageExecutionContext) -> BoxFuture<'a, Result<()>> {
+    fn execute<'a>(
+        &'a mut self,
+        inputs: &'a InputArtifacts,
+        outputs: &'a OutputArtifacts,
+        context: &'a StageExecutionContext,
+    ) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
             let prepared = inputs.get_artifact(&prepared_audio())?.read().await?;
             let asr = inputs.get_artifact(&asr_settings())?.read().await?;
             let language = inputs.get_artifact(&language_settings())?.read().await?;
             context.cancellation.raise_if_cancelled()?;
-            outputs.get_artifact(&token_text())?.write(payload(
-                context,
-                "transcribe",
-                json!({
-                    "prepared_audio_invocation": invocation_id_from(&prepared),
-                    "asr": (*asr).clone(),
-                    "language": (*language).clone(),
-                }),
-            )).await?;
+            outputs
+                .get_artifact(&token_text())?
+                .write(payload(
+                    context,
+                    "transcribe",
+                    json!({
+                        "prepared_audio_invocation": invocation_id_from(&prepared),
+                        "asr": (*asr).clone(),
+                        "language": (*language).clone(),
+                    }),
+                ))
+                .await?;
             Ok(())
         })
     }
@@ -215,19 +285,27 @@ impl StageExecutor for TranscribeExecutor {
 
 pub struct DiarizeExecutor;
 impl StageExecutor for DiarizeExecutor {
-    fn execute<'a>(&'a mut self, inputs: &'a InputArtifacts, outputs: &'a OutputArtifacts, context: &'a StageExecutionContext) -> BoxFuture<'a, Result<()>> {
+    fn execute<'a>(
+        &'a mut self,
+        inputs: &'a InputArtifacts,
+        outputs: &'a OutputArtifacts,
+        context: &'a StageExecutionContext,
+    ) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
             let prepared = inputs.get_artifact(&prepared_audio())?.read().await?;
             let diarization = inputs.get_artifact(&diarization_settings())?.read().await?;
             context.cancellation.raise_if_cancelled()?;
-            outputs.get_artifact(&speaker_segments())?.write(payload(
-                context,
-                "diarize",
-                json!({
-                    "prepared_audio_invocation": invocation_id_from(&prepared),
-                    "diarization": (*diarization).clone(),
-                }),
-            )).await?;
+            outputs
+                .get_artifact(&speaker_segments())?
+                .write(payload(
+                    context,
+                    "diarize",
+                    json!({
+                        "prepared_audio_invocation": invocation_id_from(&prepared),
+                        "diarization": (*diarization).clone(),
+                    }),
+                ))
+                .await?;
             Ok(())
         })
     }
@@ -235,15 +313,23 @@ impl StageExecutor for DiarizeExecutor {
 
 pub struct DetectMusicExecutor;
 impl StageExecutor for DetectMusicExecutor {
-    fn execute<'a>(&'a mut self, inputs: &'a InputArtifacts, outputs: &'a OutputArtifacts, context: &'a StageExecutionContext) -> BoxFuture<'a, Result<()>> {
+    fn execute<'a>(
+        &'a mut self,
+        inputs: &'a InputArtifacts,
+        outputs: &'a OutputArtifacts,
+        context: &'a StageExecutionContext,
+    ) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
             let prepared = inputs.get_artifact(&prepared_audio())?.read().await?;
             context.cancellation.raise_if_cancelled()?;
-            outputs.get_artifact(&music_spans())?.write(payload(
-                context,
-                "detect_music",
-                json!({"prepared_audio_invocation": invocation_id_from(&prepared)}),
-            )).await?;
+            outputs
+                .get_artifact(&music_spans())?
+                .write(payload(
+                    context,
+                    "detect_music",
+                    json!({"prepared_audio_invocation": invocation_id_from(&prepared)}),
+                ))
+                .await?;
             Ok(())
         })
     }
@@ -251,21 +337,29 @@ impl StageExecutor for DetectMusicExecutor {
 
 pub struct AlignExecutor;
 impl StageExecutor for AlignExecutor {
-    fn execute<'a>(&'a mut self, inputs: &'a InputArtifacts, outputs: &'a OutputArtifacts, context: &'a StageExecutionContext) -> BoxFuture<'a, Result<()>> {
+    fn execute<'a>(
+        &'a mut self,
+        inputs: &'a InputArtifacts,
+        outputs: &'a OutputArtifacts,
+        context: &'a StageExecutionContext,
+    ) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
             let token_text_value = inputs.get_artifact(&token_text())?.read().await?;
             let speaker_segments_value = inputs.get_artifact(&speaker_segments())?.read().await?;
             let alignment = inputs.get_artifact(&alignment_settings())?.read().await?;
             context.cancellation.raise_if_cancelled()?;
-            outputs.get_artifact(&timed_words())?.write(payload(
-                context,
-                "align",
-                json!({
-                    "token_text_invocation": invocation_id_from(&token_text_value),
-                    "speaker_segments_invocation": invocation_id_from(&speaker_segments_value),
-                    "alignment": (*alignment).clone(),
-                }),
-            )).await?;
+            outputs
+                .get_artifact(&timed_words())?
+                .write(payload(
+                    context,
+                    "align",
+                    json!({
+                        "token_text_invocation": invocation_id_from(&token_text_value),
+                        "speaker_segments_invocation": invocation_id_from(&speaker_segments_value),
+                        "alignment": (*alignment).clone(),
+                    }),
+                ))
+                .await?;
             Ok(())
         })
     }
@@ -273,7 +367,12 @@ impl StageExecutor for AlignExecutor {
 
 pub struct RenderVttExecutor;
 impl StageExecutor for RenderVttExecutor {
-    fn execute<'a>(&'a mut self, inputs: &'a InputArtifacts, outputs: &'a OutputArtifacts, context: &'a StageExecutionContext) -> BoxFuture<'a, Result<()>> {
+    fn execute<'a>(
+        &'a mut self,
+        inputs: &'a InputArtifacts,
+        outputs: &'a OutputArtifacts,
+        context: &'a StageExecutionContext,
+    ) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
             let timed_words_value = inputs.get_artifact(&timed_words())?.read().await?;
             let music_spans_value = inputs.get_artifact(&music_spans())?.read().await?;
@@ -288,7 +387,10 @@ impl StageExecutor for RenderVttExecutor {
                 render,
                 context.invocation_id,
             );
-            outputs.get_artifact(&webvtt_transcript())?.write(value).await?;
+            outputs
+                .get_artifact(&webvtt_transcript())?
+                .write(value)
+                .await?;
             Ok(())
         })
     }
@@ -306,13 +408,22 @@ macro_rules! impl_default_executor {
         impl Default for $ty { fn default() -> Self { Self } }
     )*};
 }
-impl_default_executor!(PrepareAudioExecutor, TranscribeExecutor, DiarizeExecutor, DetectMusicExecutor, AlignExecutor, RenderVttExecutor);
+impl_default_executor!(
+    PrepareAudioExecutor,
+    TranscribeExecutor,
+    DiarizeExecutor,
+    DetectMusicExecutor,
+    AlignExecutor,
+    RenderVttExecutor
+);
 
 pub fn prepare_audio_stage() -> StageRegistration {
     let source = source_audio();
     let audio_settings_decl = audio_settings();
     let prepared = prepared_audio();
-    let output = ArtifactCapability { artifact_id: prepared.artifact_id().clone() };
+    let output = ArtifactCapability {
+        artifact_id: prepared.artifact_id().clone(),
+    };
     StageRegistration {
         stage_id: "audio.prepare".to_owned(),
         display_name: "Prepare audio".to_owned(),
@@ -321,11 +432,19 @@ pub fn prepare_audio_stage() -> StageRegistration {
         executor_factory: executor_factory::<PrepareAudioExecutor>(),
         owned_artifacts: vec![prepared.erase()],
         input_capabilities: vec![
-            ArtifactCapability { artifact_id: source.artifact_id().clone() },
-            ArtifactCapability { artifact_id: audio_settings_decl.artifact_id().clone() },
+            ArtifactCapability {
+                artifact_id: source.artifact_id().clone(),
+            },
+            ArtifactCapability {
+                artifact_id: audio_settings_decl.artifact_id().clone(),
+            },
         ],
         output_capabilities: vec![output.clone()],
-        resolve_requirements: Arc::new(move |_context| Ok(ResolvedStageRequirements { inputs: vec![required(source.artifact_id())] })),
+        resolve_requirements: Arc::new(move |_context| {
+            Ok(ResolvedStageRequirements {
+                inputs: vec![required(source.artifact_id())],
+            })
+        }),
         resolve_output_capabilities: fixed_outputs(vec![output]),
         resolve_resource_policy: cpu_resources(),
         concurrency_policy: None,
@@ -338,7 +457,9 @@ pub fn transcribe_stage() -> StageRegistration {
     let asr = asr_settings();
     let language = language_settings();
     let token = token_text();
-    let output = ArtifactCapability { artifact_id: token.artifact_id().clone() };
+    let output = ArtifactCapability {
+        artifact_id: token.artifact_id().clone(),
+    };
     StageRegistration {
         stage_id: "asr.transcribe".to_owned(),
         display_name: "Transcribe".to_owned(),
@@ -347,16 +468,29 @@ pub fn transcribe_stage() -> StageRegistration {
         executor_factory: executor_factory::<TranscribeExecutor>(),
         owned_artifacts: vec![asr.erase(), language.erase(), token.erase()],
         input_capabilities: vec![
-            ArtifactCapability { artifact_id: prepared.artifact_id().clone() },
-            ArtifactCapability { artifact_id: asr_settings().artifact_id().clone() },
-            ArtifactCapability { artifact_id: language_settings().artifact_id().clone() },
+            ArtifactCapability {
+                artifact_id: prepared.artifact_id().clone(),
+            },
+            ArtifactCapability {
+                artifact_id: asr_settings().artifact_id().clone(),
+            },
+            ArtifactCapability {
+                artifact_id: language_settings().artifact_id().clone(),
+            },
         ],
         output_capabilities: vec![output.clone()],
-        resolve_requirements: Arc::new(move |_context| Ok(ResolvedStageRequirements { inputs: vec![
-            required_with_pushed_setting(prepared.artifact_id(), speech_audio.artifact_id()),
-            required(asr_settings().artifact_id()),
-            required(language_settings().artifact_id()),
-        ] })),
+        resolve_requirements: Arc::new(move |_context| {
+            Ok(ResolvedStageRequirements {
+                inputs: vec![
+                    required_with_pushed_setting(
+                        prepared.artifact_id(),
+                        speech_audio.artifact_id(),
+                    ),
+                    required(asr_settings().artifact_id()),
+                    required(language_settings().artifact_id()),
+                ],
+            })
+        }),
         resolve_output_capabilities: fixed_outputs(vec![output]),
         resolve_resource_policy: cpu_resources(),
         concurrency_policy: None,
@@ -368,7 +502,9 @@ pub fn diarize_stage() -> StageRegistration {
     let speech_audio = speech_audio_settings();
     let diarization = diarization_settings();
     let segments = speaker_segments();
-    let output = ArtifactCapability { artifact_id: segments.artifact_id().clone() };
+    let output = ArtifactCapability {
+        artifact_id: segments.artifact_id().clone(),
+    };
     StageRegistration {
         stage_id: "speaker.diarize".to_owned(),
         display_name: "Diarize".to_owned(),
@@ -377,14 +513,25 @@ pub fn diarize_stage() -> StageRegistration {
         executor_factory: executor_factory::<DiarizeExecutor>(),
         owned_artifacts: vec![diarization.erase(), segments.erase()],
         input_capabilities: vec![
-            ArtifactCapability { artifact_id: prepared.artifact_id().clone() },
-            ArtifactCapability { artifact_id: diarization_settings().artifact_id().clone() },
+            ArtifactCapability {
+                artifact_id: prepared.artifact_id().clone(),
+            },
+            ArtifactCapability {
+                artifact_id: diarization_settings().artifact_id().clone(),
+            },
         ],
         output_capabilities: vec![output.clone()],
-        resolve_requirements: Arc::new(move |_context| Ok(ResolvedStageRequirements { inputs: vec![
-            required_with_pushed_setting(prepared.artifact_id(), speech_audio.artifact_id()),
-            required(diarization_settings().artifact_id()),
-        ] })),
+        resolve_requirements: Arc::new(move |_context| {
+            Ok(ResolvedStageRequirements {
+                inputs: vec![
+                    required_with_pushed_setting(
+                        prepared.artifact_id(),
+                        speech_audio.artifact_id(),
+                    ),
+                    required(diarization_settings().artifact_id()),
+                ],
+            })
+        }),
         resolve_output_capabilities: fixed_outputs(vec![output]),
         resolve_resource_policy: cpu_resources(),
         concurrency_policy: None,
@@ -395,7 +542,9 @@ pub fn detect_music_stage() -> StageRegistration {
     let prepared = prepared_audio();
     let music_audio = music_audio_settings();
     let music = music_spans();
-    let output = ArtifactCapability { artifact_id: music.artifact_id().clone() };
+    let output = ArtifactCapability {
+        artifact_id: music.artifact_id().clone(),
+    };
     StageRegistration {
         stage_id: "audio.detect_music".to_owned(),
         display_name: "Detect music".to_owned(),
@@ -403,11 +552,18 @@ pub fn detect_music_stage() -> StageRegistration {
         behavior_version: "1".to_owned(),
         executor_factory: executor_factory::<DetectMusicExecutor>(),
         owned_artifacts: vec![music.erase()],
-        input_capabilities: vec![ArtifactCapability { artifact_id: prepared.artifact_id().clone() }],
+        input_capabilities: vec![ArtifactCapability {
+            artifact_id: prepared.artifact_id().clone(),
+        }],
         output_capabilities: vec![output.clone()],
-        resolve_requirements: Arc::new(move |_context| Ok(ResolvedStageRequirements { inputs: vec![
-            required_with_pushed_setting(prepared.artifact_id(), music_audio.artifact_id()),
-        ] })),
+        resolve_requirements: Arc::new(move |_context| {
+            Ok(ResolvedStageRequirements {
+                inputs: vec![required_with_pushed_setting(
+                    prepared.artifact_id(),
+                    music_audio.artifact_id(),
+                )],
+            })
+        }),
         resolve_output_capabilities: fixed_outputs(vec![output]),
         resolve_resource_policy: cpu_resources(),
         concurrency_policy: None,
@@ -419,7 +575,9 @@ pub fn align_stage() -> StageRegistration {
     let segments = speaker_segments();
     let alignment = alignment_settings();
     let timed = timed_words();
-    let output = ArtifactCapability { artifact_id: timed.artifact_id().clone() };
+    let output = ArtifactCapability {
+        artifact_id: timed.artifact_id().clone(),
+    };
     StageRegistration {
         stage_id: "transcript.align".to_owned(),
         display_name: "Align".to_owned(),
@@ -428,16 +586,26 @@ pub fn align_stage() -> StageRegistration {
         executor_factory: executor_factory::<AlignExecutor>(),
         owned_artifacts: vec![alignment.erase(), timed.erase()],
         input_capabilities: vec![
-            ArtifactCapability { artifact_id: token_text().artifact_id().clone() },
-            ArtifactCapability { artifact_id: speaker_segments().artifact_id().clone() },
-            ArtifactCapability { artifact_id: alignment_settings().artifact_id().clone() },
+            ArtifactCapability {
+                artifact_id: token_text().artifact_id().clone(),
+            },
+            ArtifactCapability {
+                artifact_id: speaker_segments().artifact_id().clone(),
+            },
+            ArtifactCapability {
+                artifact_id: alignment_settings().artifact_id().clone(),
+            },
         ],
         output_capabilities: vec![output.clone()],
-        resolve_requirements: Arc::new(move |_context| Ok(ResolvedStageRequirements { inputs: vec![
-            required(token.artifact_id()),
-            required(segments.artifact_id()),
-            required(alignment.artifact_id()),
-        ] })),
+        resolve_requirements: Arc::new(move |_context| {
+            Ok(ResolvedStageRequirements {
+                inputs: vec![
+                    required(token.artifact_id()),
+                    required(segments.artifact_id()),
+                    required(alignment.artifact_id()),
+                ],
+            })
+        }),
         resolve_output_capabilities: fixed_outputs(vec![output]),
         resolve_resource_policy: cpu_resources(),
         concurrency_policy: None,
@@ -450,7 +618,9 @@ pub fn render_vtt_stage() -> StageRegistration {
     let vtt = vtt_settings();
     let render = render_settings();
     let transcript = webvtt_transcript();
-    let output = ArtifactCapability { artifact_id: transcript.artifact_id().clone() };
+    let output = ArtifactCapability {
+        artifact_id: transcript.artifact_id().clone(),
+    };
     StageRegistration {
         stage_id: "render.webvtt".to_owned(),
         display_name: "Render WebVTT".to_owned(),
@@ -459,18 +629,30 @@ pub fn render_vtt_stage() -> StageRegistration {
         executor_factory: executor_factory::<RenderVttExecutor>(),
         owned_artifacts: vec![vtt.erase(), render.erase(), transcript.erase()],
         input_capabilities: vec![
-            ArtifactCapability { artifact_id: timed_words().artifact_id().clone() },
-            ArtifactCapability { artifact_id: music_spans().artifact_id().clone() },
-            ArtifactCapability { artifact_id: vtt_settings().artifact_id().clone() },
-            ArtifactCapability { artifact_id: render_settings().artifact_id().clone() },
+            ArtifactCapability {
+                artifact_id: timed_words().artifact_id().clone(),
+            },
+            ArtifactCapability {
+                artifact_id: music_spans().artifact_id().clone(),
+            },
+            ArtifactCapability {
+                artifact_id: vtt_settings().artifact_id().clone(),
+            },
+            ArtifactCapability {
+                artifact_id: render_settings().artifact_id().clone(),
+            },
         ],
         output_capabilities: vec![output.clone()],
-        resolve_requirements: Arc::new(move |_context| Ok(ResolvedStageRequirements { inputs: vec![
-            required(timed.artifact_id()),
-            required(music.artifact_id()),
-            required(vtt.artifact_id()),
-            required(render.artifact_id()),
-        ] })),
+        resolve_requirements: Arc::new(move |_context| {
+            Ok(ResolvedStageRequirements {
+                inputs: vec![
+                    required(timed.artifact_id()),
+                    required(music.artifact_id()),
+                    required(vtt.artifact_id()),
+                    required(render.artifact_id()),
+                ],
+            })
+        }),
         resolve_output_capabilities: fixed_outputs(vec![output]),
         resolve_resource_policy: unbound_resources(),
         concurrency_policy: None,
@@ -481,9 +663,16 @@ pub fn render_vtt_stage() -> StageRegistration {
 pub struct WebVttTopologyExampleFeature;
 
 impl PipelineFeature for WebVttTopologyExampleFeature {
-    fn feature_id(&self) -> &str { "example.webvtt-topology" }
-    fn configuration_fingerprint(&self) -> &str { "webvtt-topology-example-v1" }
-    fn install(&self, builder: &mut dyn crate::stage_models::StageManifestBuilderAccess) -> Result<()> {
+    fn feature_id(&self) -> &str {
+        "example.webvtt-topology"
+    }
+    fn configuration_fingerprint(&self) -> &str {
+        "webvtt-topology-example-v1"
+    }
+    fn install(
+        &self,
+        builder: &mut dyn crate::stage_models::StageManifestBuilderAccess,
+    ) -> Result<()> {
         builder.add_artifact_boxed(source_audio().erase())?;
         builder.add_artifact_boxed(audio_settings().erase())?;
         builder.add_artifact_boxed(speech_audio_settings().erase())?;
@@ -501,5 +690,7 @@ impl PipelineFeature for WebVttTopologyExampleFeature {
 pub type SummaryExampleFeature = WebVttTopologyExampleFeature;
 
 pub fn install_summary_example(builder: &mut StageManifestBuilder) -> Result<()> {
-    builder.install_feature(&WebVttTopologyExampleFeature).map(|_| ())
+    builder
+        .install_feature(&WebVttTopologyExampleFeature)
+        .map(|_| ())
 }

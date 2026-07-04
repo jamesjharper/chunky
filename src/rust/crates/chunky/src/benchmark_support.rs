@@ -5,24 +5,23 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
+use crate::artifact_binding_models::{InputArtifacts, OutputArtifacts};
+use crate::artifact_codecs_example::JsonCodec;
 use crate::artifact_handles::ArtifactTargetHandle;
 use crate::artifact_handles_examples::AtomicFileTargetHandle;
-use crate::artifact_binding_models::{InputArtifacts, OutputArtifacts};
 use crate::artifact_models::{
     ArtifactCapability, ArtifactDeclaration, ArtifactKey, ArtifactRequirement, ArtifactRole,
 };
-use crate::artifact_codecs_example::JsonCodec;
 use crate::cache_providers::FileCacheProvider;
 use crate::demo_support::{build_inputs, DemoFixture};
 use crate::example_features::{
-    music_spans, prepared_audio, speaker_segments, timed_words, token_text,
-    webvtt_transcript, SummaryExampleFeature,
+    music_spans, prepared_audio, speaker_segments, timed_words, token_text, webvtt_transcript,
+    SummaryExampleFeature,
 };
 use crate::pipeline::{ChunkyPipeline, RunRequest};
 use crate::stage_models::{
-    BoxFuture, PipelineFeature, ResolvedStageRequirements,
-    ResourcePolicy, StageExecutionContext, StageExecutor, StagePlanningContext,
-    StageRegistration,
+    BoxFuture, PipelineFeature, ResolvedStageRequirements, ResourcePolicy, StageExecutionContext,
+    StageExecutor, StagePlanningContext, StageRegistration,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -91,7 +90,10 @@ impl StageExecutor for SnapshotValueExecutor {
         Box::pin(async move {
             let value = inputs.get_artifact(&self.input)?.read().await?;
             context.cancellation.raise_if_cancelled()?;
-            outputs.get_artifact(&self.output)?.write((*value).clone()).await?;
+            outputs
+                .get_artifact(&self.output)?
+                .write((*value).clone())
+                .await?;
             Ok(())
         })
     }
@@ -108,9 +110,7 @@ fn json_target(id: &str) -> ArtifactDeclaration<Value> {
     .expect("valid benchmark target declaration")
 }
 
-fn fixed_outputs(
-    outputs: Vec<ArtifactCapability>,
-) -> crate::stage_models::StageOutputResolver {
+fn fixed_outputs(outputs: Vec<ArtifactCapability>) -> crate::stage_models::StageOutputResolver {
     Arc::new(move |_context: &StagePlanningContext| Ok(outputs.clone()))
 }
 
@@ -236,7 +236,10 @@ impl PipelineFeature for BenchmarkMaterializationFeature {
         "webvtt-benchmark-materialization-v1"
     }
 
-    fn install(&self, builder: &mut dyn crate::stage_models::StageManifestBuilderAccess) -> Result<()> {
+    fn install(
+        &self,
+        builder: &mut dyn crate::stage_models::StageManifestBuilderAccess,
+    ) -> Result<()> {
         builder.add_artifact_boxed(prepared_audio_target().erase())?;
         builder.add_artifact_boxed(token_text_target().erase())?;
         builder.add_artifact_boxed(speaker_segments_target().erase())?;

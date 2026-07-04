@@ -10,7 +10,9 @@ use crate::artifact_models::{ArtifactKey, ArtifactRequirement, ArtifactRole};
 use crate::stage_manifest::StageProducer;
 use crate::stage_models::ResolvedSettingsView;
 
-use super::binding_models::{ArtifactRequirementResult, ArtifactResolution, MissingOptionalArtifact};
+use super::binding_models::{
+    ArtifactRequirementResult, ArtifactResolution, MissingOptionalArtifact,
+};
 use super::graph_state_models::GraphBuildState;
 use super::producers::{
     AmbiguousProducerSelection, InvalidProducerCandidate, ProducerCandidateProbeResult,
@@ -54,7 +56,9 @@ impl<'ctx, 'a> StageManifestGraphWalker<'ctx, 'a> {
                 self.resolve_artifact_requirement(work_item)?;
             }
 
-            while self.work.has_unresolved_invocation() && !self.work.has_unmet_artifact_requirements() {
+            while self.work.has_unresolved_invocation()
+                && !self.work.has_unmet_artifact_requirements()
+            {
                 let candidate_key = self.work.pop_unresolved_invocation()?;
                 let requirements = InvocationRequirementResolver::new(
                     self.context,
@@ -89,7 +93,8 @@ impl<'ctx, 'a> StageManifestGraphWalker<'ctx, 'a> {
                 .requested_output_id
                 .clone()
                 .ok_or_else(|| anyhow!("requested output need missing requested id"))?;
-            self.state.record_requested_output_binding(requested_output_id, &result);
+            self.state
+                .record_requested_output_binding(requested_output_id, &result);
         }
 
         if let Some(producer_key) = &result.producer_invocation_key {
@@ -178,7 +183,11 @@ impl<'ctx, 'a> SpeculativeGraphBranch<'ctx, 'a> {
         Ok(ArtifactResolution::from_input_binding(binding))
     }
 
-    pub fn expand_from_requirement(&mut self, need: ArtifactNeed, force_required: bool) -> Result<()> {
+    pub fn expand_from_requirement(
+        &mut self,
+        need: ArtifactNeed,
+        force_required: bool,
+    ) -> Result<()> {
         self.expand_queue(GraphWorkQueue::for_requirement(need, force_required))
     }
 
@@ -338,13 +347,15 @@ impl GraphWorkQueue {
         Ok(candidate_key)
     }
 
-    pub fn add_requirements_to_plan(&mut self, requirements: impl IntoIterator<Item = ArtifactNeed>) {
-        self.unmet_artifact_requirements.extend(
-            requirements.into_iter().map(|need| GraphWorkItem {
+    pub fn add_requirements_to_plan(
+        &mut self,
+        requirements: impl IntoIterator<Item = ArtifactNeed>,
+    ) {
+        self.unmet_artifact_requirements
+            .extend(requirements.into_iter().map(|need| GraphWorkItem {
                 need,
                 force_required: false,
-            }),
-        );
+            }));
     }
 }
 
@@ -362,10 +373,19 @@ impl<'s, 'ctx, 'a> ArtifactRequirementResolver<'s, 'ctx, 'a> {
         producer_selector: &'ctx ProducerSelector<'a>,
         state: &'s mut GraphBuildState<'a>,
     ) -> Self {
-        Self { context, settings_resolver, producer_selector, state }
+        Self {
+            context,
+            settings_resolver,
+            producer_selector,
+            state,
+        }
     }
 
-    pub fn resolve(&mut self, need: &ArtifactNeed, force_required: bool) -> Result<ArtifactRequirementResult> {
+    pub fn resolve(
+        &mut self,
+        need: &ArtifactNeed,
+        force_required: bool,
+    ) -> Result<ArtifactRequirementResult> {
         if let Some(setting_resolution) = self.resolve_inherited_setting_artifact(need)? {
             return Ok(setting_resolution.into());
         }
@@ -375,7 +395,10 @@ impl<'s, 'ctx, 'a> ArtifactRequirementResolver<'s, 'ctx, 'a> {
         }
 
         if self.is_optional_source(need) {
-            return Ok(MissingOptionalArtifact { artifact_id: need.requirement.artifact_id.clone() }.into());
+            return Ok(MissingOptionalArtifact {
+                artifact_id: need.requirement.artifact_id.clone(),
+            }
+            .into());
         }
 
         if !need.is_required() && !force_required {
@@ -385,10 +408,16 @@ impl<'s, 'ctx, 'a> ArtifactRequirementResolver<'s, 'ctx, 'a> {
         self.resolve_artifact_producer(need).map(Into::into)
     }
 
-    fn resolve_inherited_setting_artifact(&self, need: &ArtifactNeed) -> Result<Option<ArtifactResolution>> {
+    fn resolve_inherited_setting_artifact(
+        &self,
+        need: &ArtifactNeed,
+    ) -> Result<Option<ArtifactResolution>> {
         let selector = &need.requirement.artifact_id;
         let declaration = self.context.manifest.artifacts.get(selector);
-        if !matches!(declaration.map(|decl| decl.role), Some(ArtifactRole::Settings)) {
+        if !matches!(
+            declaration.map(|decl| decl.role),
+            Some(ArtifactRole::Settings)
+        ) {
             return Ok(None);
         }
 
@@ -428,14 +457,19 @@ impl<'s, 'ctx, 'a> ArtifactRequirementResolver<'s, 'ctx, 'a> {
             &requirement.artifact_id,
             requirement.phase_match,
         )?;
-        Some(ArtifactResolution::supplied(supplied_id, supplied_instance_id))
+        Some(ArtifactResolution::supplied(
+            supplied_id,
+            supplied_instance_id,
+        ))
     }
 
-    fn resolve_producer_artifact(&self, need: &ArtifactNeed) -> Result<ProducedArtifact<'a>, ProducerSelectError> {
-        let selection = self.producer_selector.select_producer(
-            &need.requirement.artifact_id,
-            need.requirement.phase_match,
-        )?;
+    fn resolve_producer_artifact(
+        &self,
+        need: &ArtifactNeed,
+    ) -> Result<ProducedArtifact<'a>, ProducerSelectError> {
+        let selection = self
+            .producer_selector
+            .select_producer(&need.requirement.artifact_id, need.requirement.phase_match)?;
         let producer_context = self
             .settings_resolver
             .build_stage_context(
@@ -445,7 +479,10 @@ impl<'s, 'ctx, 'a> ArtifactRequirementResolver<'s, 'ctx, 'a> {
                 need.inherited_settings.clone(),
             )
             .map_err(ProducerSelectError::from)?;
-        Ok(ProducedArtifact::for_selection(&producer_context, selection))
+        Ok(ProducedArtifact::for_selection(
+            &producer_context,
+            selection,
+        ))
     }
 
     fn resolve_artifact_producer(&mut self, need: &ArtifactNeed) -> Result<ArtifactResolution> {
@@ -458,7 +495,10 @@ impl<'s, 'ctx, 'a> ArtifactRequirementResolver<'s, 'ctx, 'a> {
             Err(ProducerSelectError::Other(error)) => return Err(error),
         };
 
-        if let Some(existing_producer) = self.state.find_invocation_key_by_instance(&producer_artifact.resolved_instance_id) {
+        if let Some(existing_producer) = self
+            .state
+            .find_invocation_key_by_instance(&producer_artifact.resolved_instance_id)
+        {
             return Ok(ArtifactResolution::produced(
                 producer_artifact.resolved_artifact_id,
                 producer_artifact.resolved_instance_id,
@@ -479,7 +519,10 @@ impl<'s, 'ctx, 'a> ArtifactRequirementResolver<'s, 'ctx, 'a> {
         ))
     }
 
-    fn try_expand_and_resolve_optional_requirement(&mut self, need: &ArtifactNeed) -> Result<ArtifactRequirementResult> {
+    fn try_expand_and_resolve_optional_requirement(
+        &mut self,
+        need: &ArtifactNeed,
+    ) -> Result<ArtifactRequirementResult> {
         let mut branch = SpeculativeGraphBranch::new(
             self.context,
             self.settings_resolver,
@@ -489,7 +532,10 @@ impl<'s, 'ctx, 'a> ArtifactRequirementResolver<'s, 'ctx, 'a> {
         if let Err(error) = branch.expand_from_requirement(need.clone(), true) {
             let _ = branch.discard();
             let _ = error;
-            return Ok(MissingOptionalArtifact { artifact_id: need.requirement.artifact_id.clone() }.into());
+            return Ok(MissingOptionalArtifact {
+                artifact_id: need.requirement.artifact_id.clone(),
+            }
+            .into());
         }
 
         let resolution = branch.resolved_input_binding(need)?;
@@ -505,7 +551,11 @@ impl<'s, 'ctx, 'a> ArtifactRequirementResolver<'s, 'ctx, 'a> {
         let probe_result = self.probe_producer_candidates(need, &ambiguity.candidates);
 
         if probe_result.valid_candidates.len() == 1 {
-            let winner = probe_result.valid_candidates.into_iter().next().expect("one winner");
+            let winner = probe_result
+                .valid_candidates
+                .into_iter()
+                .next()
+                .expect("one winner");
             let binding = winner.binding.clone();
             winner.branch.commit()?;
             return Ok(binding);
@@ -564,12 +614,22 @@ impl<'s, 'ctx, 'a> ArtifactRequirementResolver<'s, 'ctx, 'a> {
             }
         }
 
-        ProducerCandidateProbeResult { valid_candidates, invalid_candidates }
+        ProducerCandidateProbeResult {
+            valid_candidates,
+            invalid_candidates,
+        }
     }
 
     fn is_optional_source(&self, need: &ArtifactNeed) -> bool {
-        let declaration = self.context.manifest.artifacts.get(&need.requirement.artifact_id);
-        matches!(declaration.map(|decl| decl.role), Some(ArtifactRole::Source)) && !need.is_required()
+        let declaration = self
+            .context
+            .manifest
+            .artifacts
+            .get(&need.requirement.artifact_id);
+        matches!(
+            declaration.map(|decl| decl.role),
+            Some(ArtifactRole::Source)
+        ) && !need.is_required()
     }
 }
 
@@ -585,7 +645,11 @@ impl<'s, 'ctx, 'a> InvocationRequirementResolver<'s, 'ctx, 'a> {
         settings_resolver: &'ctx PlannerSettingsResolver<'a>,
         state: &'s mut GraphBuildState<'a>,
     ) -> Self {
-        Self { context, settings_resolver, state }
+        Self {
+            context,
+            settings_resolver,
+            state,
+        }
     }
 
     pub fn resolve(&mut self, invocation_key: &str) -> Result<Vec<ArtifactNeed>> {
@@ -594,7 +658,8 @@ impl<'s, 'ctx, 'a> InvocationRequirementResolver<'s, 'ctx, 'a> {
             return Ok(Vec::new());
         }
 
-        let declared_outputs: Vec<ArtifactKey> = candidate.output_bindings.keys().cloned().collect();
+        let declared_outputs: Vec<ArtifactKey> =
+            candidate.output_bindings.keys().cloned().collect();
         let context = self.settings_resolver.build_stage_context(
             self.context,
             &candidate.registration,
@@ -602,20 +667,27 @@ impl<'s, 'ctx, 'a> InvocationRequirementResolver<'s, 'ctx, 'a> {
             candidate.inherited_settings.clone(),
         )?;
 
-        let stage_output_capabilities = candidate.registration.resolve_validated_output_capabilities(&context)?;
-        let stage_requirements = candidate.registration.resolve_validated_requirements(&context)?;
-        let resource_policy = candidate.registration.resolve_validated_resource_policy(&context)?;
+        let stage_output_capabilities = candidate
+            .registration
+            .resolve_validated_output_capabilities(&context)?;
+        let stage_requirements = candidate
+            .registration
+            .resolve_validated_requirements(&context)?;
+        let resource_policy = candidate
+            .registration
+            .resolve_validated_resource_policy(&context)?;
 
         self.validate_stage_can_produce_outputs(
             candidate.registration.stage_id(),
             &declared_outputs,
-            &stage_output_capabilities.iter().map(|capability| capability.artifact_id.clone()).collect(),
+            &stage_output_capabilities
+                .iter()
+                .map(|capability| capability.artifact_id.clone())
+                .collect(),
         )?;
 
-        let pending_requirements = self.input_requirements_for_invocation(
-            &candidate,
-            stage_requirements.inputs,
-        )?;
+        let pending_requirements =
+            self.input_requirements_for_invocation(&candidate, stage_requirements.inputs)?;
         let candidate = self.state.find_invocation_by_key_mut(invocation_key)?;
         candidate.mark_current_requirements_as_resolved();
         candidate.resolved_settings = context.resolved_settings;
@@ -637,7 +709,11 @@ impl<'s, 'ctx, 'a> InvocationRequirementResolver<'s, 'ctx, 'a> {
             .cloned()
             .collect();
         if !missing.is_empty() {
-            let rendered = missing.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
+            let rendered = missing
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
             bail!("{stage_id} cannot expose requested outputs: {rendered}");
         }
         Ok(())
@@ -648,10 +724,14 @@ impl<'s, 'ctx, 'a> InvocationRequirementResolver<'s, 'ctx, 'a> {
         invocation: &super::invocation_models::InvocationDraft<'a>,
         requirements: Vec<ArtifactRequirement>,
     ) -> Result<Vec<ArtifactNeed>> {
-        let inherited_view = ResolvedSettingsView::new(invocation.inherited_settings.clone().into_iter().collect());
+        let inherited_view =
+            ResolvedSettingsView::new(invocation.inherited_settings.clone().into_iter().collect());
         let settings_used_by_this_stage = invocation.registration.declared_setting_ids();
         let pass_through_settings = inherited_view.remove(&settings_used_by_this_stage);
-        let merged_settings = self.context.request_settings.merge_with_inherited(&inherited_view);
+        let merged_settings = self
+            .context
+            .request_settings
+            .merge_with_inherited(&inherited_view);
 
         let mut pending_inputs = Vec::new();
         for requirement in requirements {
@@ -678,11 +758,12 @@ impl<'s, 'ctx, 'a> InvocationRequirementResolver<'s, 'ctx, 'a> {
         pass_through_settings: &ResolvedSettingsView,
         merged_settings: &ResolvedSettingsView,
     ) -> Result<Vec<(ArtifactKey, Value)>> {
-        let mut inherited_settings: BTreeMap<ArtifactKey, Value> = if self.is_settings_artifact(&requirement.artifact_id) {
-            invocation.inherited_settings.clone().into_iter().collect()
-        } else {
-            pass_through_settings.items().into_iter().collect()
-        };
+        let mut inherited_settings: BTreeMap<ArtifactKey, Value> =
+            if self.is_settings_artifact(&requirement.artifact_id) {
+                invocation.inherited_settings.clone().into_iter().collect()
+            } else {
+                pass_through_settings.items().into_iter().collect()
+            };
 
         for pushed in &requirement.pushed_settings {
             inherited_settings.insert(pushed.clone(), merged_settings.require(pushed)?.clone());
@@ -693,6 +774,9 @@ impl<'s, 'ctx, 'a> InvocationRequirementResolver<'s, 'ctx, 'a> {
 
     fn is_settings_artifact(&self, artifact_id: &ArtifactKey) -> bool {
         let declaration = self.context.manifest.artifacts.get(artifact_id);
-        matches!(declaration.map(|decl| decl.role), Some(ArtifactRole::Settings))
+        matches!(
+            declaration.map(|decl| decl.role),
+            Some(ArtifactRole::Settings)
+        )
     }
 }

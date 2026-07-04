@@ -20,7 +20,9 @@ pub struct ProducerPathUnavailable {
 
 impl ProducerPathUnavailable {
     pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into() }
+        Self {
+            message: message.into(),
+        }
     }
 }
 
@@ -82,7 +84,10 @@ impl AmbiguousProducerSelection {
         }
     }
 
-    pub fn with_probe_result(mut self, probe_result: &ProducerCandidateProbeResult<'_, '_>) -> Self {
+    pub fn with_probe_result(
+        mut self,
+        probe_result: &ProducerCandidateProbeResult<'_, '_>,
+    ) -> Self {
         self.valid_candidate_stage_ids = probe_result
             .valid_candidates
             .iter()
@@ -132,14 +137,15 @@ impl<'a> ProducerSelector<'a> {
         selector: &ArtifactKey,
         phase_match: PhaseMatchMode,
     ) -> Option<(ArtifactKey, String)> {
-        let selected = self
-            .manifest
-            .phase_catalog
-            .highest_matching_key(
-                &state.supplied_instances.keys().cloned().collect::<BTreeSet<_>>(),
-                selector,
-                phase_match,
-            )?;
+        let selected = self.manifest.phase_catalog.highest_matching_key(
+            &state
+                .supplied_instances
+                .keys()
+                .cloned()
+                .collect::<BTreeSet<_>>(),
+            selector,
+            phase_match,
+        )?;
         let instance_id = instance_id(&selected, "");
         Some((selected, instance_id))
     }
@@ -151,16 +157,18 @@ impl<'a> ProducerSelector<'a> {
     ) -> std::result::Result<ProducerSelection<'a>, ProducerSelectError> {
         let (ranked, highest_phase) = self.ranked_candidates(selector, phase_match)?;
 
-        let default_stage_id = self
-            .manifest
-            .default_producers
-            .get(selector)
-            .or_else(|| self.manifest.default_producers.get(&ranked[0].declared_output_id));
+        let default_stage_id = self.manifest.default_producers.get(selector).or_else(|| {
+            self.manifest
+                .default_producers
+                .get(&ranked[0].declared_output_id)
+        });
 
         if let Some(default_stage_id) = default_stage_id {
             for candidate in &ranked {
                 if &candidate.stage_id == default_stage_id {
-                    return self.selection_from_candidate(selector, candidate).map_err(Into::into);
+                    return self
+                        .selection_from_candidate(selector, candidate)
+                        .map_err(Into::into);
                 }
             }
         }
@@ -171,15 +179,18 @@ impl<'a> ProducerSelector<'a> {
                 .map(|item| item.stage_id.clone())
                 .collect::<Vec<_>>()
                 .join(", ");
-            return Err(ProducerSelectError::Ambiguous(AmbiguousProducerSelection::new(
-                format!("ambiguous producers for {selector} at phase {highest_phase}: {ids}"),
-                selector.clone(),
-                highest_phase,
-                ranked,
-            )));
+            return Err(ProducerSelectError::Ambiguous(
+                AmbiguousProducerSelection::new(
+                    format!("ambiguous producers for {selector} at phase {highest_phase}: {ids}"),
+                    selector.clone(),
+                    highest_phase,
+                    ranked,
+                ),
+            ));
         }
 
-        self.selection_from_candidate(selector, &ranked[0]).map_err(Into::into)
+        self.selection_from_candidate(selector, &ranked[0])
+            .map_err(Into::into)
     }
 
     pub fn selection_from_candidate(
@@ -187,10 +198,10 @@ impl<'a> ProducerSelector<'a> {
         selector: &ArtifactKey,
         candidate: &StageProducer,
     ) -> Result<ProducerSelection<'a>> {
-        let resolved_output_id = self.manifest.phase_catalog.resolve_output_id(
-            selector,
-            &candidate.declared_output_id,
-        )?;
+        let resolved_output_id = self
+            .manifest
+            .phase_catalog
+            .resolve_output_id(selector, &candidate.declared_output_id)?;
         Ok(ProducerSelection {
             registration: self.manifest.find_stage(&candidate.stage_id)?,
             declared_output_id: candidate.declared_output_id.clone(),
@@ -203,7 +214,9 @@ impl<'a> ProducerSelector<'a> {
         selector: &ArtifactKey,
         phase_match: PhaseMatchMode,
     ) -> std::result::Result<(Vec<StageProducer>, i32), ProducerSelectError> {
-        let candidates = self.manifest.find_producers_for_requirement(selector, phase_match);
+        let candidates = self
+            .manifest
+            .find_producers_for_requirement(selector, phase_match);
         if candidates.is_empty() {
             return Err(ProducerSelectError::PathUnavailable(
                 ProducerPathUnavailable::new(format!("no supplied stage can satisfy {selector}")),
@@ -212,20 +225,33 @@ impl<'a> ProducerSelector<'a> {
 
         let highest_phase = candidates
             .iter()
-            .map(|candidate| candidate.declared_output_id.phase.map(|phase| phase as i32).unwrap_or(-1))
+            .map(|candidate| {
+                candidate
+                    .declared_output_id
+                    .phase
+                    .map(|phase| phase as i32)
+                    .unwrap_or(-1)
+            })
             .max()
             .unwrap_or(-1);
 
         let phase_valid: Vec<StageProducer> = candidates
             .into_iter()
-            .filter(|candidate| candidate.declared_output_id.phase.map(|phase| phase as i32).unwrap_or(-1) == highest_phase)
+            .filter(|candidate| {
+                candidate
+                    .declared_output_id
+                    .phase
+                    .map(|phase| phase as i32)
+                    .unwrap_or(-1)
+                    == highest_phase
+            })
             .collect();
 
-        let default_stage_id = self
-            .manifest
-            .default_producers
-            .get(selector)
-            .or_else(|| self.manifest.default_producers.get(&phase_valid[0].declared_output_id));
+        let default_stage_id = self.manifest.default_producers.get(selector).or_else(|| {
+            self.manifest
+                .default_producers
+                .get(&phase_valid[0].declared_output_id)
+        });
 
         if let Some(default_stage_id) = default_stage_id {
             for candidate in &phase_valid {

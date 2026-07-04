@@ -4,12 +4,17 @@ use super::{
     configuration::FileCacheProviderGarbageCollectionPolicy,
     constants::{ENTRY_COMMITTED, ENTRY_DELETING, ENTRY_INVALID},
     descriptors::{CacheRecoveryPlan, ClaimedCacheEntry},
-    metadata_store::{now_seconds, CacheEntryRow, FileCacheProviderMetadataStore, WriteReservationRow},
+    metadata_store::{
+        now_seconds, CacheEntryRow, FileCacheProviderMetadataStore, WriteReservationRow,
+    },
     models::FileCacheProviderStatistics,
 };
 use anyhow::Result;
 use rusqlite::{params, OptionalExtension};
-use std::{collections::{HashMap, HashSet}, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 #[derive(Clone)]
 pub struct FileCacheProviderMaintenanceStore {
@@ -38,7 +43,12 @@ impl FileCacheProviderMaintenanceStore {
             })?;
             for row in read_rows {
                 let (reservation_id, host_id, process_id, heartbeat_at) = row?;
-                if self.metadata_store.reservation_row_is_stale(&host_id, process_id, heartbeat_at, now) {
+                if self.metadata_store.reservation_row_is_stale(
+                    &host_id,
+                    process_id,
+                    heartbeat_at,
+                    now,
+                ) {
                     plan.stale_read_ids.push(reservation_id);
                 }
             }
@@ -53,7 +63,12 @@ impl FileCacheProviderMaintenanceStore {
             let write_rows = write_stmt.query_map([], WriteReservationRow::from_row)?;
             for row in write_rows {
                 let row = row?;
-                if self.metadata_store.reservation_row_is_stale(&row.owner_host_id, row.owner_process_id, row.heartbeat_at, now) {
+                if self.metadata_store.reservation_row_is_stale(
+                    &row.owner_host_id,
+                    row.owner_process_id,
+                    row.heartbeat_at,
+                    now,
+                ) {
                     plan.stale_write_rows.push((
                         row.fingerprint.clone(),
                         row.temporary_relative_path.clone(),
@@ -66,9 +81,8 @@ impl FileCacheProviderMaintenanceStore {
                 }
             }
 
-            let mut deleting_stmt = connection.prepare(
-                "SELECT entry_id, relative_path FROM cache_entries WHERE status = ?",
-            )?;
+            let mut deleting_stmt = connection
+                .prepare("SELECT entry_id, relative_path FROM cache_entries WHERE status = ?")?;
             let deleting_rows = deleting_stmt.query_map(params![ENTRY_DELETING], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?;
@@ -134,7 +148,10 @@ impl FileCacheProviderMaintenanceStore {
                 "#,
             )?;
             let eligible_rows: Vec<CacheEntryRow> = stmt
-                .query_map(params![ENTRY_COMMITTED, ENTRY_INVALID], CacheEntryRow::from_row)?
+                .query_map(
+                    params![ENTRY_COMMITTED, ENTRY_INVALID],
+                    CacheEntryRow::from_row,
+                )?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
 
             for row in &eligible_rows {
@@ -196,7 +213,11 @@ impl FileCacheProviderMaintenanceStore {
                 left.last_used_at
                     .partial_cmp(&right.last_used_at)
                     .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| left.created_at.partial_cmp(&right.created_at).unwrap_or(std::cmp::Ordering::Equal))
+                    .then_with(|| {
+                        left.created_at
+                            .partial_cmp(&right.created_at)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
             });
             if let Some(max_delete_entries) = policy.max_delete_entries {
                 rows.truncate(max_delete_entries);
@@ -219,7 +240,13 @@ impl FileCacheProviderMaintenanceStore {
                           WHERE w.fingerprint = cache_entries.fingerprint
                       )
                     "#,
-                    params![ENTRY_DELETING, now, row.entry_id, ENTRY_COMMITTED, ENTRY_INVALID],
+                    params![
+                        ENTRY_DELETING,
+                        now,
+                        row.entry_id,
+                        ENTRY_COMMITTED,
+                        ENTRY_INVALID
+                    ],
                 )?;
                 if changed == 1 {
                     claimed.push(ClaimedCacheEntry {
@@ -280,16 +307,34 @@ impl FileCacheProviderMaintenanceStore {
 
     pub fn statistics_sync(&self) -> Result<FileCacheProviderStatistics> {
         let connection = self.metadata_store.connect()?;
-        let current = count_query(&connection, "SELECT COUNT(*) FROM cache_entries WHERE status = ? AND is_current = 1", ENTRY_COMMITTED)?;
-        let retired = count_query(&connection, "SELECT COUNT(*) FROM cache_entries WHERE status = ? AND is_current = 0", ENTRY_COMMITTED)?;
-        let invalid = count_query(&connection, "SELECT COUNT(*) FROM cache_entries WHERE status = ?", ENTRY_INVALID)?;
+        let current = count_query(
+            &connection,
+            "SELECT COUNT(*) FROM cache_entries WHERE status = ? AND is_current = 1",
+            ENTRY_COMMITTED,
+        )?;
+        let retired = count_query(
+            &connection,
+            "SELECT COUNT(*) FROM cache_entries WHERE status = ? AND is_current = 0",
+            ENTRY_COMMITTED,
+        )?;
+        let invalid = count_query(
+            &connection,
+            "SELECT COUNT(*) FROM cache_entries WHERE status = ?",
+            ENTRY_INVALID,
+        )?;
         let total_entry_bytes: i64 = connection.query_row(
             "SELECT COALESCE(SUM(data_size), 0) FROM cache_entries",
             [],
             |row| row.get(0),
         )?;
-        let reads: i64 = connection.query_row("SELECT COUNT(*) FROM read_reservations", [], |row| row.get(0))?;
-        let writes: i64 = connection.query_row("SELECT COUNT(*) FROM write_reservations", [], |row| row.get(0))?;
+        let reads: i64 =
+            connection.query_row("SELECT COUNT(*) FROM read_reservations", [], |row| {
+                row.get(0)
+            })?;
+        let writes: i64 =
+            connection.query_row("SELECT COUNT(*) FROM write_reservations", [], |row| {
+                row.get(0)
+            })?;
         Ok(FileCacheProviderStatistics {
             current_entry_count: current as u64,
             retired_entry_count: retired as u64,

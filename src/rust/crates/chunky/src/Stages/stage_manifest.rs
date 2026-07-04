@@ -1,4 +1,3 @@
-
 //! This module keeps bootstrap-time registration, manifest validation, producer
 //! indexes, phase-family lookup, and immutable manifest description together,
 //! The manifest owns registration, validation, producer indexes, and immutable
@@ -115,7 +114,9 @@ impl StageManifest {
             return self.producers.get(selector).cloned().unwrap_or_default();
         }
 
-        let candidate_keys = self.phase_catalog.matching_concrete_keys(selector, phase_match);
+        let candidate_keys = self
+            .phase_catalog
+            .matching_concrete_keys(selector, phase_match);
         if candidate_keys.is_empty() {
             return self.producers.get(selector).cloned().unwrap_or_default();
         }
@@ -255,7 +256,8 @@ impl StageManifestBuilder {
         for declaration in &registration.owned_artifacts {
             self.add_artifact(declaration.clone())?;
         }
-        self.stages.insert(registration.stage_id.clone(), registration);
+        self.stages
+            .insert(registration.stage_id.clone(), registration);
         Ok(self)
     }
 
@@ -596,7 +598,13 @@ fn validate_candidate_graph_has_no_cycles(manifest: &StageManifest) -> Result<()
     let mut visiting = BTreeSet::new();
     let mut visited = BTreeSet::new();
     for stage_id in graph.keys() {
-        visit_candidate_stage(stage_id, &graph, &mut visiting, &mut visited, &mut Vec::new())?;
+        visit_candidate_stage(
+            stage_id,
+            &graph,
+            &mut visiting,
+            &mut visited,
+            &mut Vec::new(),
+        )?;
     }
     Ok(())
 }
@@ -610,7 +618,10 @@ fn visit_candidate_stage(
 ) -> Result<()> {
     if visiting.contains(stage_id) {
         path.push(stage_id.to_owned());
-        bail!("static candidate graph contains a cycle: {}", path.join(" -> "));
+        bail!(
+            "static candidate graph contains a cycle: {}",
+            path.join(" -> ")
+        );
     }
     if visited.contains(stage_id) {
         return Ok(());

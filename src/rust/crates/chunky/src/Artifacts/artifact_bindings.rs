@@ -6,8 +6,8 @@
 use crate::{
     artifact_binding_models::{
         AnyArtifactInstance, AnyArtifactReader, AnyArtifactWriter, ArtifactHandle,
-        ArtifactInstance, ProvidedStageOutput, ResolvedStageOutputBindings,
-        StageCacheWait, StageOutputBindings, StageOutputResolution,
+        ArtifactInstance, ProvidedStageOutput, ResolvedStageOutputBindings, StageCacheWait,
+        StageOutputBindings, StageOutputResolution,
     },
     artifact_handles::{ArtifactSourceHandle, ArtifactTargetHandle, IntermediateArtifactHandle},
     artifact_models::{AnyArtifactDeclaration, ArtifactDeclaration},
@@ -64,16 +64,16 @@ impl ArtifactBindingsProvider {
             .await?;
 
         match resolution {
-            CacheResolution::Hit(hit) => Ok(CacheableOutputBootstrap::Available(
-                AnyArtifactInstance {
+            CacheResolution::Hit(hit) => {
+                Ok(CacheableOutputBootstrap::Available(AnyArtifactInstance {
                     handle: ArtifactHandle::new(
                         declaration.clone(),
                         fingerprint,
                         Some(hit.source_handle),
                         vec![],
                     ),
-                },
-            )),
+                }))
+            }
             CacheResolution::Write(reservation) => {
                 let source: Arc<dyn ArtifactSourceHandle> = publication.clone();
                 let publication_target: Arc<dyn ArtifactTargetHandle> = publication;
@@ -182,12 +182,7 @@ impl ArtifactBindingsProvider {
             .build_supplied_artifact_fingerprint(declaration, source.as_ref())
             .await?;
         Ok(AnyArtifactInstance {
-            handle: ArtifactHandle::new(
-                declaration.clone(),
-                fingerprint,
-                Some(source),
-                vec![],
-            ),
+            handle: ArtifactHandle::new(declaration.clone(), fingerprint, Some(source), vec![]),
         })
     }
 
@@ -304,7 +299,8 @@ impl ArtifactBindingsProvider {
                         provided_output.declaration.artifact_id
                     )
                 })?;
-            self.materialize(instance, provided_output.target.clone()).await?;
+            self.materialize(instance, provided_output.target.clone())
+                .await?;
         }
         Ok(())
     }

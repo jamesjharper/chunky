@@ -8,7 +8,9 @@ use std::collections::BTreeMap;
 
 use crate::artifact_models::ArtifactKey;
 
-use super::binding_models::{ArtifactResolution, PlannedInputBinding, PlannedOutputBinding, RequestedOutputBinding};
+use super::binding_models::{
+    ArtifactResolution, PlannedInputBinding, PlannedOutputBinding, RequestedOutputBinding,
+};
 use super::invocation_models::InvocationDraft;
 use super::requirement_models::{ArtifactNeed, ProducedArtifact};
 use super::shared_models::{InputRequirementKey, ProducerSelection};
@@ -62,7 +64,9 @@ impl<'a> GraphBuildState<'a> {
     }
 
     pub fn find_invocation_key_by_instance(&self, instance_id: &str) -> Option<String> {
-        self.producer_invocation_by_instance_id.get(instance_id).cloned()
+        self.producer_invocation_by_instance_id
+            .get(instance_id)
+            .cloned()
     }
 
     pub fn find_invocation_by_key(&self, invocation_key: &str) -> Result<&InvocationDraft<'a>> {
@@ -71,7 +75,10 @@ impl<'a> GraphBuildState<'a> {
             .ok_or_else(|| anyhow::anyhow!("unknown invocation draft: {invocation_key}"))
     }
 
-    pub fn find_invocation_by_key_mut(&mut self, invocation_key: &str) -> Result<&mut InvocationDraft<'a>> {
+    pub fn find_invocation_by_key_mut(
+        &mut self,
+        invocation_key: &str,
+    ) -> Result<&mut InvocationDraft<'a>> {
         self.invocations_by_key
             .get_mut(invocation_key)
             .ok_or_else(|| anyhow::anyhow!("unknown invocation draft: {invocation_key}"))
@@ -145,7 +152,10 @@ impl<'a> GraphBuildState<'a> {
         let invocation = self.find_invocation_by_key_mut(invocation_key)?;
         let selection = &producer_artifact.selection;
 
-        if let Some(existing) = invocation.output_bindings.get(&selection.declared_output_id) {
+        if let Some(existing) = invocation
+            .output_bindings
+            .get(&selection.declared_output_id)
+        {
             if existing.resolved_artifact_id != producer_artifact.resolved_artifact_id
                 || existing.instance_id != producer_artifact.resolved_instance_id
             {

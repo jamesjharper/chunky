@@ -88,14 +88,19 @@ impl ArtifactCache for ScriptedCache {
 }
 
 #[tokio::test]
-async fn all_requested_cacheable_outputs_hit_returns_available_instances_and_no_writers() -> Result<()> {
+async fn all_requested_cacheable_outputs_hit_returns_available_instances_and_no_writers(
+) -> Result<()> {
     let out_a = decl("graph//out_a", ArtifactRole::Intermediate);
     let out_b = decl("graph//out_b", ArtifactRole::Intermediate);
     let source_a = MemorySource::new(serde_json::json!({"out": "a"}));
     let source_b = MemorySource::new(serde_json::json!({"out": "b"}));
     let cache = ScriptedCache::new(vec![
-        CacheResolution::Hit(CacheHit { source_handle: source_a }),
-        CacheResolution::Hit(CacheHit { source_handle: source_b }),
+        CacheResolution::Hit(CacheHit {
+            source_handle: source_a,
+        }),
+        CacheResolution::Hit(CacheHit {
+            source_handle: source_b,
+        }),
     ]);
     let provider = ArtifactBindingsProvider::new(cache.clone());
 
@@ -111,7 +116,8 @@ async fn all_requested_cacheable_outputs_hit_returns_available_instances_and_no_
 }
 
 #[tokio::test]
-async fn partial_cache_hit_for_multi_output_stage_retries_with_force_write_for_complete_set() -> Result<()> {
+async fn partial_cache_hit_for_multi_output_stage_retries_with_force_write_for_complete_set(
+) -> Result<()> {
     let out_a = decl("graph//out_a", ArtifactRole::Intermediate);
     let out_b = decl("graph//out_b", ArtifactRole::Intermediate);
     let provisional_hit = MemorySource::new(serde_json::json!({"out": "a-old"}));
@@ -119,10 +125,18 @@ async fn partial_cache_hit_for_multi_output_stage_retries_with_force_write_for_c
     let force_writer_a = RecordingTarget::new("out-a-force");
     let force_writer_b = RecordingTarget::new("out-b-force");
     let cache = ScriptedCache::new(vec![
-        CacheResolution::Hit(CacheHit { source_handle: provisional_hit.clone() }),
-        CacheResolution::Write(CacheWriteReservation { target_handle: provisional_writer.clone() }),
-        CacheResolution::Write(CacheWriteReservation { target_handle: force_writer_a }),
-        CacheResolution::Write(CacheWriteReservation { target_handle: force_writer_b }),
+        CacheResolution::Hit(CacheHit {
+            source_handle: provisional_hit.clone(),
+        }),
+        CacheResolution::Write(CacheWriteReservation {
+            target_handle: provisional_writer.clone(),
+        }),
+        CacheResolution::Write(CacheWriteReservation {
+            target_handle: force_writer_a,
+        }),
+        CacheResolution::Write(CacheWriteReservation {
+            target_handle: force_writer_b,
+        }),
     ]);
     let provider = ArtifactBindingsProvider::new(cache.clone());
 
@@ -140,7 +154,8 @@ async fn partial_cache_hit_for_multi_output_stage_retries_with_force_write_for_c
 }
 
 #[tokio::test]
-async fn cache_wait_aborts_provisional_writers_and_returns_wait_without_starting_duplicate_writer() -> Result<()> {
+async fn cache_wait_aborts_provisional_writers_and_returns_wait_without_starting_duplicate_writer(
+) -> Result<()> {
     let out_a = decl("graph//out_a", ArtifactRole::Intermediate);
     let out_b = decl("graph//out_b", ArtifactRole::Intermediate);
     let provisional_writer = RecordingTarget::new("out-a-provisional");
@@ -151,7 +166,9 @@ async fn cache_wait_aborts_provisional_writers_and_returns_wait_without_starting
         wait_handle: wait_handle.clone(),
     };
     let cache = ScriptedCache::new(vec![
-        CacheResolution::Write(CacheWriteReservation { target_handle: provisional_writer.clone() }),
+        CacheResolution::Write(CacheWriteReservation {
+            target_handle: provisional_writer.clone(),
+        }),
         CacheResolution::Wait(cache_wait.clone()),
     ]);
     let provider = ArtifactBindingsProvider::new(cache);
@@ -164,7 +181,10 @@ async fn cache_wait_aborts_provisional_writers_and_returns_wait_without_starting
     assert_eq!(out_b.artifact_id(), &result.artifact_id);
     assert_eq!(cache_wait.fingerprint, result.cache_wait.fingerprint);
     assert!(provisional_writer.aborted());
-    assert!(!wait_handle.waited(), "the scheduler, not binding, owns cache waiting");
+    assert!(
+        !wait_handle.waited(),
+        "the scheduler, not binding, owns cache waiting"
+    );
     Ok(())
 }
 
@@ -187,12 +207,16 @@ async fn cache_metadata_mismatch_is_observed_as_miss_and_bound_as_writer() -> Re
 
     assert_eq!(0, resolved.available.len());
     assert_eq!(1, resolved.writers.len());
-    assert_eq!(vec![(out_a.artifact_id().clone(), false)], cache.artifact_and_force_calls());
+    assert_eq!(
+        vec![(out_a.artifact_id().clone(), false)],
+        cache.artifact_and_force_calls()
+    );
     Ok(())
 }
 
 #[tokio::test]
-async fn mixed_cacheable_hit_and_non_cacheable_output_runs_stage_for_non_cacheable_writer_only() -> Result<()> {
+async fn mixed_cacheable_hit_and_non_cacheable_output_runs_stage_for_non_cacheable_writer_only(
+) -> Result<()> {
     let cacheable = decl("graph//cacheable_out", ArtifactRole::Intermediate);
     let diagnostic = chunky_example::artifact_models::ArtifactDeclaration::new(
         ArtifactKey::parse("graph//diagnostic_out")?,
@@ -202,7 +226,9 @@ async fn mixed_cacheable_hit_and_non_cacheable_output_runs_stage_for_non_cacheab
         false,
     )?;
     let source = MemorySource::new(serde_json::json!({"cached": true}));
-    let cache = ScriptedCache::new(vec![CacheResolution::Hit(CacheHit { source_handle: source })]);
+    let cache = ScriptedCache::new(vec![CacheResolution::Hit(CacheHit {
+        source_handle: source,
+    })]);
     let provider = ArtifactBindingsProvider::new(cache);
 
     let resolved = provider
@@ -212,15 +238,21 @@ async fn mixed_cacheable_hit_and_non_cacheable_output_runs_stage_for_non_cacheab
 
     assert_eq!(1, resolved.available.len());
     assert_eq!(1, resolved.writers.len());
-    assert_eq!(diagnostic.artifact_id(), &resolved.writers[0].handle.declaration.artifact_id);
+    assert_eq!(
+        diagnostic.artifact_id(),
+        &resolved.writers[0].handle.declaration.artifact_id
+    );
     Ok(())
 }
 
 #[tokio::test]
-async fn same_semantic_target_can_be_materialized_to_multiple_sinks_without_changing_fingerprint() -> Result<()> {
+async fn same_semantic_target_can_be_materialized_to_multiple_sinks_without_changing_fingerprint(
+) -> Result<()> {
     let out_a = decl("graph//out_a", ArtifactRole::Target);
     let source = MemorySource::new(serde_json::json!({"semantic": "value"}));
-    let cache = ScriptedCache::new(vec![CacheResolution::Hit(CacheHit { source_handle: source })]);
+    let cache = ScriptedCache::new(vec![CacheResolution::Hit(CacheHit {
+        source_handle: source,
+    })]);
     let provider = ArtifactBindingsProvider::new(cache.clone());
     let resolved = provider
         .bind_stage_outputs(&[out_a.erase()], "stage-pedigree")
@@ -233,7 +265,11 @@ async fn same_semantic_target_can_be_materialized_to_multiple_sinks_without_chan
     provider.materialize(&instance, first_sink.clone()).await?;
     provider.materialize(&instance, second_sink.clone()).await?;
 
-    assert_eq!(1, cache.call_count(), "caller materialization must not re-resolve semantic cache identity");
+    assert_eq!(
+        1,
+        cache.call_count(),
+        "caller materialization must not re-resolve semantic cache identity"
+    );
     assert_eq!(instance.fingerprint(), first_sink.prepared()[0].1);
     assert_eq!(instance.fingerprint(), second_sink.prepared()[0].1);
     assert_ne!(first_sink.name, second_sink.name);
@@ -241,12 +277,18 @@ async fn same_semantic_target_can_be_materialized_to_multiple_sinks_without_chan
 }
 
 trait StageOutputResolutionTestExt {
-    fn into_resolved_for_test(self) -> Result<chunky_example::artifact_binding_models::ResolvedStageOutputBindings>;
+    fn into_resolved_for_test(
+        self,
+    ) -> Result<chunky_example::artifact_binding_models::ResolvedStageOutputBindings>;
     fn into_wait_for_test(self) -> Result<chunky_example::artifact_binding_models::StageCacheWait>;
 }
 
-impl StageOutputResolutionTestExt for chunky_example::artifact_binding_models::StageOutputResolution {
-    fn into_resolved_for_test(self) -> Result<chunky_example::artifact_binding_models::ResolvedStageOutputBindings> {
+impl StageOutputResolutionTestExt
+    for chunky_example::artifact_binding_models::StageOutputResolution
+{
+    fn into_resolved_for_test(
+        self,
+    ) -> Result<chunky_example::artifact_binding_models::ResolvedStageOutputBindings> {
         match self {
             Self::Resolved(value) => Ok(value),
             Self::Wait(_) => Err(anyhow!("expected resolved output bindings")),

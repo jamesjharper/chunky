@@ -13,8 +13,7 @@ use super::shared_models::InputRequirementKey;
 pub struct PlannedInvocation<'a> {
     pub invocation_id: String,
     pub registration: ManifestStageRegistration<'a>,
-    pub required_input_bindings: Vec<PlannedInputBinding>,
-    pub optional_input_bindings: Vec<PlannedInputBinding>,
+    pub input_bindings: Vec<PlannedInputBinding>,
     pub requested_output_bindings: Vec<PlannedOutputBinding>,
     pub effective_settings_fingerprint: String,
     pub resolved_resource_policy: ResourcePolicy,
@@ -24,14 +23,23 @@ pub struct PlannedInvocation<'a> {
 
 impl<'a> PlannedInvocation<'a> {
     pub fn required_input_ids(&self) -> Vec<ArtifactKey> {
-        self.required_input_bindings
+        self.input_bindings
             .iter()
+            .filter(|binding| binding.required)
             .map(|binding| binding.resolved_artifact_id.clone())
             .collect()
     }
 
     pub fn optional_input_ids(&self) -> Vec<ArtifactKey> {
-        self.optional_input_bindings
+        self.input_bindings
+            .iter()
+            .filter(|binding| !binding.required)
+            .map(|binding| binding.resolved_artifact_id.clone())
+            .collect()
+    }
+
+    pub fn input_ids(&self) -> Vec<ArtifactKey> {
+        self.input_bindings
             .iter()
             .map(|binding| binding.resolved_artifact_id.clone())
             .collect()

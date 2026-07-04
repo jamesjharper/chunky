@@ -16,32 +16,165 @@ Graph creation is not responsible for:
 
 Runtime cache lookup and cache wait behavior belong to the runner, artifact binding layer, cache coordinator, and scheduler.
 
-## 1. Plan Phases
 
-A run moves through four conceptual graph/plan phases.
+## Plan Output
+The main public planning interface is `TaskRunPlanner`.
 
-### 1.1 Stage Manifest Plan
+`TaskRunPlanner` owns the manifest-scoped planning services and exposes a single request-level entry point, `plan(...)`. 
 
-The stage manifest plan is the static candidate graph derived from the configured `StageManifest`.
+A caller gives `plan(...)` 
+- the artifacts already supplied for this request, 
+- the outputs the caller wants to materialize, 
+- and the run policy that should shape planning and execution behavior. 
 
-It records every configured stage, every declared input capability, every declared output capability, and every artifact declaration known to the configured pipeline.
+The planner returns a `TaskRunGraph`: an immutable, request-specific graph of concrete stage invocations and requested output bindings.
 
-It is independent of any single `RunRequest` and changes only when the configured stage manifest changes.
+### Plan request:
 
-The stage manifest plan validates structural facts that are independent of a concrete request, including:
+```python
+graph = planner.plan(
+    supplied_instances=supplied,
+    requested_outputs=set(output_targets),
+    run_policy=request.run_policy,
+)
+```
 
-- stage IDs are unique;
-- artifact declarations are valid;
-- stage inputs and outputs reference declared artifacts;
-- producer indexes can be built;
-- phase behavior is valid for declared artifact roles;
-- manifest-level cycles are rejected where they are detectable from static declarations.
+__`supplied_instances`__ contains the request roots that are already available before planning starts. These may include source artifacts, settings artifacts, or intermediate artifacts supplied by the caller. Supplied instances are considered before producer paths, so a supplied artifact can satisfy a requirement without adding a producing stage invocation to the graph.
 
-### 1.2 Proposed Request Scope
+__`requested_outputs`__ is the set of terminal artifact IDs the caller wants from this run. Planning starts from these outputs and walks backward through the stage manifest until every required input is satisfied by either a supplied instance or a planned producer invocation.
 
-The proposed request scope is not yet a concrete invocation graph. It is the immutable input context used to expand one request.
+__`run_policy`__ is the request policy visible to planning and execution. It represents behavior modifiers that can affect how the `TaskRunGraph` is built or run. It covers rules such as whether particular resources should never be cached, how resource limits should be interpreted, and other request-level execution constraints.
 
-In the current implementation this is represented by `TaskRequestContext`.
+### Plan response:
+The response is the planned graph for exactly one request:
+
+```python
+@dataclass(frozen=True)
+class TaskRunGraph:
+    manifest_id: str
+    invocations: tuple[PlannedInvocation, ...]
+    requested_output_bindings: tuple[RequestedOutputBinding, ...]
+
+```
+
+__`manifest_id`__ identifies the frozen `StageManifest` used to build the graph. It lets downstream execution and diagnostics confirm that the graph was planned against the expected manifest.
+
+__`invocations`__ is the stable ordered set of planned stage invocations that must run. It many include artifacts already satisfied from cache, or be skipped because their explicitly requested outputs are already available.
+
+_Each invocation is concrete_ its stage registration, input bindings, output bindings, settings fingerprint, resource policy, and pedigree fingerprint have already been resolved.
+
+__`requested_output_bindings`__ maps each caller-requested output to the resolved artifact instance that will satisfy it. A requested output may bind directly to a supplied artifact instance or to an output produced by one of the planned invocations.
+
+
+#### Invocation:
+Each `PlannedInvocation` records one concrete stage invocation in the request graph.
+
+```python
+@dataclass(frozen=True)
+class PlannedInvocation:
+    invocation_id: str
+    registration: ManifestStageRegistration
+    input_bindings: tuple[PlannedInputBinding, ...]
+    requested_output_bindings: tuple[PlannedOutputBinding, ...]
+    effective_settings_fingerprint: str
+    resolved_resource_policy: ResourcePolicy
+    pedigree_fingerprint: str | None = None
+    resolved_settings: ResolvedSettingsView = field(default_factory=ResolvedSettingsView)
+```
+
+__`invocation_id`__ is the final stable invocation ID assigned during graph finalization.
+
+__`registration`__ is the manifest stage registration for the stage being invoked.
+
+`input_bindings` describes the resolved artifacts consumed by the invocation. Every binding listed in `TaskRunGraph` has been planned and must be available to execution. The binding's `required` flag preserves whether the source requirement was required or optional, but missing optional inputs are not represented as bindings.
+
+__`requested_output_bindings`__ is the explicit output subset requested from this invocation. Cache skipping and downstream dependency edges are based on this subset, not on incidental outputs the stage might be capable of producing.
+
+__`effective_settings_fingerprint`__ identifies the effective settings used for this invocation after defaults, supplied settings, inherited settings, and pushed settings have been merged.
+
+__`resolved_resource_policy`__ is the resource policy selected for this concrete invocation after applying the request policy and stage planning hooks.
+
+`pedigree_fingerprint` is optional at this point. It may be filled during planning or later by the execution graph builder once all input fingerprints are available.
+
+`resolved_settings` is the resolved settings view visible to the invocation.
+
+Input and output bindings provide the artifact-level contract for each planned invocation.
+
+
+```python
+@dataclass(frozen=True)
+class PlannedInputBinding:
+    selector: ArtifactKey
+    resolved_artifact_id: ArtifactKey
+    resolved_instance_id: str
+    required: bool
+    phase_match: PhaseMatchMode
+    pushed_settings: tuple[ArtifactKey, ...] = ()
+    producer_invocation_key: str | None = None
+
+
+@dataclass(frozen=True)
+class PlannedOutputBinding:
+    declared_artifact_id: ArtifactKey
+    resolved_artifact_id: ArtifactKey
+    instance_id: str
+    expected_fingerprint: str | None = None
+
+```
+
+`PlannedInputBinding.selector` is the original artifact selector from the stage requirement. `resolved_artifact_id` is the concrete artifact ID selected to satisfy that selector, and `resolved_instance_id` is the request-graph instance ID for the selected artifact. `required` records whether the original requirement was required or optional. `phase_match` records the phase matching behavior used during resolution. `pushed_settings` records settings artifacts pushed through this input edge. `producer_invocation_key` links the input to a planned producer when the artifact is not supplied.
+
+`PlannedOutputBinding.declared_artifact_id` is the output declared by the producing stage. `resolved_artifact_id` is the artifact ID under which the graph binds the output. These differ when terminal remapping maps a concrete phased output to a phase-less requested output. `instance_id` is the request-graph artifact instance ID, and `expected_fingerprint` is the semantic output fingerprint when it is already known.
+
+
+## Plan Phases
+A run moves through four conceptual task planning phases.
+
+### 1. Stage Manifest Graph
+The stage manifest graph is a static connectivity projection derived from the frozen `StageManifest`.
+This graph contains the candidate superset all possible task serviceable though the current StageManifest configurations.
+
+Represented by `StageManifestGraph`, it contains
+```python
+
+@dataclass(frozen=True)
+class ManifestProducerEdge:
+    stage_id: str
+    output_artifact_id: ArtifactKey
+
+@dataclass(frozen=True)
+class ManifestConsumerEdge:
+    stage_id: str
+    input_selector: ArtifactKey
+
+@dataclass(frozen=True)
+class StageManifestGraph:
+    manifest_id: str
+    stage_ids: tuple[str, ...]
+    producer_edges: tuple[ManifestProducerEdge, ...]
+    consumer_edges: tuple[ManifestConsumerEdge, ...]
+```
+
+The manifest-level view contains:
+- `manifest_id`, copied from the manifest identity hash;
+- `stage_ids`, the configured stage IDs in deterministic order;
+- `producer_edges`, one edge from a stage to each concrete output artifact recorded in `manifest.producers`;
+- `consumer_edges`, one edge from a stage to each input artifact selector recorded in `manifest.consumers`.
+
+It is independent of any single `RunRequest`. Its should be built by Planning orchestrator as part of its initialization process, and (re)used by the per task planning process for `RunRequest`. Failures in generating this graph should be surfaced once at the time of initialization.
+
+```python
+class TaskRunPlanner:
+    def __init__(self, manifest: StageManifest) -> None:
+        self._manifest = manifest
+        self._manifest_graph = StageManifestGraphBuilder(manifest).build()
+        # ...
+```
+
+Request planning should use this manifest connectivity graph as the static candidate space. Then resolves the request-specific graph by walking backward from requested outputs, choosing producers, and adding the selected stages' required inputs until the request is satisfied or planning fails.
+
+### 2. Task Request Context
+The proposed request context is the immutable input context used to expand one request represented by `TaskRequestContext`.
 
 ```python
 @dataclass(frozen=True)
@@ -55,29 +188,19 @@ class TaskRequestContext:
 ```
 
 The request context records:
-
 - the frozen stage manifest;
 - the frozen manifest graph;
 - requested output artifact IDs;
 - supplied source, settings, and intermediate artifact instances;
 - run policy visible during planning;
-- request-scoped settings already read from supplied/default settings artifacts.
+- request settings already read from supplied
 
-At this phase the planner has not yet decided:
-
-- which producer path satisfies each requested artifact;
-- which optional paths are valid;
-- which logical stages become concrete invocations;
-- which invocations share work;
-- which cache entries exist.
-
-Supplied artifacts are recorded as eligible graph roots. If the caller supplies an intermediate artifact, it wins over a producer path by default unless an explicit recompute/force-producer policy is added later.
+Building the request context should result
+ - 1. Validate that requested artifacts can be produced by the configured stage manifest
+ - 2. Read all provided setting artifacts into memory. If setting fail to read or parse, it is as this point errors should be surfaced
 
 ### 1.3 Evaluated Request Graph
-
-The evaluated request graph is the request-specific dependency graph produced by walking backward from the requested outputs.
-
-In the current implementation this is represented by `TaskRequestGraph`.
+The evaluated request graph is the request-specific dependency graph produced by walking backward from the requested outputs represented by `TaskRequestGraph`.
 
 ```python
 @dataclass(frozen=True)
@@ -89,9 +212,9 @@ class TaskRequestGraph:
     requested_output_bindings: tuple[RequestedOutputBinding, ...]
 ```
 
-The evaluated request graph contains concrete planned stage invocations and their artifact bindings, but it is still before volatile runtime cache decisions. A cache hit may later skip an invocation, but it must not remove the invocation from this graph.
+The evaluated request graph contains concrete planned stage invocations and their artifact bindings. 
 
-This phase resolves:
+This stop resolves:
 
 - supplied artifact roots;
 - inherited settings roots;
@@ -105,6 +228,57 @@ This phase resolves:
 - requested output subset per invocation;
 - required and optional input bindings;
 - dependency and dependent indexes.
+
+#### Invocation
+A invocation represents a concrete instance of a stage which needs to run as part of a task. The invocation describes what 
+- input and output bindings are required, 
+- the fingerprint of the specific settings used for this invocation
+
+
+ A single invocation instances is unique within task, in that it may require 
+
+
+`PlannedInvocation` is the immutable evaluated-plan invocation emitted into `TaskRequestGraph`.
+
+```python
+@dataclass(frozen=True)
+class PlannedInvocation:
+    invocation_id: str
+    registration: ManifestStageRegistration
+    input_bindings: tuple[PlannedInputBinding, ...]
+    requested_output_bindings: tuple[PlannedOutputBinding, ...]
+    effective_settings_fingerprint: str
+    resolved_resource_policy: ResourcePolicy
+    pedigree_fingerprint: str | None = None
+    resolved_settings: ResolvedSettingsView = field(default_factory=ResolvedSettingsView)
+```
+
+`InvocationDraft` and `PlannedInvocation` must remain separate. The draft is mutable discovery state. The planned invocation is a stable evaluated-graph record.
+
+Older names such as `PlannedInvocationDraft` and `PlannedStageInvocation` are compatibility aliases only.
+
+```python
+@dataclass(frozen=True)
+class PlannedInputBinding:
+    selector: ArtifactKey
+    resolved_artifact_id: ArtifactKey
+    resolved_instance_id: str
+    required: bool
+    phase_match: PhaseMatchMode
+    pushed_settings: tuple[ArtifactKey, ...] = ()
+    producer_invocation_key: str | None = None
+
+
+@dataclass(frozen=True)
+class PlannedOutputBinding:
+    declared_artifact_id: ArtifactKey
+    resolved_artifact_id: ArtifactKey
+    instance_id: str
+    expected_fingerprint: str | None = None
+
+```
+
+
 
 ### 1.4 Task Execution Graph / Execution Plan
 
@@ -134,9 +308,9 @@ The scheduler may update runtime state in an execution manifest, but it must not
 
 ### 2.1 Planner Services
 
-#### `ExecutionPlanner`
+#### `TaskRunPlanner`
 
-`ExecutionPlanner` is an orchestration facade. It should stay small.
+`TaskRunPlanner` is an orchestration facade. It should stay small.
 
 It performs these steps:
 
@@ -290,27 +464,6 @@ class InvocationDraft:
 
 It is mutable because traversal may discover that an existing invocation must produce more outputs than originally requested. When the requested output signature changes, the planner must re-run the stage's requirement and output-capability hooks for that invocation.
 
-#### `PlannedInvocation`
-
-`PlannedInvocation` is the immutable evaluated-plan invocation emitted into `TaskRequestGraph`.
-
-```python
-@dataclass(frozen=True)
-class PlannedInvocation:
-    invocation_id: str
-    registration: ManifestStageRegistration
-    required_input_bindings: tuple[PlannedInputBinding, ...]
-    optional_input_bindings: tuple[PlannedInputBinding, ...]
-    requested_output_bindings: tuple[PlannedOutputBinding, ...]
-    effective_settings_fingerprint: str
-    resolved_resource_policy: ResourcePolicy
-    pedigree_fingerprint: str | None = None
-    resolved_settings: ResolvedSettingsView = field(default_factory=ResolvedSettingsView)
-```
-
-`InvocationDraft` and `PlannedInvocation` must remain separate. The draft is mutable discovery state. The planned invocation is a stable evaluated-graph record.
-
-Older names such as `PlannedInvocationDraft` and `PlannedStageInvocation` are compatibility aliases only.
 
 ### 2.5 Artifact Resolution and Bindings
 

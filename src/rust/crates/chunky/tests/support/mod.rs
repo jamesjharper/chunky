@@ -2,7 +2,10 @@
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use chunky_example::artifact_binding_models::{AnyArtifactInstance, ArtifactHandle, ArtifactInstance};
+use chunky_example::artifact_binding_models::{
+    AnyArtifactInstance, ArtifactHandle, ArtifactInstance,
+};
+use chunky_example::artifact_binding_models::{InputArtifacts, OutputArtifacts};
 use chunky_example::artifact_handles::{ArtifactSourceHandle, ArtifactTargetHandle};
 use chunky_example::artifact_models::{
     AnyArtifactDeclaration, ArtifactCapability, ArtifactDeclaration, ArtifactKey,
@@ -10,10 +13,10 @@ use chunky_example::artifact_models::{
 };
 use chunky_example::manifest_graph::StageManifestGraphBuilder;
 use chunky_example::stage_manifest::{StageConsumer, StageManifest, StageProducer};
-use chunky_example::artifact_binding_models::{InputArtifacts, OutputArtifacts};
 use chunky_example::stage_models::{
     BoxFuture, PlanningRunPolicy, ResolvedStageRequirements, ResourcePolicy, StageExecutionContext,
-    StageExecutor, StageOutputResolver, StagePlanningContext, StageRegistration, StageResourceResolver,
+    StageExecutor, StageOutputResolver, StagePlanningContext, StageRegistration,
+    StageResourceResolver,
 };
 use chunky_example::task_request_graph::{
     PlannerRequestSettings, PlannerSettingsResolver, ProducerSelector, TaskRequestContext,
@@ -121,7 +124,11 @@ impl RecordingTarget {
     }
 
     pub fn prepared(&self) -> Vec<(Value, String)> {
-        self.state.lock().expect("target mutex poisoned").prepared.clone()
+        self.state
+            .lock()
+            .expect("target mutex poisoned")
+            .prepared
+            .clone()
     }
 
     pub fn committed(&self) -> bool {
@@ -229,14 +236,7 @@ pub fn decl(name_or_key: impl Into<KeyOrName>, role: ArtifactRole) -> ArtifactDe
         KeyOrName::Key(key) => key,
         KeyOrName::Name(name) => artifact_key_with_role(&name, role),
     };
-    ArtifactDeclaration::new(
-        key,
-        role,
-        1,
-        JsonValueCodec,
-        role != ArtifactRole::Source,
-    )
-    .unwrap()
+    ArtifactDeclaration::new(key, role, 1, JsonValueCodec, role != ArtifactRole::Source).unwrap()
 }
 
 pub enum KeyOrName {
@@ -318,8 +318,9 @@ pub fn stage_registration_with_resolvers(
         let outputs = outputs.clone();
         Arc::new(move |_context: &StagePlanningContext| Ok(outputs.clone()))
     });
-    let resource_resolver = resource_resolver
-        .unwrap_or_else(|| Arc::new(|_context: &StagePlanningContext| Ok(ResourcePolicy::default())));
+    let resource_resolver = resource_resolver.unwrap_or_else(|| {
+        Arc::new(|_context: &StagePlanningContext| Ok(ResourcePolicy::default()))
+    });
 
     StageRegistration {
         stage_id: stage_id.to_owned(),
@@ -361,15 +362,21 @@ pub fn manifest(
     let mut consumers: BTreeMap<ArtifactKey, Vec<StageConsumer>> = BTreeMap::new();
     for stage in stages_by_id.values() {
         for output in &stage.output_capabilities {
-            producers.entry(output.artifact_id.clone()).or_default().push(StageProducer {
-                stage_id: stage.stage_id.clone(),
-                declared_output_id: output.artifact_id.clone(),
-            });
+            producers
+                .entry(output.artifact_id.clone())
+                .or_default()
+                .push(StageProducer {
+                    stage_id: stage.stage_id.clone(),
+                    declared_output_id: output.artifact_id.clone(),
+                });
         }
         for input in &stage.input_capabilities {
-            consumers.entry(input.artifact_id.clone()).or_default().push(StageConsumer {
-                stage_id: stage.stage_id.clone(),
-            });
+            consumers
+                .entry(input.artifact_id.clone())
+                .or_default()
+                .push(StageConsumer {
+                    stage_id: stage.stage_id.clone(),
+                });
         }
     }
     StageManifest::new(
@@ -412,12 +419,8 @@ pub async fn evaluate(
     let resolver = PlannerSettingsResolver::new(manifest);
     let producer_selector = ProducerSelector::new(manifest);
     let manifest_graph = StageManifestGraphBuilder::new(manifest).build();
-    let request_settings = PlannerRequestSettings::read_from(
-        manifest,
-        &supplied_any,
-        &user_supplied_settings,
-    )
-    .await?;
+    let request_settings =
+        PlannerRequestSettings::read_from(manifest, &supplied_any, &user_supplied_settings).await?;
     let requested_output_ids = requested.into_iter().collect();
     let context = TaskRequestContext {
         manifest,

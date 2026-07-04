@@ -1,6 +1,6 @@
 //! Example task runner and execution-graph orchestration.
 //!
-//! The Python source imports `TaskExecutionGraph` from a planning/execution
+//! The Python source imports `TaskRunGraph` from a planning/execution
 //! package that is not present in the supplied scheduling folder. This file
 //! keeps that boundary as a compact local shape instead of generating a full
 //! planner, scheduler, or execution-manifest implementation.
@@ -52,7 +52,7 @@ pub struct TaskRunResult {
 ///
 /// The real task-execution graph should be produced by planning. Scheduling
 /// reads it as immutable work; it must not mutate graph shape while running.
-pub struct TaskExecutionGraph<'a> {
+pub struct TaskRunGraph<'a> {
     pub manifest_id: String,
     pub invocations: Vec<PlannedInvocation<'a>>,
     pub requested_output_bindings: Vec<RequestedOutputBinding>,
@@ -83,29 +83,22 @@ impl ArtifactRunState {
         let mut aliases = HashMap::new();
         let mut seen = HashSet::new();
 
-        for binding in &invocation.required_input_bindings {
+        for binding in &invocation.input_bindings {
             let instance = self
                 .instances
                 .get(&binding.resolved_instance_id)
                 .cloned()
                 .ok_or_else(|| {
                     anyhow!(
-                        "required artifact is not available for {}: {}",
+                        "planned artifact is not available for {}: {}",
                         invocation.invocation_id,
                         binding.resolved_artifact_id
                     )
                 })?;
-            aliases.insert(binding.selector.clone(), binding.resolved_artifact_id.clone());
-            if seen.insert(binding.resolved_artifact_id.clone()) {
-                result.push(instance);
-            }
-        }
-
-        for binding in &invocation.optional_input_bindings {
-            let Some(instance) = self.instances.get(&binding.resolved_instance_id).cloned() else {
-                continue;
-            };
-            aliases.insert(binding.selector.clone(), binding.resolved_artifact_id.clone());
+            aliases.insert(
+                binding.selector.clone(),
+                binding.resolved_artifact_id.clone(),
+            );
             if seen.insert(binding.resolved_artifact_id.clone()) {
                 result.push(instance);
             }
@@ -144,7 +137,7 @@ impl ExampleTaskRunner {
 
     pub async fn run(
         &self,
-        plan: &TaskExecutionGraph<'_>,
+        plan: &TaskRunGraph<'_>,
         supplied_instances: BTreeMap<ArtifactKey, AnyArtifactInstance>,
         output_targets: BTreeMap<ArtifactKey, Arc<dyn ArtifactTargetHandle>>,
         cancellation: Option<CancellationSource>,
@@ -156,9 +149,8 @@ impl ExampleTaskRunner {
         }
 
         let cancellation = cancellation.unwrap_or_default();
-        let task_id = task_id.unwrap_or_else(|| {
-            format!("task-{}", &Uuid::new_v4().simple().to_string()[..12])
-        });
+        let task_id = task_id
+            .unwrap_or_else(|| format!("task-{}", &Uuid::new_v4().simple().to_string()[..12]));
         let mut state = ArtifactRunState::new(supplied_instances);
         let mut events = Vec::new();
 
@@ -201,10 +193,9 @@ impl ExampleTaskRunner {
                         "{} skipped: cache hit",
                         invocation.registration.stage_id()
                     )),
-                    InvocationDisposition::Executed => events.push(format!(
-                        "{} executed",
-                        invocation.registration.stage_id()
-                    )),
+                    InvocationDisposition::Executed => {
+                        events.push(format!("{} executed", invocation.registration.stage_id()))
+                    }
                 }
                 for binding in &invocation.requested_output_bindings {
                     if binding.terminal_remapped() {
@@ -338,7 +329,8 @@ impl ExampleTaskRunner {
                 )
             })
             .collect::<HashMap<_, _>>();
-        let outputs = OutputArtifacts::from_writers_with_aliases(&resolution.writers, output_aliases);
+        let outputs =
+            OutputArtifacts::from_writers_with_aliases(&resolution.writers, output_aliases);
         let inputs = InputArtifacts::from_instances_with_aliases(&input_instances, input_aliases)?;
         let progress = InMemoryStageProgressReporter::default();
         let workspace = make_scratch_workspace(invocation.registration.stage_id())?;
@@ -400,9 +392,10 @@ fn validate_output_fingerprints(
         .requested_output_bindings
         .iter()
         .filter_map(|binding| {
-            binding.expected_fingerprint.as_ref().map(|fingerprint| {
-                (binding.resolved_artifact_id.clone(), fingerprint.clone())
-            })
+            binding
+                .expected_fingerprint
+                .as_ref()
+                .map(|fingerprint| (binding.resolved_artifact_id.clone(), fingerprint.clone()))
         })
         .collect::<HashMap<_, _>>();
 
@@ -448,12 +441,16 @@ async fn close_instances(instances: &[AnyArtifactInstance]) {
 fn make_scratch_workspace(stage_id: &str) -> Result<PathBuf> {
     let stage_part: String = stage_id
         .chars()
-        .map(|ch| if matches!(ch, '.' | ':' | '/') { '-' } else { ch })
+        .map(|ch| {
+            if matches!(ch, '.' | ':' | '/') {
+                '-'
+            } else {
+                ch
+            }
+        })
         .collect();
-    let workspace = std::env::temp_dir().join(format!(
-        "chunky-{stage_part}-{}",
-        Uuid::new_v4().simple()
-    ));
+    let workspace =
+        std::env::temp_dir().join(format!("chunky-{stage_part}-{}", Uuid::new_v4().simple()));
     std::fs::create_dir_all(&workspace)?;
     Ok(workspace)
 }

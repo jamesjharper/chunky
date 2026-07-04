@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Request-specific graph creation over a frozen stage manifest.
 
-``ExecutionPlanner`` is now intentionally small.  It orchestrates the four planning
+``TaskRunPlanner`` is now intentionally small.  It orchestrates the four planning
 steps and delegates the details to focused collaborators:
 
 1. request scoping and manifest-plan capture;
@@ -14,6 +14,7 @@ Runtime cache lookup, write reservations, waits, and materialization remain in
 the runner/artifact-binding seam.
 """
 
+from collections.abc import Iterable
 from typing import Any
 
 from ..Artifacts.binding_models import ArtifactInstance
@@ -30,13 +31,13 @@ from .TaskRequestGraph import (
     TaskRequestGraphBuilder,
 )
 from .TaskRequestGraph import PlannerSettingsResolver, ProducerSelector
-from .TaskExecutionGraph import TaskExecutionGraphBuilder
-from .TaskExecutionGraph import TaskExecutionGraph
+from .task_run_graph import TaskRunGraphBuilder
+from .task_run_graph import TaskRunGraph
 from .manifest_graph import StageManifestGraphBuilder
 from ..Stages.stage_manifest import StageManifest
 from ..Stages.stage_models import PlanningRunPolicy, StagePlanningError
 
-class ExecutionPlanner:
+class TaskRunPlanner:
     def __init__(
         self,
         manifest: StageManifest,
@@ -52,7 +53,7 @@ class ExecutionPlanner:
             self._settings_resolver,
             self._producer_selector,
         )
-        self._task_execution_graph_builder = TaskExecutionGraphBuilder(
+        self._task_execution_graph_builder = TaskRunGraphBuilder(
             manifest,
             self._fingerprint_provider,
         )
@@ -64,8 +65,8 @@ class ExecutionPlanner:
         supplied_instances: dict[ArtifactKey, ArtifactInstance[Any]],
         requested_outputs: set[ArtifactKey],
         run_policy: PlanningRunPolicy | None = None,
-        user_supplied_settings: frozenset[ArtifactKey] = frozenset(),
-    ) -> TaskExecutionGraph:
+        user_supplied_settings: Iterable[ArtifactKey] = frozenset(),
+    ) -> TaskRunGraph:
         
         self._validate_requested_outputs(requested_outputs)
 
@@ -101,12 +102,12 @@ class ExecutionPlanner:
 
 
 __all__ = [
-    "ExecutionPlanner",
+    "TaskRunPlanner",
     "PlannedInputBinding",
     "PlannedOutputBinding",
     "PlannedInvocation",
     "TaskRequestContext",
     "RequestedOutputBinding",
     "TaskRequestGraph",
-    "TaskExecutionGraph",
+    "TaskRunGraph",
 ]

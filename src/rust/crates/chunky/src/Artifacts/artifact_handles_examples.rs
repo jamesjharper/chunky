@@ -7,7 +7,10 @@ use crate::{
 };
 use anyhow::{bail, Result};
 use async_trait::async_trait;
-use std::{path::{Path, PathBuf}, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -175,10 +178,9 @@ impl ArtifactTargetHandle for AtomicFileTargetHandle {
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("artifact");
-        let temporary_path = self.path.with_file_name(format!(
-            ".{file_name}.{}.tmp",
-            Uuid::new_v4().simple()
-        ));
+        let temporary_path = self
+            .path
+            .with_file_name(format!(".{file_name}.{}.tmp", Uuid::new_v4().simple()));
         tokio::fs::write(&temporary_path, raw).await?;
         state.temporary_path = Some(temporary_path);
         Ok(())

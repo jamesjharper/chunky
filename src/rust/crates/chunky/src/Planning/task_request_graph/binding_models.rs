@@ -2,8 +2,8 @@
 //!
 //! Binding models produced during request graph planning.
 
-use crate::artifact_models::{ArtifactKey, PhaseMatchMode};
 use super::shared_models::instance_id;
+use crate::artifact_models::{ArtifactKey, PhaseMatchMode};
 
 /// Resolved artifact instance selected while expanding the request graph.
 ///

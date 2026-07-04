@@ -3,14 +3,14 @@ mod support;
 use anyhow::{anyhow, Result};
 use chunky_example::artifact_handles::ArtifactSourceHandle;
 use chunky_example::artifact_models::{
-    ArtifactDeclaration, ArtifactRequirement, ArtifactRole, DefaultValueSourceProvider, PhaseMatchMode,
+    ArtifactDeclaration, ArtifactRequirement, ArtifactRole, DefaultValueSourceProvider,
+    PhaseMatchMode,
 };
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use support::*;
-
 
 #[derive(Clone)]
 struct FixedAudioSettingsDefaultValueSourceProvider {
@@ -19,7 +19,9 @@ struct FixedAudioSettingsDefaultValueSourceProvider {
 }
 
 #[async_trait::async_trait]
-impl DefaultValueSourceProvider<serde_json::Value> for FixedAudioSettingsDefaultValueSourceProvider {
+impl DefaultValueSourceProvider<serde_json::Value>
+    for FixedAudioSettingsDefaultValueSourceProvider
+{
     async fn resolve_source(
         &self,
         supplied_source: Option<Arc<dyn ArtifactSourceHandle>>,
@@ -35,12 +37,19 @@ impl DefaultValueSourceProvider<serde_json::Value> for FixedAudioSettingsDefault
                 Some(serde_json::Value::Object(supplied_values)) => {
                     resolved.extend(supplied_values.clone());
                 }
-                Some(other) => return Err(anyhow!("audio settings must be mapping-like, got {other}")),
-                None => return Err(anyhow!("audio settings source returned the wrong value type")),
+                Some(other) => {
+                    return Err(anyhow!("audio settings must be mapping-like, got {other}"))
+                }
+                None => {
+                    return Err(anyhow!(
+                        "audio settings source returned the wrong value type"
+                    ))
+                }
             }
         }
 
-        let source: Arc<dyn ArtifactSourceHandle> = MemorySource::new(serde_json::Value::Object(resolved));
+        let source: Arc<dyn ArtifactSourceHandle> =
+            MemorySource::new(serde_json::Value::Object(resolved));
         Ok(source)
     }
 }
@@ -54,10 +63,12 @@ async fn override_domain_can_replace_default_value_source_provider() -> Result<(
         JsonValueCodec,
         true,
     )?
-    .with_default_value_source_provider(Arc::new(FixedAudioSettingsDefaultValueSourceProvider {
-        sample_rate_hz: 44100,
-        channels: 1,
-    }));
+    .with_default_value_source_provider(Arc::new(
+        FixedAudioSettingsDefaultValueSourceProvider {
+            sample_rate_hz: 44100,
+            channels: 1,
+        },
+    ));
 
     let inherited = base.with_override_domain("speech_processing")?;
     let inherited_erased = inherited.erase();
@@ -72,7 +83,10 @@ async fn override_domain_can_replace_default_value_source_provider() -> Result<(
         .await?;
     assert_eq!(
         &json!({"sample_rate_hz": 44100, "channels": 1}),
-        inherited_value.as_ref().downcast_ref::<serde_json::Value>().unwrap(),
+        inherited_value
+            .as_ref()
+            .downcast_ref::<serde_json::Value>()
+            .unwrap(),
     );
 
     let overridden = base.with_override_domain_and_default_value_source_provider(
@@ -95,7 +109,10 @@ async fn override_domain_can_replace_default_value_source_provider() -> Result<(
         .await?;
     assert_eq!(
         &json!({"sample_rate_hz": 8000, "channels": 2}),
-        overridden_value.as_ref().downcast_ref::<serde_json::Value>().unwrap(),
+        overridden_value
+            .as_ref()
+            .downcast_ref::<serde_json::Value>()
+            .unwrap(),
     );
 
     Ok(())
@@ -173,19 +190,27 @@ impl AudioSettingsHarness {
     fn new(include_user_base_audio_settings: bool) -> Self {
         Self {
             include_user_base_audio_settings,
-            base_audio_settings_key: chunky_example::artifact_models::ArtifactKey::parse("settings//audio_settings").unwrap(),
+            base_audio_settings_key: chunky_example::artifact_models::ArtifactKey::parse(
+                "settings//audio_settings",
+            )
+            .unwrap(),
         }
     }
 
     async fn plan(&self) -> Result<chunky_example::task_request_graph::TaskRequestGraph<'static>> {
         let source_audio = decl("source_audio", ArtifactRole::Source);
-        let base_audio_settings = decl(self.base_audio_settings_key.clone(), ArtifactRole::Settings);
+        let base_audio_settings =
+            decl(self.base_audio_settings_key.clone(), ArtifactRole::Settings);
         let speech_audio_settings = decl(
-            chunky_example::artifact_models::ArtifactKey::parse("speech_processing//settings//audio_settings")?,
+            chunky_example::artifact_models::ArtifactKey::parse(
+                "speech_processing//settings//audio_settings",
+            )?,
             ArtifactRole::Settings,
         );
         let music_audio_settings = decl(
-            chunky_example::artifact_models::ArtifactKey::parse("music_processing//settings//audio_settings")?,
+            chunky_example::artifact_models::ArtifactKey::parse(
+                "music_processing//settings//audio_settings",
+            )?,
             ArtifactRole::Settings,
         );
         let prepared_audio = decl("prepared_audio", ArtifactRole::Intermediate);
@@ -195,52 +220,78 @@ impl AudioSettingsHarness {
 
         let prepare = stage_registration(
             "audio.prepare",
-            vec![source_audio.artifact_id().clone(), base_audio_settings.artifact_id().clone()],
+            vec![
+                source_audio.artifact_id().clone(),
+                base_audio_settings.artifact_id().clone(),
+            ],
             vec![prepared_audio.artifact_id().clone()],
             {
                 let source_audio = source_audio.artifact_id().clone();
                 let base_audio_settings = base_audio_settings.artifact_id().clone();
-                move |_| vec![requirement(source_audio.clone()), requirement(base_audio_settings.clone())]
+                move |_| {
+                    vec![
+                        requirement(source_audio.clone()),
+                        requirement(base_audio_settings.clone()),
+                    ]
+                }
             },
         );
         let transcribe = stage_registration(
             "asr.transcribe",
-            vec![prepared_audio.artifact_id().clone(), speech_audio_settings.artifact_id().clone()],
+            vec![
+                prepared_audio.artifact_id().clone(),
+                speech_audio_settings.artifact_id().clone(),
+            ],
             vec![speech_tokens.artifact_id().clone()],
             {
                 let prepared_audio = prepared_audio.artifact_id().clone();
                 let speech_audio_settings = speech_audio_settings.artifact_id().clone();
-                move |_| vec![ArtifactRequirement {
-                    artifact_id: prepared_audio.clone(),
-                    required: true,
-                    phase_match: PhaseMatchMode::AtMost,
-                    pushed_settings: vec![speech_audio_settings.clone()],
-                }]
+                move |_| {
+                    vec![ArtifactRequirement {
+                        artifact_id: prepared_audio.clone(),
+                        required: true,
+                        phase_match: PhaseMatchMode::AtMost,
+                        pushed_settings: vec![speech_audio_settings.clone()],
+                    }]
+                }
             },
         );
         let detect_music = stage_registration(
             "music.detect",
-            vec![prepared_audio.artifact_id().clone(), music_audio_settings.artifact_id().clone()],
+            vec![
+                prepared_audio.artifact_id().clone(),
+                music_audio_settings.artifact_id().clone(),
+            ],
             vec![music_spans.artifact_id().clone()],
             {
                 let prepared_audio = prepared_audio.artifact_id().clone();
                 let music_audio_settings = music_audio_settings.artifact_id().clone();
-                move |_| vec![ArtifactRequirement {
-                    artifact_id: prepared_audio.clone(),
-                    required: true,
-                    phase_match: PhaseMatchMode::AtMost,
-                    pushed_settings: vec![music_audio_settings.clone()],
-                }]
+                move |_| {
+                    vec![ArtifactRequirement {
+                        artifact_id: prepared_audio.clone(),
+                        required: true,
+                        phase_match: PhaseMatchMode::AtMost,
+                        pushed_settings: vec![music_audio_settings.clone()],
+                    }]
+                }
             },
         );
         let render = stage_registration(
             "render.webvtt",
-            vec![speech_tokens.artifact_id().clone(), music_spans.artifact_id().clone()],
+            vec![
+                speech_tokens.artifact_id().clone(),
+                music_spans.artifact_id().clone(),
+            ],
             vec![webvtt.artifact_id().clone()],
             {
                 let speech_tokens = speech_tokens.artifact_id().clone();
                 let music_spans = music_spans.artifact_id().clone();
-                move |_| vec![requirement(speech_tokens.clone()), requirement(music_spans.clone())]
+                move |_| {
+                    vec![
+                        requirement(speech_tokens.clone()),
+                        requirement(music_spans.clone()),
+                    ]
+                }
             },
         );
         let manifest = Box::leak(Box::new(manifest(
@@ -259,13 +310,37 @@ impl AudioSettingsHarness {
         )));
 
         let mut supplied = BTreeMap::new();
-        supplied.insert(source_audio.artifact_id().clone(), source_instance(&source_audio, json!({"audio": true})));
-        supplied.insert(speech_audio_settings.artifact_id().clone(), source_instance(&speech_audio_settings, json!({"sample_rate_hz": 16000})));
-        supplied.insert(music_audio_settings.artifact_id().clone(), source_instance(&music_audio_settings, json!({"sample_rate_hz": 48000, "channels": 2})));
+        supplied.insert(
+            source_audio.artifact_id().clone(),
+            source_instance(&source_audio, json!({"audio": true})),
+        );
+        supplied.insert(
+            speech_audio_settings.artifact_id().clone(),
+            source_instance(&speech_audio_settings, json!({"sample_rate_hz": 16000})),
+        );
+        supplied.insert(
+            music_audio_settings.artifact_id().clone(),
+            source_instance(
+                &music_audio_settings,
+                json!({"sample_rate_hz": 48000, "channels": 2}),
+            ),
+        );
         if self.include_user_base_audio_settings {
-            supplied.insert(base_audio_settings.artifact_id().clone(), source_instance(&base_audio_settings, json!({"sample_rate_hz": 22050, "channels": 1})));
+            supplied.insert(
+                base_audio_settings.artifact_id().clone(),
+                source_instance(
+                    &base_audio_settings,
+                    json!({"sample_rate_hz": 22050, "channels": 1}),
+                ),
+            );
         } else {
-            supplied.insert(base_audio_settings.artifact_id().clone(), source_instance(&base_audio_settings, json!({"sample_rate_hz": 44100, "channels": 1})));
+            supplied.insert(
+                base_audio_settings.artifact_id().clone(),
+                source_instance(
+                    &base_audio_settings,
+                    json!({"sample_rate_hz": 44100, "channels": 1}),
+                ),
+            );
         }
 
         evaluate(

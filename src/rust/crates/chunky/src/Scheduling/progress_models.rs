@@ -491,10 +491,7 @@ impl RunProgressTracker {
         }
     }
 
-    fn snapshot_if_changed(
-        task_id: &str,
-        state: &mut TrackerState,
-    ) -> Option<RunProgressSnapshot> {
+    fn snapshot_if_changed(task_id: &str, state: &mut TrackerState) -> Option<RunProgressSnapshot> {
         let snapshot = Self::build_snapshot(task_id, state);
         if state.last_snapshot.as_ref() == Some(&snapshot) {
             return None;
@@ -578,12 +575,7 @@ impl StageProgressReporter {
         Ok(reporter)
     }
 
-    fn update(
-        &self,
-        subtask_id: &str,
-        name: &str,
-        percentage: Option<f64>,
-    ) -> Result<()> {
+    fn update(&self, subtask_id: &str, name: &str, percentage: Option<f64>) -> Result<()> {
         validate_percentage(percentage)?;
         self.tracker.update_subtask(
             &self.invocation_id,
@@ -609,11 +601,7 @@ pub struct StageSubtaskReporter {
 }
 
 impl StageSubtaskReporter {
-    pub fn update(
-        &mut self,
-        name: Option<String>,
-        percentage: Option<f64>,
-    ) -> Result<()> {
+    pub fn update(&mut self, name: Option<String>, percentage: Option<f64>) -> Result<()> {
         if self.finished {
             return Ok(());
         }

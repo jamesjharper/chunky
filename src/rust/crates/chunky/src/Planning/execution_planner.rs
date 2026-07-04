@@ -1,6 +1,6 @@
 //! Request-specific graph creation over a frozen stage manifest.
 //!
-//! `ExecutionPlanner` is intentionally small: it orchestrates request settings,
+//! `TaskRunPlanner` is intentionally small: it orchestrates request settings,
 //! manifest graph capture, request graph expansion, and then hands off to the
 //! task-execution graph builder.
 
@@ -21,7 +21,7 @@ use super::task_request_graph::{
 };
 
 /// External seam for producing the execution graph from a request graph.
-pub trait TaskExecutionGraphBuilder<'a, G>: Clone {
+pub trait TaskRunGraphBuilder<'a, G>: Clone {
     fn build(
         self,
         task_request_graph: TaskRequestGraph<'a>,
@@ -29,15 +29,15 @@ pub trait TaskExecutionGraphBuilder<'a, G>: Clone {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<G>> + Send + 'a>>;
 }
 
-pub struct ExecutionPlanner<'a, G, E> {
+pub struct TaskRunPlanner<'a, G, E> {
     manifest: &'a StageManifest,
     task_execution_graph_builder: E,
     _graph_marker: std::marker::PhantomData<G>,
 }
 
-impl<'a, G, E> ExecutionPlanner<'a, G, E>
+impl<'a, G, E> TaskRunPlanner<'a, G, E>
 where
-    E: TaskExecutionGraphBuilder<'a, G>,
+    E: TaskRunGraphBuilder<'a, G>,
 {
     pub fn new(
         manifest: &'a StageManifest,
@@ -64,7 +64,7 @@ where
         let request_settings = PlannerRequestSettings::read_from(
             manifest,
             &supplied_instances,
-            &user_supplied_settings,
+            user_supplied_settings,
         )
         .await?;
 
@@ -80,11 +80,8 @@ where
 
         let settings_resolver = PlannerSettingsResolver::new(manifest);
         let producer_selector = ProducerSelector::new(manifest);
-        let task_request_graph_builder = TaskRequestGraphBuilder::new(
-            manifest,
-            &settings_resolver,
-            &producer_selector,
-        );
+        let task_request_graph_builder =
+            TaskRequestGraphBuilder::new(manifest, &settings_resolver, &producer_selector);
         let task_request_graph = task_request_graph_builder.build(&context).await?;
 
         self.task_execution_graph_builder
@@ -98,7 +95,11 @@ where
             bail!("at least one output must be requested");
         }
         for artifact_id in requested_outputs {
-            if !self.manifest.phase_catalog.requestable_output_exists(artifact_id) {
+            if !self
+                .manifest
+                .phase_catalog
+                .requestable_output_exists(artifact_id)
+            {
                 bail!("Configured stages do not produce artifact {artifact_id}");
             }
         }
@@ -107,7 +108,7 @@ where
 }
 
 // Re-export the same planning types surfaced by the Python module.
-pub type ExecutionPlannerPlannedInputBinding = PlannedInputBinding;
-pub type ExecutionPlannerPlannedOutputBinding = PlannedOutputBinding;
-pub type ExecutionPlannerPlannedInvocation<'a> = PlannedInvocation<'a>;
-pub type ExecutionPlannerRequestedOutputBinding = RequestedOutputBinding;
+pub type TaskRunPlannerPlannedInputBinding = PlannedInputBinding;
+pub type TaskRunPlannerPlannedOutputBinding = PlannedOutputBinding;
+pub type TaskRunPlannerPlannedInvocation<'a> = PlannedInvocation<'a>;
+pub type TaskRunPlannerRequestedOutputBinding = RequestedOutputBinding;

@@ -50,8 +50,10 @@ impl<'a> ProducedArtifact<'a> {
         producer_context: &StagePlanningContext,
         selection: ProducerSelection<'a>,
     ) -> Self {
-        let inherited_settings_fingerprint = settings_fingerprint(&producer_context.inherited_settings);
-        let mut effective_settings_fingerprint = settings_fingerprint(&producer_context.resolved_settings);
+        let inherited_settings_fingerprint =
+            settings_fingerprint(&producer_context.inherited_settings);
+        let mut effective_settings_fingerprint =
+            settings_fingerprint(&producer_context.resolved_settings);
         if effective_settings_fingerprint.is_empty() {
             effective_settings_fingerprint = inherited_settings_fingerprint.clone();
         }

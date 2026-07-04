@@ -41,19 +41,27 @@ fn parse_args() -> Result<(usize, usize, PathBuf, BenchmarkScenario, bool, bool,
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--iterations" => {
-                let value = args.next().ok_or_else(|| anyhow::anyhow!("missing value for --iterations"))?;
+                let value = args
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("missing value for --iterations"))?;
                 iterations = value.parse()?;
             }
             "--warmups" => {
-                let value = args.next().ok_or_else(|| anyhow::anyhow!("missing value for --warmups"))?;
+                let value = args
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("missing value for --warmups"))?;
                 warmups = value.parse()?;
             }
             "--work-dir" => {
-                let value = args.next().ok_or_else(|| anyhow::anyhow!("missing value for --work-dir"))?;
+                let value = args
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("missing value for --work-dir"))?;
                 work_dir = PathBuf::from(value);
             }
             "--scenario" => {
-                let value = args.next().ok_or_else(|| anyhow::anyhow!("missing value for --scenario"))?;
+                let value = args
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("missing value for --scenario"))?;
                 scenario = value.parse()?;
             }
             "--json" => emit_json = true,
@@ -92,25 +100,17 @@ async fn run_pipeline_iteration(
     scenario: BenchmarkScenario,
 ) -> Result<(f64, f64)> {
     let fixture = create_benchmark_fixture(work_dir, iteration_id, scenario, true).await?;
-    let cold_ms = measure_run(
-        fixture
-            .pipeline
-            .run(build_benchmark_request(
-                &fixture.audio_path,
-                &fixture.output_path,
-                scenario,
-            )),
-    )
+    let cold_ms = measure_run(fixture.pipeline.run(build_benchmark_request(
+        &fixture.audio_path,
+        &fixture.output_path,
+        scenario,
+    )))
     .await?;
-    let hot_ms = measure_run(
-        fixture
-            .pipeline
-            .run(build_benchmark_request(
-                &fixture.audio_path,
-                &fixture.output_path,
-                scenario,
-            )),
-    )
+    let hot_ms = measure_run(fixture.pipeline.run(build_benchmark_request(
+        &fixture.audio_path,
+        &fixture.output_path,
+        scenario,
+    )))
     .await?;
     Ok((cold_ms, hot_ms))
 }

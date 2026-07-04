@@ -389,9 +389,16 @@ impl InputArtifacts {
         ArtifactReader::new(reader.handle.clone())
     }
 
-    pub fn get_artifact_by_key(&self, selector: impl Into<ArtifactSelector>) -> Result<AnyArtifactReader> {
+    pub fn get_artifact_by_key(
+        &self,
+        selector: impl Into<ArtifactSelector>,
+    ) -> Result<AnyArtifactReader> {
         let requested = selector.into().to_artifact_key()?;
-        let artifact_id = self.aliases.get(&requested).cloned().unwrap_or(requested.clone());
+        let artifact_id = self
+            .aliases
+            .get(&requested)
+            .cloned()
+            .unwrap_or(requested.clone());
         let reader = self.readers.get(&artifact_id).ok_or_else(|| {
             anyhow!(
                 "missing input artifact: {} (resolved as {})",
@@ -467,13 +474,23 @@ impl OutputArtifacts {
         writer.downcast(declaration)
     }
 
-    pub fn get_artifact_by_key(&self, selector: impl Into<ArtifactSelector>) -> Result<AnyArtifactWriter> {
+    pub fn get_artifact_by_key(
+        &self,
+        selector: impl Into<ArtifactSelector>,
+    ) -> Result<AnyArtifactWriter> {
         let requested = selector.into().to_artifact_key()?;
-        let artifact_id = self.aliases.get(&requested).cloned().unwrap_or(requested.clone());
-        self.writers
-            .get(&artifact_id)
+        let artifact_id = self
+            .aliases
+            .get(&requested)
             .cloned()
-            .ok_or_else(|| anyhow!("missing output artifact: {} (resolved as {})", requested, artifact_id))
+            .unwrap_or(requested.clone());
+        self.writers.get(&artifact_id).cloned().ok_or_else(|| {
+            anyhow!(
+                "missing output artifact: {} (resolved as {})",
+                requested,
+                artifact_id
+            )
+        })
     }
 
     pub fn get_optional_artifact_by_key(
@@ -504,7 +521,10 @@ impl OutputArtifacts {
         }
 
         if !missing.is_empty() {
-            bail!("stage did not write declared outputs: {}", missing.join(", "));
+            bail!(
+                "stage did not write declared outputs: {}",
+                missing.join(", ")
+            );
         }
 
         Ok(produced)

@@ -19,13 +19,13 @@ use crate::artifact_bindings::ArtifactBindingsProvider;
 use crate::artifact_handles::{ArtifactSourceHandle, ArtifactTargetHandle};
 use crate::artifact_models::{AnyArtifactDeclaration, ArtifactKey, ArtifactRole};
 use crate::cache_models::ArtifactCache;
-use crate::execution_planner::{ExecutionPlanner, TaskExecutionGraphBuilder};
+use crate::execution_planner::{TaskRunGraphBuilder, TaskRunPlanner};
 use crate::fingerprints::FingerprintProvider;
 use crate::progress_models::{ProgressDispatcher, RunProgressTracker};
 use crate::stage_manifest::{StageManifest, StageManifestBuilder};
 use crate::stage_models::{CancellationSource, PipelineFeature, PlanningRunPolicy};
 use crate::task_control::{RunError, RunHandle, RunResult};
-use crate::task_runner::{ExampleTaskRunner, TaskExecutionGraph, TaskRunResult};
+use crate::task_runner::{ExampleTaskRunner, TaskRunGraph, TaskRunResult};
 
 #[derive(Clone, Default)]
 pub struct RunRequest {
@@ -93,7 +93,8 @@ impl ChunkyPipeline {
         let task_id = format!("task-{}", &Uuid::new_v4().simple().to_string()[..12]);
         let dispatcher = ProgressDispatcher::null();
         let tracker = RunProgressTracker::new(task_id.clone(), dispatcher);
-        self.execute(request, task_id, tracker, CancellationSource::default()).await
+        self.execute(request, task_id, tracker, CancellationSource::default())
+            .await
     }
 
     pub fn run_away(&self, request: RunRequest) -> RunHandle<TaskRunResult> {
@@ -110,7 +111,12 @@ impl ChunkyPipeline {
 
         tokio::spawn(async move {
             let result = match pipeline
-                .execute(request, task_id_for_task.clone(), tracker_for_task, cancellation_for_task)
+                .execute(
+                    request,
+                    task_id_for_task.clone(),
+                    tracker_for_task,
+                    cancellation_for_task,
+                )
                 .await
             {
                 Ok(output) => RunResult::completed(task_id_for_task, output),
@@ -144,18 +150,15 @@ impl ChunkyPipeline {
         }
 
         let bindings = ArtifactBindingsProvider::new(self.artifact_cache.clone());
-        let (supplied, user_supplied_settings) = self
-            .bind_supplied_inputs(&bindings, &request)
-            .await?;
-        let supplied = self
-            .bind_default_settings(&bindings, supplied)
-            .await?;
+        let (supplied, user_supplied_settings) =
+            self.bind_supplied_inputs(&bindings, &request).await?;
+        let supplied = self.bind_default_settings(&bindings, supplied).await?;
         let requested_outputs = request.outputs.keys().cloned().collect::<BTreeSet<_>>();
 
-        let execution_graph_builder = ExampleTaskExecutionGraphBuilder {
+        let execution_graph_builder = ExampleTaskRunGraphBuilder {
             fingerprint_provider: bindings.fingerprint_provider().clone(),
         };
-        let planner = ExecutionPlanner::new(
+        let planner = TaskRunPlanner::new(
             &self.stage_manifest,
             Some(bindings.fingerprint_provider().clone()),
             execution_graph_builder,
@@ -187,7 +190,10 @@ impl ChunkyPipeline {
         &self,
         bindings: &ArtifactBindingsProvider,
         request: &RunRequest,
-    ) -> Result<(BTreeMap<ArtifactKey, AnyArtifactInstance>, BTreeSet<ArtifactKey>)> {
+    ) -> Result<(
+        BTreeMap<ArtifactKey, AnyArtifactInstance>,
+        BTreeSet<ArtifactKey>,
+    )> {
         let mut supplied = BTreeMap::new();
         let mut user_supplied_settings = BTreeSet::new();
 
@@ -252,7 +258,7 @@ impl ChunkyPipeline {
     fn register_plan_progress(
         &self,
         progress_tracker: &RunProgressTracker,
-        plan: &TaskExecutionGraph<'_>,
+        plan: &TaskRunGraph<'_>,
     ) {
         progress_tracker.batch_update(|| {
             for invocation in &plan.invocations {
@@ -267,33 +273,34 @@ impl ChunkyPipeline {
 }
 
 #[derive(Clone)]
-struct ExampleTaskExecutionGraphBuilder {
+struct ExampleTaskRunGraphBuilder {
     fingerprint_provider: FingerprintProvider,
 }
 
-impl<'a> TaskExecutionGraphBuilder<'a, TaskExecutionGraph<'a>> for ExampleTaskExecutionGraphBuilder {
+impl<'a> TaskRunGraphBuilder<'a, TaskRunGraph<'a>> for ExampleTaskRunGraphBuilder {
     fn build(
         self,
         task_request_graph: crate::task_request_graph::TaskRequestGraph<'a>,
         supplied_instances: BTreeMap<ArtifactKey, AnyArtifactInstance>,
-    ) -> Pin<Box<dyn Future<Output = Result<TaskExecutionGraph<'a>>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<TaskRunGraph<'a>>> + Send + 'a>> {
         let fingerprint_provider = self.fingerprint_provider.clone();
         Box::pin(async move {
             let mut fingerprints_by_instance = supplied_instances
                 .iter()
-                .map(|(artifact_id, instance)| (artifact_id.to_string(), instance.fingerprint().to_owned()))
+                .map(|(artifact_id, instance)| {
+                    (artifact_id.to_string(), instance.fingerprint().to_owned())
+                })
                 .collect::<BTreeMap<_, _>>();
 
             let mut invocations = Vec::new();
             for mut invocation in task_request_graph.invocations {
                 let mut input_fingerprints = BTreeMap::new();
-                for binding in invocation
-                    .required_input_bindings
-                    .iter()
-                    .chain(invocation.optional_input_bindings.iter())
-                {
-                    if let Some(fingerprint) = fingerprints_by_instance.get(&binding.resolved_instance_id) {
-                        input_fingerprints.insert(binding.selector.to_string(), fingerprint.clone());
+                for binding in invocation.input_bindings.iter() {
+                    if let Some(fingerprint) =
+                        fingerprints_by_instance.get(&binding.resolved_instance_id)
+                    {
+                        input_fingerprints
+                            .insert(binding.selector.to_string(), fingerprint.clone());
                     }
                 }
                 let pedigree = fingerprint_provider.build_stage_pedigree_fingerprint(
@@ -318,7 +325,7 @@ impl<'a> TaskExecutionGraphBuilder<'a, TaskExecutionGraph<'a>> for ExampleTaskEx
                 invocations.push(invocation);
             }
 
-            Ok(TaskExecutionGraph {
+            Ok(TaskRunGraph {
                 manifest_id: task_request_graph.manifest_id,
                 invocations,
                 requested_output_bindings: task_request_graph.requested_output_bindings,

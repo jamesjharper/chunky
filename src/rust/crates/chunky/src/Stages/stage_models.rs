@@ -461,7 +461,8 @@ pub type StageRequirementResolver =
     Arc<dyn Fn(&StagePlanningContext) -> Result<ResolvedStageRequirements> + Send + Sync>;
 pub type StageOutputResolver =
     Arc<dyn Fn(&StagePlanningContext) -> Result<Vec<ArtifactCapability>> + Send + Sync>;
-pub type StageResourceResolver = Arc<dyn Fn(&StagePlanningContext) -> Result<ResourcePolicy> + Send + Sync>;
+pub type StageResourceResolver =
+    Arc<dyn Fn(&StagePlanningContext) -> Result<ResourcePolicy> + Send + Sync>;
 
 #[derive(Clone)]
 pub struct StageRegistration {
@@ -515,7 +516,9 @@ impl<'a> ManifestStageRegistration<'a> {
                 .registration
                 .input_capabilities
                 .iter()
-                .any(|capability| capability_covers_requirement(&capability.artifact_id, requirement))
+                .any(|capability| {
+                    capability_covers_requirement(&capability.artifact_id, requirement)
+                })
             {
                 bail!(
                     "{} resolved input outside its static capability envelope: {}",

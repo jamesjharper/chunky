@@ -4,18 +4,18 @@
 //! and example-feature layers. The flat re-exports below keep the integration
 //! tests ergonomic.
 
-#[path = "Artifacts/artifact_models.rs"]
-pub mod artifact_models;
-#[path = "Artifacts/artifact_handles.rs"]
-pub mod artifact_handles;
 #[path = "Artifacts/artifact_binding_models.rs"]
 pub mod artifact_binding_models;
 #[path = "Artifacts/artifact_bindings.rs"]
 pub mod artifact_bindings;
 #[path = "Artifacts/artifact_codecs_example.rs"]
 pub mod artifact_codecs_example;
+#[path = "Artifacts/artifact_handles.rs"]
+pub mod artifact_handles;
 #[path = "Artifacts/artifact_handles_examples.rs"]
 pub mod artifact_handles_examples;
+#[path = "Artifacts/artifact_models.rs"]
+pub mod artifact_models;
 #[path = "Artifacts/fingerprints.rs"]
 pub mod fingerprints;
 #[path = "Artifacts/phase_catalog.rs"]
@@ -26,15 +26,15 @@ pub mod cache_models;
 #[path = "CacheProviders/file_cache_provider/mod.rs"]
 pub mod file_cache_provider;
 
-#[path = "Stages/stage_models.rs"]
-pub mod stage_models;
 #[path = "Stages/stage_manifest.rs"]
 pub mod stage_manifest;
+#[path = "Stages/stage_models.rs"]
+pub mod stage_models;
 
-#[path = "Planning/manifest_graph.rs"]
-pub mod manifest_graph;
 #[path = "Planning/execution_planner.rs"]
 pub mod execution_planner;
+#[path = "Planning/manifest_graph.rs"]
+pub mod manifest_graph;
 #[path = "Planning/task_request_graph/mod.rs"]
 pub mod task_request_graph;
 
@@ -90,9 +90,11 @@ pub mod scheduling {
     pub use crate::task_runner::*;
 }
 
-pub mod pipeline;
-pub mod example_features;
-pub mod demo_support;
 pub mod benchmark_support;
+pub mod demo_support;
+pub mod example_features;
+pub mod pipeline;
 
-pub use pipeline::{chunky_run, chunky_run_away, ChunkyPipeline, ChunkyPipelineBuilder, RunRequest};
+pub use pipeline::{
+    chunky_run, chunky_run_away, ChunkyPipeline, ChunkyPipelineBuilder, RunRequest,
+};

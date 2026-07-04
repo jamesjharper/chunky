@@ -7,6 +7,6 @@ pub mod execution_planner;
 pub mod manifest_graph;
 pub mod task_request_graph;
 
-pub use execution_planner::ExecutionPlanner;
+pub use execution_planner::TaskRunPlanner;
 pub use manifest_graph::{ManifestConsumerEdge, ManifestProducerEdge, StageManifestGraph, StageManifestGraphBuilder};
 pub use task_request_graph::*;

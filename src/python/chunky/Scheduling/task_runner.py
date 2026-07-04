@@ -25,7 +25,7 @@ from ..Stages.stage_models import (
     StageExecutionContext,
     build_stage_logger,
 )
-from ..Planning.TaskExecutionGraph import TaskExecutionGraph
+from ..Planning.task_run_graph import TaskRunGraph
 from ..Planning.TaskRequestGraph.invocation_models import PlannedInvocation
 from .progress_models import (
     RunProgressTracker,
@@ -69,23 +69,14 @@ class ArtifactRunState:
         aliases: dict[ArtifactKey, ArtifactKey] = {}
         seen: set[ArtifactKey] = set()
 
-        for binding in invocation.required_input_bindings:
+        for binding in invocation.input_bindings:
             try:
                 instance = self._instances[binding.resolved_instance_id]
             except KeyError as exc:
                 raise KeyError(
-                    f"required artifact is not available for "
+                    f"planned artifact is not available for "
                     f"{invocation.invocation_id}: {binding.resolved_artifact_id}"
                 ) from exc
-            aliases[binding.selector] = binding.resolved_artifact_id
-            if binding.resolved_artifact_id not in seen:
-                result.append(instance)
-                seen.add(binding.resolved_artifact_id)
-
-        for binding in invocation.optional_input_bindings:
-            instance = self._instances.get(binding.resolved_instance_id)
-            if instance is None:
-                continue
             aliases[binding.selector] = binding.resolved_artifact_id
             if binding.resolved_artifact_id not in seen:
                 result.append(instance)
@@ -116,7 +107,7 @@ class ExampleTaskRunner:
     async def run(
         self,
         *,
-        plan: TaskExecutionGraph,
+        plan: TaskRunGraph,
         supplied_instances: dict[ArtifactKey, ArtifactInstance[Any]],
         output_targets: dict[ArtifactKey, ArtifactTargetHandle[Any]],
         cancellation: CancellationSource | None = None,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,8 +24,9 @@ class PlannerRequestSettings:
         manifest: StageManifest,
         supplied_instances: dict[ArtifactKey, ArtifactInstance[Any]],
         *,
-        user_supplied_settings: frozenset[ArtifactKey],
+        user_supplied_settings: Iterable[ArtifactKey],
     ) -> "PlannerRequestSettings":
+        user_supplied_settings = frozenset(user_supplied_settings)
         defaults: dict[ArtifactKey, object] = {}
         user: dict[ArtifactKey, object] = {}
         setting_ids = manifest.find_artifacts_by_role(

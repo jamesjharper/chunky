@@ -40,11 +40,14 @@ impl FileCacheProviderMaintenance {
         }
 
         let filesystem = self.provider.filesystem();
-        let files_removed = tokio::task::spawn_blocking(move || filesystem.remove_paths(paths)).await??;
+        let files_removed =
+            tokio::task::spawn_blocking(move || filesystem.remove_paths(paths)).await??;
 
         let store = self.store.clone();
-        let deleting_entry_ids: Vec<String> = plan.deleting_rows.iter().map(|row| row.0.clone()).collect();
-        tokio::task::spawn_blocking(move || store.finalize_recovery_sync(&deleting_entry_ids)).await??;
+        let deleting_entry_ids: Vec<String> =
+            plan.deleting_rows.iter().map(|row| row.0.clone()).collect();
+        tokio::task::spawn_blocking(move || store.finalize_recovery_sync(&deleting_entry_ids))
+            .await??;
 
         Ok(FileCacheProviderRecoveryResult {
             stale_read_reservations_released: plan.stale_read_ids.len(),
@@ -63,7 +66,9 @@ impl FileCacheProviderMaintenance {
         let recovery = self.recover().await?;
         let store = self.store.clone();
         let policy_for_claim = policy.clone();
-        let claimed = tokio::task::spawn_blocking(move || store.claim_gc_entries_sync(&policy_for_claim)).await??;
+        let claimed =
+            tokio::task::spawn_blocking(move || store.claim_gc_entries_sync(&policy_for_claim))
+                .await??;
 
         let mut deleted_entry_ids = Vec::new();
         let mut failed_entry_ids = Vec::new();
@@ -90,9 +95,12 @@ impl FileCacheProviderMaintenance {
         })
         .await??;
 
-        let orphan_grace = policy.orphan_grace_seconds.unwrap_or(self.provider.config().orphan_grace_seconds);
+        let orphan_grace = policy
+            .orphan_grace_seconds
+            .unwrap_or(self.provider.config().orphan_grace_seconds);
         let store = self.store.clone();
-        let referenced_paths = tokio::task::spawn_blocking(move || store.referenced_paths_sync()).await??;
+        let referenced_paths =
+            tokio::task::spawn_blocking(move || store.referenced_paths_sync()).await??;
         let filesystem = self.provider.filesystem();
         let orphan_files_deleted = tokio::task::spawn_blocking(move || {
             filesystem.cleanup_orphan_files(&referenced_paths, orphan_grace)
@@ -112,7 +120,8 @@ impl FileCacheProviderMaintenance {
                     .emit(FileCacheProviderEvent {
                         event_type: "artifact_cache_entry_deleted".to_owned(),
                         owner_task_id: Some(self.provider.owner_task_id().to_owned()),
-                        timestamp: crate::file_cache_provider::metadata_store::now_seconds().unwrap_or_default(),
+                        timestamp: crate::file_cache_provider::metadata_store::now_seconds()
+                            .unwrap_or_default(),
                         ..Default::default()
                     })
                     .await;

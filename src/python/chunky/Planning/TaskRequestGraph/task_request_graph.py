@@ -131,12 +131,7 @@ class TaskRequestGraphBuilder:
         return PlannedInvocation(
             invocation_id=invocation_id,
             registration=invocation.registration,
-            required_input_bindings=tuple(
-                binding for binding in input_bindings if binding.required
-            ),
-            optional_input_bindings=tuple(
-                binding for binding in input_bindings if not binding.required
-            ),
+            input_bindings=input_bindings,
             requested_output_bindings=tuple(
                 sorted(
                     invocation.output_bindings.values(),

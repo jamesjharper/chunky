@@ -110,7 +110,9 @@ impl FromStr for ArtifactKey {
         let parts: Vec<&str> = value.split("//").collect();
         let (override_domain, domain, remainder) = match parts.as_slice() {
             [domain, remainder] => (None, *domain, *remainder),
-            [override_domain, domain, remainder] => (Some((*override_domain).to_owned()), *domain, *remainder),
+            [override_domain, domain, remainder] => {
+                (Some((*override_domain).to_owned()), *domain, *remainder)
+            }
             _ => {
                 bail!(
                     "artifact key must be DOMAIN//CONTENT_KIND[#PHASE] or OVERRIDE_DOMAIN//DOMAIN//CONTENT_KIND[#PHASE]: {value:?}"
@@ -118,7 +120,10 @@ impl FromStr for ArtifactKey {
             }
         };
 
-        if domain.is_empty() || remainder.is_empty() || matches!(override_domain.as_deref(), Some("")) {
+        if domain.is_empty()
+            || remainder.is_empty()
+            || matches!(override_domain.as_deref(), Some(""))
+        {
             bail!("artifact key contains an empty component: {value:?}");
         }
 
@@ -393,9 +398,12 @@ where
         override_domain: impl Into<String>,
         default_value_source_provider: Option<Arc<dyn DefaultValueSourceProvider<T>>>,
     ) -> Result<Self> {
-        let artifact_id = self.inner.artifact_id.with_override_domain(override_domain)?;
-        let default_value_source_provider = default_value_source_provider
-            .or_else(|| self.default_value_source_provider.clone());
+        let artifact_id = self
+            .inner
+            .artifact_id
+            .with_override_domain(override_domain)?;
+        let default_value_source_provider =
+            default_value_source_provider.or_else(|| self.default_value_source_provider.clone());
 
         Ok(Self {
             inner: Arc::new(ArtifactDeclarationInner {

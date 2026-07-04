@@ -7,7 +7,9 @@
 use super::{
     configuration::FileCacheProviderConfig,
     constants::{ENTRY_COMMITTED, ENTRY_DELETING, ENTRY_INVALID, SCHEMA_VERSION},
-    descriptors::{CacheHitDescriptor, CacheResolveDescriptor, CacheWaitDescriptor, CacheWriteDescriptor},
+    descriptors::{
+        CacheHitDescriptor, CacheResolveDescriptor, CacheWaitDescriptor, CacheWriteDescriptor,
+    },
     filesystem::FileCacheProviderFilesystem,
 };
 use crate::artifact_models::AnyArtifactDeclaration;
@@ -75,14 +77,17 @@ impl FileCacheProviderMetadataStore {
     pub fn connect(&self) -> Result<Connection> {
         let connection = Connection::open(&self.database_path)?;
         connection.execute_batch("PRAGMA foreign_keys = ON")?;
-        connection.busy_timeout(Duration::from_secs_f64(self.config.sqlite_busy_timeout_seconds))?;
+        connection.busy_timeout(Duration::from_secs_f64(
+            self.config.sqlite_busy_timeout_seconds,
+        ))?;
         Ok(connection)
     }
 
     fn initialize_database(&self) -> Result<()> {
         fs::create_dir_all(&self.root)?;
         fs::create_dir_all(&self.objects_root)?;
-        let deadline = Instant::now() + Duration::from_secs_f64(self.config.sqlite_busy_timeout_seconds);
+        let deadline =
+            Instant::now() + Duration::from_secs_f64(self.config.sqlite_busy_timeout_seconds);
 
         loop {
             let result = (|| -> Result<()> {
@@ -190,7 +195,10 @@ impl FileCacheProviderMetadataStore {
 
             match result {
                 Ok(()) => return Ok(()),
-                Err(error) if error.to_string().to_lowercase().contains("locked") && Instant::now() < deadline => {
+                Err(error)
+                    if error.to_string().to_lowercase().contains("locked")
+                        && Instant::now() < deadline =>
+                {
                     std::thread::sleep(Duration::from_millis(50));
                 }
                 Err(error) => return Err(error),
@@ -220,7 +228,12 @@ impl FileCacheProviderMetadataStore {
                 )
                 .optional()?;
             let writer = if let Some(writer) = writer {
-                if self.reservation_row_is_stale(&writer.owner_host_id, writer.owner_process_id, writer.heartbeat_at, now) {
+                if self.reservation_row_is_stale(
+                    &writer.owner_host_id,
+                    writer.owner_process_id,
+                    writer.heartbeat_at,
+                    now,
+                ) {
                     connection.execute(
                         "DELETE FROM write_reservations WHERE reservation_id = ?",
                         params![writer.reservation_id],
@@ -246,7 +259,9 @@ impl FileCacheProviderMetadataStore {
                     )
                     .optional()?;
                 if let Some(entry) = entry {
-                    if let Some(validation_error) = self.validate_entry_row(&entry, declaration, fingerprint)? {
+                    if let Some(validation_error) =
+                        self.validate_entry_row(&entry, declaration, fingerprint)?
+                    {
                         connection.execute(
                             r#"
                             UPDATE cache_entries
@@ -371,14 +386,46 @@ impl FileCacheProviderMetadataStore {
         fingerprint: &str,
     ) -> Result<Option<String>> {
         let expected = [
-            ("fingerprint", fingerprint.to_owned(), row.fingerprint.clone()),
-            ("artifact_id", declaration.artifact_id.to_string(), row.artifact_id.clone()),
-            ("artifact_role", declaration.role.as_str().to_owned(), row.artifact_role.clone()),
-            ("artifact_version", declaration.version.to_string(), row.artifact_version.to_string()),
-            ("codec_id", declaration.codec.codec_id().to_owned(), row.codec_id.clone()),
-            ("codec_version", declaration.codec.codec_version().to_string(), row.codec_version.to_string()),
-            ("mime_type", declaration.codec.mime_type().to_owned(), row.mime_type.clone()),
-            ("extension", declaration.codec.extension().to_owned(), row.extension.clone()),
+            (
+                "fingerprint",
+                fingerprint.to_owned(),
+                row.fingerprint.clone(),
+            ),
+            (
+                "artifact_id",
+                declaration.artifact_id.to_string(),
+                row.artifact_id.clone(),
+            ),
+            (
+                "artifact_role",
+                declaration.role.as_str().to_owned(),
+                row.artifact_role.clone(),
+            ),
+            (
+                "artifact_version",
+                declaration.version.to_string(),
+                row.artifact_version.to_string(),
+            ),
+            (
+                "codec_id",
+                declaration.codec.codec_id().to_owned(),
+                row.codec_id.clone(),
+            ),
+            (
+                "codec_version",
+                declaration.codec.codec_version().to_string(),
+                row.codec_version.to_string(),
+            ),
+            (
+                "mime_type",
+                declaration.codec.mime_type().to_owned(),
+                row.mime_type.clone(),
+            ),
+            (
+                "extension",
+                declaration.codec.extension().to_owned(),
+                row.extension.clone(),
+            ),
         ];
         for (field, expected_value, found_value) in expected {
             if expected_value != found_value {
@@ -404,7 +451,11 @@ impl FileCacheProviderMetadataStore {
         Ok(None)
     }
 
-    pub fn record_preparing_write_sync(&self, reservation_id: &str, temporary_path: &Path) -> Result<()> {
+    pub fn record_preparing_write_sync(
+        &self,
+        reservation_id: &str,
+        temporary_path: &Path,
+    ) -> Result<()> {
         let relative_temp = self.filesystem.relative_path(temporary_path)?;
         let connection = self.connect()?;
         let changed = connection.execute(
@@ -413,7 +464,12 @@ impl FileCacheProviderMetadataStore {
             SET temporary_relative_path = ?, heartbeat_at = ?
             WHERE reservation_id = ? AND owner_process_instance_id = ?
             "#,
-            params![relative_temp, now_seconds()?, reservation_id, self.owner_process_instance_id],
+            params![
+                relative_temp,
+                now_seconds()?,
+                reservation_id,
+                self.owner_process_instance_id
+            ],
         )?;
         if changed != 1 {
             bail!("cache write reservation was lost: {reservation_id}");
@@ -514,7 +570,9 @@ impl FileCacheProviderMetadataStore {
             fs::rename(temporary_path, final_path)?;
             moved = true;
             if self.config.fsync_directories {
-                FileCacheProviderFilesystem::fsync_directory(final_path.parent().unwrap_or_else(|| Path::new(".")))?;
+                FileCacheProviderFilesystem::fsync_directory(
+                    final_path.parent().unwrap_or_else(|| Path::new(".")),
+                )?;
             }
 
             connection.execute(
@@ -653,12 +711,23 @@ impl FileCacheProviderMetadataStore {
     }
 
     pub fn heartbeat_sync(&self, kind: &str, reservation_id: &str) -> Result<bool> {
-        let table = if kind == "read" { "read_reservations" } else { "write_reservations" };
+        let table = if kind == "read" {
+            "read_reservations"
+        } else {
+            "write_reservations"
+        };
         let connection = self.connect()?;
         let sql = format!(
             "UPDATE {table} SET heartbeat_at = ? WHERE reservation_id = ? AND owner_process_instance_id = ?"
         );
-        Ok(connection.execute(&sql, params![now_seconds()?, reservation_id, self.owner_process_instance_id])? == 1)
+        Ok(connection.execute(
+            &sql,
+            params![
+                now_seconds()?,
+                reservation_id,
+                self.owner_process_instance_id
+            ],
+        )? == 1)
     }
 
     pub fn touch_read_reservation_sync(&self, reservation_id: &str) -> Result<bool> {
@@ -729,7 +798,12 @@ impl FileCacheProviderMetadataStore {
                 connection.execute_batch("COMMIT")?;
                 return Ok((false, Vec::new()));
             };
-            if self.reservation_row_is_stale(&row.owner_host_id, row.owner_process_id, row.heartbeat_at, now) {
+            if self.reservation_row_is_stale(
+                &row.owner_host_id,
+                row.owner_process_id,
+                row.heartbeat_at,
+                now,
+            ) {
                 connection.execute(
                     "DELETE FROM write_reservations WHERE reservation_id = ?",
                     params![observed_reservation_id],
@@ -755,11 +829,23 @@ impl FileCacheProviderMetadataStore {
             SET status = ?, is_current = 0, status_changed_at = ?, quarantine_reason = ?
             WHERE entry_id = ? AND status != ?
             "#,
-            params![ENTRY_INVALID, now_seconds()?, reason, entry_id, ENTRY_DELETING],
+            params![
+                ENTRY_INVALID,
+                now_seconds()?,
+                reason,
+                entry_id,
+                ENTRY_DELETING
+            ],
         )? == 1)
     }
 
-    pub fn reservation_row_is_stale(&self, owner_host_id: &str, owner_process_id: u32, heartbeat_at: f64, now: f64) -> bool {
+    pub fn reservation_row_is_stale(
+        &self,
+        owner_host_id: &str,
+        owner_process_id: u32,
+        heartbeat_at: f64,
+        now: f64,
+    ) -> bool {
         if owner_host_id == self.owner_host_id && !pid_is_alive(owner_process_id) {
             return true;
         }
@@ -844,7 +930,9 @@ impl WriteReservationRow {
             pending_entry_id: row.get("pending_entry_id")?,
             final_relative_path: row.get("final_relative_path")?,
             temporary_relative_path: row.get("temporary_relative_path")?,
-            prepared_size: row.get::<_, Option<i64>>("prepared_size")?.map(|value| value as u64),
+            prepared_size: row
+                .get::<_, Option<i64>>("prepared_size")?
+                .map(|value| value as u64),
             prepared_digest: row.get("prepared_digest")?,
             owner_task_id: row.get("owner_task_id")?,
             owner_process_id: row.get::<_, i64>("owner_process_id")? as u32,

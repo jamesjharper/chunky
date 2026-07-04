@@ -82,5 +82,4 @@ impl FingerprintProvider {
             "effective_settings_fingerprint": effective_settings_fingerprint,
         }))
     }
-
 }

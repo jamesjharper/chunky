@@ -23,7 +23,11 @@ pub struct FileCacheProviderFilesystem {
 
 impl FileCacheProviderFilesystem {
     pub fn new(root: PathBuf, objects_root: PathBuf, config: Arc<FileCacheProviderConfig>) -> Self {
-        Self { root, objects_root, config }
+        Self {
+            root,
+            objects_root,
+            config,
+        }
     }
 
     pub fn new_generation_path(
@@ -33,7 +37,11 @@ impl FileCacheProviderFilesystem {
         extension: &str,
     ) -> PathBuf {
         let key = stable_hash_bytes(fingerprint.as_bytes());
-        let safe_extension = if is_safe_extension(extension) { extension } else { ".blob" };
+        let safe_extension = if is_safe_extension(extension) {
+            extension
+        } else {
+            ".blob"
+        };
         self.objects_root
             .join(&key[..2])
             .join(&key)
@@ -44,11 +52,14 @@ impl FileCacheProviderFilesystem {
         if let Ok(relative) = path.strip_prefix(&self.root) {
             return Ok(relative.to_string_lossy().replace('\\', "/"));
         }
-        let root = self.root.canonicalize().unwrap_or_else(|_| self.root.clone());
+        let root = self
+            .root
+            .canonicalize()
+            .unwrap_or_else(|_| self.root.clone());
         let resolved = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        let relative = resolved.strip_prefix(&root).map_err(|_| {
-            anyhow!("cache path escapes cache root: {}", path.display())
-        })?;
+        let relative = resolved
+            .strip_prefix(&root)
+            .map_err(|_| anyhow!("cache path escapes cache root: {}", path.display()))?;
         Ok(relative.to_string_lossy().replace('\\', "/"))
     }
 
@@ -115,7 +126,10 @@ impl FileCacheProviderFilesystem {
         }
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs_f64();
         let mut removed = 0;
-        for entry in WalkDir::new(&self.objects_root).into_iter().filter_map(Result::ok) {
+        for entry in WalkDir::new(&self.objects_root)
+            .into_iter()
+            .filter_map(Result::ok)
+        {
             if !entry.file_type().is_file() {
                 continue;
             }

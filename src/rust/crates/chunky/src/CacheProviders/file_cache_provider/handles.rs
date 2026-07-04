@@ -15,9 +15,16 @@ use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use std::{
     path::PathBuf,
-    sync::{atomic::{AtomicBool, Ordering}, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
-use tokio::{sync::Mutex, task::JoinHandle, time::{sleep, Duration}};
+use tokio::{
+    sync::Mutex,
+    task::JoinHandle,
+    time::{sleep, Duration},
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReservationKind {
@@ -45,7 +52,10 @@ impl FileCacheProviderReservationHeartbeat {
         let active_for_task = active.clone();
         let task = tokio::spawn(async move {
             while active_for_task.load(Ordering::SeqCst) {
-                sleep(Duration::from_secs_f64(provider.config().heartbeat_interval_seconds)).await;
+                sleep(Duration::from_secs_f64(
+                    provider.config().heartbeat_interval_seconds,
+                ))
+                .await;
                 if !active_for_task.load(Ordering::SeqCst) {
                     return;
                 }
@@ -56,7 +66,10 @@ impl FileCacheProviderReservationHeartbeat {
                 }
             }
         });
-        Self { active, task: Mutex::new(Some(task)) }
+        Self {
+            active,
+            task: Mutex::new(Some(task)),
+        }
     }
 
     async fn stop(&self) {
@@ -76,8 +89,16 @@ pub struct FileCacheProviderWaitHandle {
 }
 
 impl FileCacheProviderWaitHandle {
-    pub fn new(provider: FileCacheProvider, fingerprint: String, observed_reservation_id: String) -> Self {
-        Self { provider, fingerprint, observed_reservation_id }
+    pub fn new(
+        provider: FileCacheProvider,
+        fingerprint: String,
+        observed_reservation_id: String,
+    ) -> Self {
+        Self {
+            provider,
+            fingerprint,
+            observed_reservation_id,
+        }
     }
 }
 
@@ -92,7 +113,10 @@ impl CacheWaitHandle for FileCacheProviderWaitHandle {
             if !active {
                 return Ok(());
             }
-            sleep(Duration::from_secs_f64(self.provider.config().wait_poll_interval_seconds)).await;
+            sleep(Duration::from_secs_f64(
+                self.provider.config().wait_poll_interval_seconds,
+            ))
+            .await;
         }
     }
 }
@@ -148,7 +172,11 @@ impl ArtifactSourceHandle for FileCacheProviderSourceHandle {
         if self.closed.load(Ordering::SeqCst) {
             bail!("cache read handle is closed");
         }
-        if !self.provider.touch_read_reservation(&self.reservation_id).await? {
+        if !self
+            .provider
+            .touch_read_reservation(&self.reservation_id)
+            .await?
+        {
             bail!("cache read reservation was lost: {}", self.reservation_id);
         }
 
@@ -189,7 +217,9 @@ impl ArtifactSourceHandle for FileCacheProviderSourceHandle {
             return Ok(());
         }
         self.heartbeat.stop().await;
-        self.provider.release_read_reservation(&self.reservation_id).await
+        self.provider
+            .release_read_reservation(&self.reservation_id)
+            .await
     }
 }
 
@@ -256,7 +286,12 @@ impl ArtifactTargetHandle for FileCacheProviderTargetHandle {
         "file-cache-provider"
     }
 
-    async fn prepare(&self, value: ArtifactValue, codec: &dyn ErasedCodec, fingerprint: &str) -> Result<()> {
+    async fn prepare(
+        &self,
+        value: ArtifactValue,
+        codec: &dyn ErasedCodec,
+        fingerprint: &str,
+    ) -> Result<()> {
         let mut state = self.state.lock().await;
         if state.committed || state.aborted {
             bail!("cache target is already terminal");
@@ -311,9 +346,17 @@ impl ArtifactTargetHandle for FileCacheProviderTargetHandle {
                 return Ok(());
             }
             (
-                state.temporary_path.clone().ok_or_else(|| anyhow!("cache target has not been prepared"))?,
-                state.data_size.ok_or_else(|| anyhow!("cache target has not been prepared"))?,
-                state.data_digest.clone().ok_or_else(|| anyhow!("cache target has not been prepared"))?,
+                state
+                    .temporary_path
+                    .clone()
+                    .ok_or_else(|| anyhow!("cache target has not been prepared"))?,
+                state
+                    .data_size
+                    .ok_or_else(|| anyhow!("cache target has not been prepared"))?,
+                state
+                    .data_digest
+                    .clone()
+                    .ok_or_else(|| anyhow!("cache target has not been prepared"))?,
             )
         };
 

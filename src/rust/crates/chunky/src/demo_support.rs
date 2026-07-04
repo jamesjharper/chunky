@@ -9,8 +9,8 @@ use crate::artifact_handles_examples::{AtomicFileTargetHandle, FileSource, InMem
 use crate::cache_providers::FileCacheProvider;
 use crate::example_features::{
     alignment_settings, asr_settings, audio_settings, diarization_settings, language_settings,
-    music_audio_settings, render_settings, source_audio, speech_audio_settings,
-    vtt_settings, webvtt_transcript, SummaryExampleFeature,
+    music_audio_settings, render_settings, source_audio, speech_audio_settings, vtt_settings,
+    webvtt_transcript, SummaryExampleFeature,
 };
 use crate::pipeline::{ChunkyPipeline, RunRequest};
 
@@ -25,9 +25,14 @@ pub struct DemoFixture {
     pub pipeline: ChunkyPipeline,
 }
 
-pub fn build_inputs(audio_path: &Path) -> BTreeMap<crate::artifact_models::ArtifactKey, Arc<dyn ArtifactSourceHandle>> {
+pub fn build_inputs(
+    audio_path: &Path,
+) -> BTreeMap<crate::artifact_models::ArtifactKey, Arc<dyn ArtifactSourceHandle>> {
     let mut inputs: BTreeMap<_, Arc<dyn ArtifactSourceHandle>> = BTreeMap::new();
-    inputs.insert(source_audio().artifact_id().clone(), FileSource::new(audio_path));
+    inputs.insert(
+        source_audio().artifact_id().clone(),
+        FileSource::new(audio_path),
+    );
     inputs.insert(
         audio_settings().artifact_id().clone(),
         InMemorySource::new(
@@ -56,10 +61,7 @@ pub fn build_inputs(audio_path: &Path) -> BTreeMap<crate::artifact_models::Artif
     );
     inputs.insert(
         diarization_settings().artifact_id().clone(),
-        InMemorySource::new(
-            "demo-settings",
-            json!({"model": "placeholder-diarizer"}),
-        ),
+        InMemorySource::new("demo-settings", json!({"model": "placeholder-diarizer"})),
     );
     inputs.insert(
         alignment_settings().artifact_id().clone(),

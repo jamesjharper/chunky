@@ -42,7 +42,7 @@ from src.python.chunky.Planning.TaskRequestGraph import (
     TaskRequestGraphBuilder,
     settings_fingerprint,
 )
-from src.python.chunky.Planning.execution_planner import ExecutionPlanner
+from src.python.chunky.Planning.execution_planner import TaskRunPlanner
 from src.python.chunky.Planning.manifest_graph import StageManifestGraphBuilder
 from src.python.chunky import EvaluatedPlan
 from src.python.chunky.Stages.stage_manifest import StageConsumer, StageManifest, StageManifestBuilder, StageProducer
@@ -223,7 +223,7 @@ async def _evaluate(
     run_policy: PlanningRunPolicy | None = None,
 ) -> EvaluatedPlan:
     requested_outputs = set(requested)
-    ExecutionPlanner(manifest)._validate_requested_outputs(requested_outputs)
+    TaskRunPlanner(manifest)._validate_requested_outputs(requested_outputs)
     resolver = PlannerSettingsResolver(manifest)
     manifest_graph = StageManifestGraphBuilder(manifest).build()
     request_settings = await PlannerRequestSettings.read_from(
@@ -296,7 +296,7 @@ class CanonicalCaseHarness:
                         ),
                     )
                 )
-            for binding in (*invocation.required_input_bindings, *invocation.optional_input_bindings):
+            for binding in invocation.input_bindings:
                 is_known_available = (
                     binding.required
                     or binding.resolved_instance_id in produced
@@ -1089,7 +1089,7 @@ class PlannerEvaluationSuppliedIntermediateTests(unittest.IsolatedAsyncioTestCas
         self.assertEqual((int_a,), stage_b_invocation.required_input_ids)
         self.assertEqual(
             f"{int_a}",
-            stage_b_invocation.required_input_bindings[0].resolved_instance_id,
+            stage_b_invocation.input_bindings[0].resolved_instance_id,
         )
 
     async def test_supplied_intermediate_does_not_prune_shared_producer_needed_for_other_output(self) -> None:
@@ -1156,11 +1156,11 @@ class PlannerEvaluationSuppliedIntermediateTests(unittest.IsolatedAsyncioTestCas
         self.assertEqual((int_b,), invocations_by_stage["stage_ab"].requested_output_ids)
         self.assertEqual(
             f"{int_a}",
-            invocations_by_stage["stage_a"].required_input_bindings[0].resolved_instance_id,
+            invocations_by_stage["stage_a"].input_bindings[0].resolved_instance_id,
         )
         self.assertEqual(
             invocations_by_stage["stage_ab"].requested_output_bindings[0].instance_id,
-            invocations_by_stage["stage_b"].required_input_bindings[0].resolved_instance_id,
+            invocations_by_stage["stage_b"].input_bindings[0].resolved_instance_id,
         )
 
     async def test_supplied_completed_intermediate_satisfies_phase_less_completed_requirement(self) -> None:
@@ -1294,7 +1294,7 @@ class PlannerEvaluationSuppliedIntermediateTests(unittest.IsolatedAsyncioTestCas
             ["stage_terminal", "stage_completed_consumer"],
             [inv.registration.stage_id for inv in completed_plan.invocations],
         )
-        completed_input = completed_plan.invocations[1].required_input_bindings[0]
+        completed_input = completed_plan.invocations[1].input_bindings[0]
         self.assertEqual(completed, completed_input.resolved_artifact_id)
         self.assertNotEqual(phase_100, completed_input.resolved_artifact_id)
 
@@ -1602,7 +1602,7 @@ class PlannerEvaluationPhaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(phase_201, terminal_binding.declared_artifact_id)
         self.assertEqual(completed, terminal_binding.resolved_artifact_id)
         self.assertTrue(terminal_binding.terminal_remapped)
-        render_input = plan.invocations[2].required_input_bindings[0]
+        render_input = plan.invocations[2].input_bindings[0]
         self.assertEqual(completed, render_input.resolved_artifact_id)
 
     async def test_bounded_phase_input_requirement_selects_highest_available_phase_not_exceeding_bound(self) -> None:

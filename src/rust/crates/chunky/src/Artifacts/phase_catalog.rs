@@ -4,8 +4,7 @@
 //! declaration-aware matching and terminal remapping rules.
 
 use crate::artifact_models::{
-    AnyArtifactDeclaration, ArtifactKey, ArtifactRequirement, ArtifactRole,
-    PhaseMatchMode,
+    AnyArtifactDeclaration, ArtifactKey, ArtifactRequirement, ArtifactRole, PhaseMatchMode,
 };
 use anyhow::{bail, Result};
 use std::collections::{BTreeMap, BTreeSet};

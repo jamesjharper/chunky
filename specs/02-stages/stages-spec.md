@@ -897,8 +897,7 @@ PlannedStageInvocation
   behavior_version
   executor_factory_binding
 
-  required_input_bindings[]
-  optional_input_bindings[]
+  input_bindings[]
   requested_output_bindings[]
 
   effective_settings_fingerprint

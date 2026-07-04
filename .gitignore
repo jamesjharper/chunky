@@ -21,3 +21,7 @@ target
 #.idea/
 
 .codebase-memory
+.basic-memory-test
+.cursor/mcp.json
+.cursor/rules/agent-lsp.mdc
+*.pyc

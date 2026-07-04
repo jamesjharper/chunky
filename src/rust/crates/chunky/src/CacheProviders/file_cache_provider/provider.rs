@@ -6,9 +6,14 @@
 
 use super::{
     configuration::{FileCacheProviderConfig, FileCacheProviderGarbageCollectionPolicy},
-    descriptors::{CacheResolveDescriptor, CacheHitDescriptor, CacheWaitDescriptor, CacheWriteDescriptor},
+    descriptors::{
+        CacheHitDescriptor, CacheResolveDescriptor, CacheWaitDescriptor, CacheWriteDescriptor,
+    },
     filesystem::FileCacheProviderFilesystem,
-    handles::{FileCacheProviderSourceHandle, FileCacheProviderTargetHandle, FileCacheProviderWaitHandle, ReservationKind},
+    handles::{
+        FileCacheProviderSourceHandle, FileCacheProviderTargetHandle, FileCacheProviderWaitHandle,
+        ReservationKind,
+    },
     maintenance::FileCacheProviderMaintenance,
     metadata_store::{now_seconds, FileCacheProviderMetadataStore},
     models::{
@@ -59,12 +64,14 @@ impl FileCacheProvider {
         config: Option<FileCacheProviderConfig>,
         event_handler: Option<FileCacheProviderEventHandler>,
     ) -> Result<Self> {
-        let root = dunce::canonicalize(root.as_ref()).unwrap_or_else(|_| root.as_ref().to_path_buf());
+        let root =
+            dunce::canonicalize(root.as_ref()).unwrap_or_else(|_| root.as_ref().to_path_buf());
         let objects_root = root.join("objects");
         let database_path = root.join("cache.sqlite3");
         let config = Arc::new(config.unwrap_or_default());
         config.validate()?;
-        let owner_task_id = owner_task_id.unwrap_or_else(|| format!("cache-client-{}", Uuid::new_v4().simple()));
+        let owner_task_id =
+            owner_task_id.unwrap_or_else(|| format!("cache-client-{}", Uuid::new_v4().simple()));
         let owner_process_id = std::process::id();
         let owner_host_id = hostname::get()
             .ok()
@@ -158,7 +165,11 @@ impl FileCacheProvider {
         let declaration_for_blocking = declaration.clone();
         let fingerprint_for_blocking = fingerprint.to_owned();
         let (descriptor, cleanup_paths) = tokio::task::spawn_blocking(move || {
-            metadata_store.resolve_sync(&declaration_for_blocking, &fingerprint_for_blocking, force_write)
+            metadata_store.resolve_sync(
+                &declaration_for_blocking,
+                &fingerprint_for_blocking,
+                force_write,
+            )
         })
         .await??;
 
@@ -166,9 +177,17 @@ impl FileCacheProvider {
         tokio::task::spawn_blocking(move || filesystem.remove_paths(cleanup_paths)).await??;
 
         match descriptor {
-            CacheResolveDescriptor::Hit(descriptor) => self.resolve_hit(declaration, fingerprint, descriptor).await,
-            CacheResolveDescriptor::Write(descriptor) => self.resolve_write(declaration, fingerprint, force_write, descriptor).await,
-            CacheResolveDescriptor::Wait(descriptor) => self.resolve_wait(declaration, fingerprint, descriptor).await,
+            CacheResolveDescriptor::Hit(descriptor) => {
+                self.resolve_hit(declaration, fingerprint, descriptor).await
+            }
+            CacheResolveDescriptor::Write(descriptor) => {
+                self.resolve_write(declaration, fingerprint, force_write, descriptor)
+                    .await
+            }
+            CacheResolveDescriptor::Wait(descriptor) => {
+                self.resolve_wait(declaration, fingerprint, descriptor)
+                    .await
+            }
         }
     }
 
@@ -206,7 +225,14 @@ impl FileCacheProvider {
             artifact_id: Some(declaration.artifact_id.to_string()),
             reservation_id: Some(descriptor.reservation_id.clone()),
             owner_task_id: Some(self.owner_task_id().to_owned()),
-            reason: Some(if force_write { "force_write" } else { "cache_miss" }.to_owned()),
+            reason: Some(
+                if force_write {
+                    "force_write"
+                } else {
+                    "cache_miss"
+                }
+                .to_owned(),
+            ),
             timestamp: now_seconds().unwrap_or_default(),
         })
         .await;
@@ -269,31 +295,41 @@ impl FileCacheProvider {
     }
 
     pub async fn recover(&self) -> Result<FileCacheProviderRecoveryResult> {
-        FileCacheProviderMaintenance::new(self.clone()).recover().await
+        FileCacheProviderMaintenance::new(self.clone())
+            .recover()
+            .await
     }
 
     pub async fn garbage_collect(
         &self,
         policy: Option<FileCacheProviderGarbageCollectionPolicy>,
     ) -> Result<FileCacheProviderGarbageCollectionResult> {
-        FileCacheProviderMaintenance::new(self.clone()).garbage_collect(policy).await
+        FileCacheProviderMaintenance::new(self.clone())
+            .garbage_collect(policy)
+            .await
     }
 
     pub async fn statistics(&self) -> Result<FileCacheProviderStatistics> {
-        FileCacheProviderMaintenance::new(self.clone()).statistics().await
+        FileCacheProviderMaintenance::new(self.clone())
+            .statistics()
+            .await
     }
 
     pub async fn heartbeat(&self, kind: ReservationKind, reservation_id: &str) -> Result<bool> {
         let metadata_store = self.metadata_store();
         let reservation_id = reservation_id.to_owned();
         let kind = kind.as_str().to_owned();
-        tokio::task::spawn_blocking(move || metadata_store.heartbeat_sync(&kind, &reservation_id)).await?
+        tokio::task::spawn_blocking(move || metadata_store.heartbeat_sync(&kind, &reservation_id))
+            .await?
     }
 
     pub async fn touch_read_reservation(&self, reservation_id: &str) -> Result<bool> {
         let metadata_store = self.metadata_store();
         let reservation_id = reservation_id.to_owned();
-        tokio::task::spawn_blocking(move || metadata_store.touch_read_reservation_sync(&reservation_id)).await?
+        tokio::task::spawn_blocking(move || {
+            metadata_store.touch_read_reservation_sync(&reservation_id)
+        })
+        .await?
     }
 
     pub async fn release_read_reservation(&self, reservation_id: &str) -> Result<()> {
@@ -317,7 +353,11 @@ impl FileCacheProvider {
         Ok(())
     }
 
-    pub async fn record_preparing_write(&self, reservation_id: &str, temporary_path: &Path) -> Result<()> {
+    pub async fn record_preparing_write(
+        &self,
+        reservation_id: &str,
+        temporary_path: &Path,
+    ) -> Result<()> {
         let metadata_store = self.metadata_store();
         let reservation_id = reservation_id.to_owned();
         let temporary_path = temporary_path.to_path_buf();
@@ -339,7 +379,12 @@ impl FileCacheProvider {
         let temporary_path = temporary_path.to_path_buf();
         let data_digest = data_digest.to_owned();
         tokio::task::spawn_blocking(move || {
-            metadata_store.record_prepared_write_sync(&reservation_id, &temporary_path, data_size, &data_digest)
+            metadata_store.record_prepared_write_sync(
+                &reservation_id,
+                &temporary_path,
+                data_size,
+                &data_digest,
+            )
         })
         .await?
     }
@@ -405,7 +450,12 @@ impl FileCacheProvider {
         let temporary_path = temporary_path.map(Path::to_path_buf);
         let final_path = final_path.to_path_buf();
         let cleanup_paths = tokio::task::spawn_blocking(move || {
-            metadata_store.abort_write_sync(&reservation_id_for_blocking, &entry_id, temporary_path.as_deref(), &final_path)
+            metadata_store.abort_write_sync(
+                &reservation_id_for_blocking,
+                &entry_id,
+                temporary_path.as_deref(),
+                &final_path,
+            )
         })
         .await??;
         let filesystem = self.filesystem();
@@ -422,14 +472,21 @@ impl FileCacheProvider {
         Ok(())
     }
 
-    pub async fn observed_writer_is_active(&self, fingerprint: &str, observed_reservation_id: &str) -> Result<bool> {
+    pub async fn observed_writer_is_active(
+        &self,
+        fingerprint: &str,
+        observed_reservation_id: &str,
+    ) -> Result<bool> {
         let metadata_store = self.metadata_store();
         let fingerprint_owned = fingerprint.to_owned();
         let observed_reservation_id_owned = observed_reservation_id.to_owned();
         let fingerprint_for_blocking = fingerprint_owned.clone();
         let observed_reservation_id_for_blocking = observed_reservation_id_owned.clone();
         let (active, cleanup_paths) = tokio::task::spawn_blocking(move || {
-            metadata_store.observed_writer_is_active_sync(&fingerprint_for_blocking, &observed_reservation_id_for_blocking)
+            metadata_store.observed_writer_is_active_sync(
+                &fingerprint_for_blocking,
+                &observed_reservation_id_for_blocking,
+            )
         })
         .await??;
         let filesystem = self.filesystem();

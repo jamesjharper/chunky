@@ -46,7 +46,11 @@ impl<'ctx, 'a> TaskRequestGraphBuilder<'ctx, 'a> {
         settings_resolver: &'ctx PlannerSettingsResolver<'a>,
         producer_selector: &'ctx ProducerSelector<'a>,
     ) -> Self {
-        Self { manifest, settings_resolver, producer_selector }
+        Self {
+            manifest,
+            settings_resolver,
+            producer_selector,
+        }
     }
 
     pub async fn build(&self, context: &TaskRequestContext<'a>) -> Result<TaskRequestGraph<'a>> {
@@ -68,7 +72,8 @@ impl<'ctx, 'a> TaskRequestGraphBuilder<'ctx, 'a> {
 
     fn finalize_graph(&self, graph: GraphBuildState<'a>) -> Result<TaskRequestGraph<'a>> {
         let ordered_candidate_keys = self.topological_stage_order(&graph.invocations_by_key)?;
-        let invocation_ids_by_candidate = self.assign_invocation_ids(&graph, &ordered_candidate_keys);
+        let invocation_ids_by_candidate =
+            self.assign_invocation_ids(&graph, &ordered_candidate_keys);
 
         let mut invocations = Vec::new();
         for candidate_key in &ordered_candidate_keys {
@@ -82,11 +87,14 @@ impl<'ctx, 'a> TaskRequestGraphBuilder<'ctx, 'a> {
             )?);
         }
 
-        let dependencies_by_invocation = self.dependencies_by_invocation(&graph, &invocation_ids_by_candidate);
+        let dependencies_by_invocation =
+            self.dependencies_by_invocation(&graph, &invocation_ids_by_candidate);
         let dependents_by_invocation = self.dependents_by_invocation(&dependencies_by_invocation);
 
-        let mut requested_output_bindings: Vec<_> = graph.requested_output_bindings.values().cloned().collect();
-        requested_output_bindings.sort_by(|left, right| left.requested_artifact_id.cmp(&right.requested_artifact_id));
+        let mut requested_output_bindings: Vec<_> =
+            graph.requested_output_bindings.values().cloned().collect();
+        requested_output_bindings
+            .sort_by(|left, right| left.requested_artifact_id.cmp(&right.requested_artifact_id));
 
         Ok(TaskRequestGraph {
             manifest_id: self.manifest.manifest_id.clone(),
@@ -106,8 +114,13 @@ impl<'ctx, 'a> TaskRequestGraphBuilder<'ctx, 'a> {
             .iter()
             .enumerate()
             .map(|(index, candidate_key)| {
-                let stage_id = graph.invocations_by_key[candidate_key].registration.stage_id();
-                (candidate_key.clone(), format!("{stage_id}:{:03}", index + 1))
+                let stage_id = graph.invocations_by_key[candidate_key]
+                    .registration
+                    .stage_id();
+                (
+                    candidate_key.clone(),
+                    format!("{stage_id}:{:03}", index + 1),
+                )
             })
             .collect()
     }
@@ -117,10 +130,12 @@ impl<'ctx, 'a> TaskRequestGraphBuilder<'ctx, 'a> {
         invocation_id: String,
         invocation: &InvocationDraft<'a>,
     ) -> Result<PlannedInvocation<'a>> {
-        let resource_policy = invocation
-            .resource_policy
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("invocation {} has no resolved resource policy", invocation.key))?;
+        let resource_policy = invocation.resource_policy.clone().ok_or_else(|| {
+            anyhow::anyhow!(
+                "invocation {} has no resolved resource policy",
+                invocation.key
+            )
+        })?;
 
         let mut input_bindings: Vec<_> = invocation.input_bindings.values().cloned().collect();
         input_bindings.sort_by(|left, right| {
@@ -129,14 +144,15 @@ impl<'ctx, 'a> TaskRequestGraphBuilder<'ctx, 'a> {
                 .then_with(|| left.selector.cmp(&right.selector))
         });
 
-        let mut requested_output_bindings: Vec<_> = invocation.output_bindings.values().cloned().collect();
-        requested_output_bindings.sort_by(|left, right| left.declared_artifact_id.cmp(&right.declared_artifact_id));
+        let mut requested_output_bindings: Vec<_> =
+            invocation.output_bindings.values().cloned().collect();
+        requested_output_bindings
+            .sort_by(|left, right| left.declared_artifact_id.cmp(&right.declared_artifact_id));
 
         Ok(PlannedInvocation {
             invocation_id,
             registration: invocation.registration.clone(),
-            required_input_bindings: input_bindings.iter().filter(|binding| binding.required).cloned().collect(),
-            optional_input_bindings: input_bindings.into_iter().filter(|binding| !binding.required).collect(),
+            input_bindings,
             requested_output_bindings,
             effective_settings_fingerprint: invocation.effective_settings_fingerprint.clone(),
             resolved_resource_policy: resource_policy,
@@ -224,11 +240,16 @@ impl<'ctx, 'a> TaskRequestGraphBuilder<'ctx, 'a> {
     }
 
     fn requested_output_requirement(&self, output_id: ArtifactKey) -> ArtifactRequirement {
-        let concrete_phase_requested = output_id.phase.is_some() && self.manifest.concrete_artifact_is_known(&output_id);
+        let concrete_phase_requested =
+            output_id.phase.is_some() && self.manifest.concrete_artifact_is_known(&output_id);
         ArtifactRequirement {
             artifact_id: output_id,
             required: true,
-            phase_match: if concrete_phase_requested { PhaseMatchMode::Exact } else { PhaseMatchMode::AtMost },
+            phase_match: if concrete_phase_requested {
+                PhaseMatchMode::Exact
+            } else {
+                PhaseMatchMode::AtMost
+            },
             pushed_settings: Vec::new(),
         }
     }

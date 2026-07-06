@@ -4,6 +4,7 @@ use crate::{artifact_handles::ArtifactSourceHandle, artifact_models::AnyArtifact
 use anyhow::Result;
 use blake3::Hasher;
 use serde::Serialize;
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 pub fn stable_hash<T: Serialize>(payload: &T) -> Result<String> {
@@ -27,6 +28,55 @@ pub fn stable_hash_bytes(raw: &[u8]) -> String {
 pub struct FingerprintProvider;
 
 impl FingerprintProvider {
+    pub fn build_manifest_fingerprint(
+        &self,
+        description: &Value,
+        manifest_version: &str,
+    ) -> Result<String> {
+        let mut description = description.clone();
+        if let Value::Object(ref mut object) = description {
+            object.insert(
+                "manifest_version".to_owned(),
+                Value::String(manifest_version.to_owned()),
+            );
+        }
+        stable_hash(&description)
+    }
+
+    pub fn build_stage_fingerprint(
+        &self,
+        stage_id: &str,
+        behavior_version: &str,
+    ) -> Result<String> {
+        stable_hash(&serde_json::json!({
+            "stage": {
+                "stage_id": stage_id,
+                "behavior_version": behavior_version,
+            }
+        }))
+    }
+
+    pub fn build_setting_value_fingerprint(
+        &self,
+        key: &crate::artifact_models::ArtifactKey,
+        value: &Value,
+    ) -> Result<String> {
+        stable_hash(&serde_json::json!({
+            "artifact_id": key.to_string(),
+            "value": value,
+        }))
+    }
+
+    pub fn build_settings_fingerprint(
+        &self,
+        fingerprints: &[String],
+    ) -> Result<String> {
+        if fingerprints.is_empty() {
+            return Ok(String::new());
+        }
+        stable_hash(&fingerprints)
+    }
+
     pub async fn build_intermediate_artifact_fingerprint(
         &self,
         declaration: &AnyArtifactDeclaration,
@@ -68,18 +118,14 @@ impl FingerprintProvider {
 
     pub fn build_stage_pedigree_fingerprint(
         &self,
-        stage_id: &str,
-        behavior_version: &str,
+        stage_fingerprint: &str,
         input_fingerprints: &BTreeMap<String, String>,
-        effective_settings_fingerprint: &str,
+        setting_fingerprints: &str,
     ) -> Result<String> {
         stable_hash(&serde_json::json!({
-            "stage": {
-                "stage_id": stage_id,
-                "behavior_version": behavior_version,
-            },
+            "stage": stage_fingerprint,
             "inputs": input_fingerprints,
-            "effective_settings_fingerprint": effective_settings_fingerprint,
+            "settings": setting_fingerprints,
         }))
     }
 }

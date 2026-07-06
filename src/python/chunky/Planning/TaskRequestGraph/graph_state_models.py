@@ -12,7 +12,7 @@ from .binding_models import (
 )
 from .invocation_models import InvocationDraft
 from .requirement_models import ArtifactNeed, ProducedArtifact
-from ...Stages.stage_models import StagePlanningError
+from ...Stages.stage_models import ResolvedSettingsView, StagePlanningError
 
 
 @dataclass(frozen=True)
@@ -20,18 +20,18 @@ class InvocationIdentity:
     """Stable identity used to decide whether producer paths share one invocation."""
 
     stage_id: str
-    inherited_settings: tuple[tuple[ArtifactKey, object], ...]
+    inherited_settings: tuple[tuple[ArtifactKey, str], ...]
     effective_settings_fingerprint: str
 
     @staticmethod
     def from_selection(
         selection: ProducerSelection,
-        inherited_settings: tuple[tuple[ArtifactKey, object], ...],
+        inherited_settings: ResolvedSettingsView,
         effective_settings_fingerprint: str,
     ) -> "InvocationIdentity":
         return InvocationIdentity(
             stage_id=selection.registration.stage_id,
-            inherited_settings=inherited_settings,
+            inherited_settings=inherited_settings.fingerprint_items(),
             effective_settings_fingerprint=effective_settings_fingerprint,
         )
 
@@ -39,7 +39,7 @@ class InvocationIdentity:
     def from_invocation(invocation: InvocationDraft) -> "InvocationIdentity":
         return InvocationIdentity(
             stage_id=invocation.registration.stage_id,
-            inherited_settings=invocation.inherited_settings,
+            inherited_settings=invocation.inherited_settings.fingerprint_items(),
             effective_settings_fingerprint=invocation.effective_settings_fingerprint,
         )
 
@@ -67,6 +67,7 @@ class GraphBuildState:
                 key=invocation.key,
                 registration=invocation.registration,
                 inherited_settings=invocation.inherited_settings,
+                stage_fingerprint=invocation.stage_fingerprint,
                 effective_settings_fingerprint=invocation.effective_settings_fingerprint,
                 output_bindings=dict(invocation.output_bindings),
                 input_bindings=dict(invocation.input_bindings),
@@ -108,7 +109,7 @@ class GraphBuildState:
     def find_invocation(
         self,
         selection: ProducerSelection,
-        inherited_settings: tuple[tuple[ArtifactKey, object], ...],
+        inherited_settings: ResolvedSettingsView,
         effective_settings_fingerprint: str,
     ) -> InvocationDraft | None:
         identity = InvocationIdentity.from_selection(
@@ -124,7 +125,7 @@ class GraphBuildState:
     def find_or_create_invocation(
         self,
         producer_artifact: ProducedArtifact,
-        inherited_settings: tuple[tuple[ArtifactKey, object], ...],
+        inherited_settings: ResolvedSettingsView,
     ) -> InvocationDraft:
         existing = self.find_invocation(
             producer_artifact.selection,
@@ -143,6 +144,7 @@ class GraphBuildState:
             key=key,
             registration=producer_artifact.selection.registration,
             inherited_settings=inherited_settings,
+            stage_fingerprint=producer_artifact.stage_fingerprint,
             effective_settings_fingerprint=(
                 producer_artifact.effective_settings_fingerprint
             ),

@@ -6,7 +6,7 @@
 use crate::artifact_models::{
     AnyArtifactDeclaration, ArtifactCapability, ArtifactKey, ArtifactRole, PhaseMatchMode,
 };
-use crate::fingerprints::stable_hash;
+use crate::fingerprints::FingerprintProvider;
 use crate::phase_catalog::ArtifactPhaseCatalog;
 use crate::stage_models::{
     FeatureRecord, ManifestStageRegistration, PipelineFeature, StageConcurrencyPolicy,
@@ -289,14 +289,13 @@ impl StageManifestBuilder {
             &self.default_producers,
         );
 
+        let manifest_id = FingerprintProvider
+            .build_manifest_fingerprint(&description, StageManifest::MANIFEST_VERSION)?;
         if let Value::Object(ref mut object) = description {
             object.insert(
                 "manifest_version".to_owned(),
                 Value::String(StageManifest::MANIFEST_VERSION.to_owned()),
             );
-        }
-        let manifest_id = stable_hash(&description)?;
-        if let Value::Object(ref mut object) = description {
             object.insert("manifest_id".to_owned(), Value::String(manifest_id.clone()));
         }
         self.frozen = true;

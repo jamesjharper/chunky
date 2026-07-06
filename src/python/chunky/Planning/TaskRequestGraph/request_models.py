@@ -8,7 +8,11 @@ from ...Artifacts.artifact_models import ArtifactKey, ArtifactRole
 from ...Artifacts.binding_models import ArtifactInstance, ArtifactReader
 from ..manifest_graph import StageManifestGraph
 from ...Stages.stage_manifest import StageManifest
-from ...Stages.stage_models import PlanningRunPolicy, ResolvedSettingsView
+from ...Stages.stage_models import (
+    PlanningRunPolicy,
+    ResolvedSettingEntry,
+    ResolvedSettingsView,
+)
 
 
 @dataclass(frozen=True)
@@ -27,8 +31,8 @@ class PlannerRequestSettings:
         user_supplied_settings: Iterable[ArtifactKey],
     ) -> "PlannerRequestSettings":
         user_supplied_settings = frozenset(user_supplied_settings)
-        defaults: dict[ArtifactKey, object] = {}
-        user: dict[ArtifactKey, object] = {}
+        defaults: dict[ArtifactKey, ResolvedSettingEntry] = {}
+        user: dict[ArtifactKey, ResolvedSettingEntry] = {}
         setting_ids = manifest.find_artifacts_by_role(
             supplied_instances,
             role=ArtifactRole.SETTINGS,
@@ -37,12 +41,18 @@ class PlannerRequestSettings:
         for artifact_id, instance in supplied_instances.items():
             if artifact_id not in setting_ids:
                 continue
-            values = user if artifact_id in user_supplied_settings else defaults
-            values[artifact_id] = await ArtifactReader(instance.handle).read()
+            if artifact_id in user_supplied_settings:
+                values = user
+            else:
+                values = defaults
+            values[artifact_id] = ResolvedSettingEntry(
+                value=await ArtifactReader(instance.handle).read(),
+                fingerprint=instance.fingerprint,
+            )
 
         return cls(
-            ResolvedSettingsView(defaults),
-            ResolvedSettingsView(user),
+            ResolvedSettingsView(entries=defaults),
+            ResolvedSettingsView(entries=user),
         )
 
     def merge_with_inherited(

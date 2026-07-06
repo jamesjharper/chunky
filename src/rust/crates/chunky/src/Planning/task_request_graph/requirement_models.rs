@@ -2,10 +2,8 @@
 //!
 //! Planner work-item requirement models.
 
-use serde_json::Value;
-
 use crate::artifact_models::{ArtifactKey, ArtifactRequirement};
-use crate::stage_models::StagePlanningContext;
+use crate::stage_models::{ResolvedSettingsView, StagePlanningContext};
 
 use super::settings::settings_fingerprint;
 use super::shared_models::{instance_id, ProducerSelection};
@@ -18,7 +16,7 @@ use super::shared_models::{instance_id, ProducerSelection};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArtifactNeed {
     pub requirement: ArtifactRequirement,
-    pub inherited_settings: Vec<(ArtifactKey, Value)>,
+    pub inherited_settings: ResolvedSettingsView,
     pub consumer_invocation_key: Option<String>,
     pub requested_output_id: Option<ArtifactKey>,
 }
@@ -42,6 +40,7 @@ pub struct ProducedArtifact<'a> {
     pub selection: ProducerSelection<'a>,
     pub resolved_artifact_id: ArtifactKey,
     pub resolved_instance_id: String,
+    pub stage_fingerprint: String,
     pub effective_settings_fingerprint: String,
 }
 
@@ -72,6 +71,7 @@ impl<'a> ProducedArtifact<'a> {
             selection,
             resolved_artifact_id: semantic_id,
             resolved_instance_id: output_instance_id,
+            stage_fingerprint: producer_context.stage_fingerprint.clone(),
             effective_settings_fingerprint,
         }
     }

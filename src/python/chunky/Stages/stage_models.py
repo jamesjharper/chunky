@@ -9,7 +9,7 @@ artifact readers/writers and the narrow :class:`StageExecutionContext`.
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
@@ -24,6 +24,7 @@ from ..Artifacts.artifact_models import (
     ArtifactRole,
     PhaseMatchMode,
 )
+from ..Artifacts.fingerprints import FingerprintProvider
 from ..Artifacts.phase_catalog import capability_covers_requirement
 
 if TYPE_CHECKING:
@@ -303,21 +304,45 @@ def _wrap_resolved_setting(value: T) -> T:
     return value
 
 
+@dataclass(frozen=True)
+class ResolvedSettingEntry:
+    value: object
+    fingerprint: str | None = None
+
+
 class ResolvedSettingsView:
     """Read-only view of request-resolved settings values."""
 
-    def __init__(self, values: Mapping[ArtifactKey, object] | None = None) -> None:
-        self._values = MappingProxyType(dict(values or {}))
+    def __init__(
+        self,
+        values: Mapping[ArtifactKey, object] | None = None,
+        *,
+        fingerprints: Mapping[ArtifactKey, str] | None = None,
+        entries: Mapping[ArtifactKey, ResolvedSettingEntry] | None = None,
+    ) -> None:
+        if entries is not None:
+            resolved_entries = {
+                key: ResolvedSettingEntry(entry.value, entry.fingerprint)
+                for key, entry in dict(entries).items()
+            }
+        else:
+            fingerprints_by_key = dict(fingerprints or {})
+            resolved_entries = {
+                key: ResolvedSettingEntry(value, fingerprints_by_key.get(key))
+                for key, value in dict(values or {}).items()
+            }
+        self._entries = MappingProxyType(resolved_entries)
 
     def contains(self, selector: ArtifactDeclaration[Any] | ArtifactKey | str) -> bool:
-        return _selector_key(selector) in self._values
+        return _selector_key(selector) in self._entries
 
     def get(
         self,
         selector: ArtifactDeclaration[T] | ArtifactKey | str,
         default: T | None = None,
     ) -> T | None:
-        value = self._values.get(_selector_key(selector), default)
+        entry = self._entries.get(_selector_key(selector))
+        value = default if entry is None else entry.value
         return _wrap_resolved_setting(value)  # type: ignore[return-value]
 
     def require(
@@ -326,23 +351,50 @@ class ResolvedSettingsView:
     ) -> T:
         key = _selector_key(selector)
         try:
-            return _wrap_resolved_setting(self._values[key])  # type: ignore[return-value]
+            return _wrap_resolved_setting(self._entries[key].value)  # type: ignore[return-value]
         except KeyError as exc:
             raise KeyError(f"required resolved setting is absent: {key}") from exc
 
     def items(self) -> tuple[tuple[ArtifactKey, object], ...]:
-        return tuple(sorted(self._values.items(), key=lambda item: str(item[0])))
+        return tuple(
+            sorted(
+                ((key, entry.value) for key, entry in self._entries.items()),
+                key=lambda item: str(item[0]),
+            )
+        )
+
+    def fingerprint(
+        self,
+        selector: ArtifactDeclaration[Any] | ArtifactKey | str,
+    ) -> str | None:
+        entry = self._entries.get(_selector_key(selector))
+        return None if entry is None else entry.fingerprint
+
+    def fingerprint_items(self) -> tuple[tuple[ArtifactKey, str], ...]:
+        return tuple(
+            sorted(
+                (
+                    (key, entry.fingerprint)
+                    for key, entry in self._entries.items()
+                    if entry.fingerprint is not None
+                ),
+                key=lambda item: str(item[0]),
+            )
+        )
+
+    def fingerprints(self) -> tuple[str, ...]:
+        return tuple(
+            entry.fingerprint
+            or FingerprintProvider.build_setting_value_fingerprint(key, entry.value)
+            for key, entry in sorted(self._entries.items(), key=lambda item: str(item[0]))
+        )
 
     def filtered(
         self,
         selectors: set[ArtifactKey] | frozenset[ArtifactKey],
     ) -> "ResolvedSettingsView":
         return ResolvedSettingsView(
-            {
-                key: value
-                for key, value in self._values.items()
-                if key in selectors
-            }
+            entries={key: entry for key, entry in self._entries.items() if key in selectors}
         )
 
     def remove(
@@ -351,18 +403,18 @@ class ResolvedSettingsView:
     ) -> "ResolvedSettingsView":
         removed_bases = {selector.without_override() for selector in selectors}
         return ResolvedSettingsView(
-            {
-                key: value
-                for key, value in self._values.items()
+            entries={
+                key: entry
+                for key, entry in self._entries.items()
                 if key.without_override() not in removed_bases
             }
         )
 
     def merge(self, *overlays: "ResolvedSettingsView") -> "ResolvedSettingsView":
-        merged = dict(self._values)
+        merged = dict(self._entries)
         for overlay in overlays:
-            merged.update(dict(overlay.items()))
-        return ResolvedSettingsView(merged)
+            merged.update(overlay._entries)
+        return ResolvedSettingsView(entries=merged)
 
 
 @dataclass(frozen=True)
@@ -378,6 +430,7 @@ class PlanningRunPolicy:
 @dataclass(frozen=True)
 class StagePlanningContext:
     stage_id: str
+    stage_fingerprint: str
     requested_outputs: frozenset[ArtifactKey]
     resolved_settings: ResolvedSettingsView
     inherited_settings: ResolvedSettingsView

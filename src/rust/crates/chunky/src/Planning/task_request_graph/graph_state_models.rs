@@ -3,10 +3,10 @@
 //! Mutable graph-discovery state for request expansion.
 
 use anyhow::{bail, Result};
-use serde_json::Value;
 use std::collections::BTreeMap;
 
 use crate::artifact_models::ArtifactKey;
+use crate::stage_models::ResolvedSettingsView;
 
 use super::binding_models::{
     ArtifactResolution, PlannedInputBinding, PlannedOutputBinding, RequestedOutputBinding,
@@ -19,19 +19,19 @@ use super::shared_models::{InputRequirementKey, ProducerSelection};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InvocationIdentity {
     pub stage_id: String,
-    pub inherited_settings: Vec<(ArtifactKey, Value)>,
+    pub inherited_settings: Vec<(ArtifactKey, String)>,
     pub effective_settings_fingerprint: String,
 }
 
 impl InvocationIdentity {
     pub fn from_selection(
         selection: &ProducerSelection<'_>,
-        inherited_settings: Vec<(ArtifactKey, Value)>,
+        inherited_settings: ResolvedSettingsView,
         effective_settings_fingerprint: impl Into<String>,
     ) -> Self {
         Self {
             stage_id: selection.registration.stage_id().to_owned(),
-            inherited_settings,
+            inherited_settings: inherited_settings.fingerprint_items(),
             effective_settings_fingerprint: effective_settings_fingerprint.into(),
         }
     }
@@ -39,7 +39,7 @@ impl InvocationIdentity {
     pub fn from_invocation(invocation: &InvocationDraft<'_>) -> Self {
         Self {
             stage_id: invocation.registration.stage_id().to_owned(),
-            inherited_settings: invocation.inherited_settings.clone(),
+            inherited_settings: invocation.inherited_settings.fingerprint_items(),
             effective_settings_fingerprint: invocation.effective_settings_fingerprint.clone(),
         }
     }
@@ -87,7 +87,7 @@ impl<'a> GraphBuildState<'a> {
     pub fn find_invocation(
         &self,
         selection: &ProducerSelection<'a>,
-        inherited_settings: Vec<(ArtifactKey, Value)>,
+        inherited_settings: ResolvedSettingsView,
         effective_settings_fingerprint: &str,
     ) -> Option<&InvocationDraft<'a>> {
         let identity = InvocationIdentity::from_selection(
@@ -103,7 +103,7 @@ impl<'a> GraphBuildState<'a> {
     pub fn find_or_create_invocation(
         &mut self,
         producer_artifact: ProducedArtifact<'a>,
-        inherited_settings: Vec<(ArtifactKey, Value)>,
+        inherited_settings: ResolvedSettingsView,
     ) -> Result<&InvocationDraft<'a>> {
         if let Some(existing_key) = self
             .find_invocation(
@@ -126,6 +126,7 @@ impl<'a> GraphBuildState<'a> {
             producer_artifact.selection.registration.clone(),
             inherited_settings,
             producer_artifact.effective_settings_fingerprint.clone(),
+            producer_artifact.stage_fingerprint.clone(),
         );
         self.invocations_by_key.insert(key.clone(), invocation);
         self.record_invocation_output(&key, &producer_artifact)?;

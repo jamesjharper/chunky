@@ -5,6 +5,7 @@
 //! does not add crate scaffolding, Cargo files, or feature boilerplate.
 
 use crate::artifact_binding_models::{InputArtifacts, OutputArtifacts};
+use crate::fingerprints::FingerprintProvider;
 use crate::artifact_models::{
     AnyArtifactDeclaration, ArtifactCapability, ArtifactKey, ArtifactRequirement, ArtifactRole,
     PhaseMatchMode,
@@ -365,14 +366,32 @@ impl StageConcurrencyPolicy {
     }
 }
 
-#[derive(Clone, Default, Debug, PartialEq)]
+#[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub struct ResolvedSettingsView {
     values: BTreeMap<ArtifactKey, Value>,
+    fingerprints: BTreeMap<ArtifactKey, String>,
 }
 
 impl ResolvedSettingsView {
     pub fn new(values: BTreeMap<ArtifactKey, Value>) -> Self {
-        Self { values }
+        Self {
+            values,
+            fingerprints: BTreeMap::new(),
+        }
+    }
+
+    pub fn new_with_fingerprints(
+        values: BTreeMap<ArtifactKey, Value>,
+        fingerprints: BTreeMap<ArtifactKey, String>,
+    ) -> Self {
+        let fingerprints = fingerprints
+            .into_iter()
+            .filter(|(key, _)| values.contains_key(key))
+            .collect();
+        Self {
+            values,
+            fingerprints,
+        }
     }
 
     pub fn contains(&self, selector: &ArtifactKey) -> bool {
@@ -396,10 +415,41 @@ impl ResolvedSettingsView {
             .collect()
     }
 
+    pub fn fingerprint(&self, selector: &ArtifactKey) -> Option<&str> {
+        self.fingerprints.get(selector).map(String::as_str)
+    }
+
+    pub fn fingerprint_items(&self) -> Vec<(ArtifactKey, String)> {
+        self.fingerprints
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect()
+    }
+
+    pub fn fingerprints(&self) -> Result<Vec<String>> {
+        let fingerprint_provider = FingerprintProvider;
+        self.items()
+            .into_iter()
+            .map(|(key, value)| {
+                Ok(self
+                    .fingerprints
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or(fingerprint_provider.build_setting_value_fingerprint(&key, &value)?))
+            })
+            .collect()
+    }
+
     pub fn filtered(&self, selectors: &BTreeSet<ArtifactKey>) -> Self {
         Self {
             values: self
                 .values
+                .iter()
+                .filter(|(key, _)| selectors.contains(*key))
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+            fingerprints: self
+                .fingerprints
                 .iter()
                 .filter(|(key, _)| selectors.contains(*key))
                 .map(|(key, value)| (key.clone(), value.clone()))
@@ -419,15 +469,35 @@ impl ResolvedSettingsView {
                 .filter(|(key, _)| !removed_bases.contains(&key.without_override()))
                 .map(|(key, value)| (key.clone(), value.clone()))
                 .collect(),
+            fingerprints: self
+                .fingerprints
+                .iter()
+                .filter(|(key, _)| !removed_bases.contains(&key.without_override()))
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
         }
     }
 
     pub fn merge(&self, overlays: &[ResolvedSettingsView]) -> Self {
         let mut merged = self.values.clone();
+        let mut merged_fingerprints = self.fingerprints.clone();
         for overlay in overlays {
-            merged.extend(overlay.values.clone());
+            for (key, value) in &overlay.values {
+                merged.insert(key.clone(), value.clone());
+                match overlay.fingerprints.get(key) {
+                    Some(fingerprint) => {
+                        merged_fingerprints.insert(key.clone(), fingerprint.clone());
+                    }
+                    None => {
+                        merged_fingerprints.remove(key);
+                    }
+                }
+            }
         }
-        Self { values: merged }
+        Self {
+            values: merged,
+            fingerprints: merged_fingerprints,
+        }
     }
 }
 
@@ -445,6 +515,7 @@ impl PlanningRunPolicy {
 #[derive(Clone, Debug, PartialEq)]
 pub struct StagePlanningContext {
     pub stage_id: String,
+    pub stage_fingerprint: String,
     pub requested_outputs: BTreeSet<ArtifactKey>,
     pub resolved_settings: ResolvedSettingsView,
     pub inherited_settings: ResolvedSettingsView,

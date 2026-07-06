@@ -131,6 +131,7 @@ class TaskRequestGraphBuilder:
         return PlannedInvocation(
             invocation_id=invocation_id,
             registration=invocation.registration,
+            stage_fingerprint=invocation.stage_fingerprint,
             input_bindings=input_bindings,
             requested_output_bindings=tuple(
                 sorted(

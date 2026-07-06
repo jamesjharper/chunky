@@ -39,7 +39,9 @@ impl PlannerRequestSettings {
             .find_artifacts_by_role(supplied_instances.keys().cloned(), ArtifactRole::Settings);
 
         let mut defaults: BTreeMap<ArtifactKey, Value> = BTreeMap::new();
+        let mut default_fingerprints: BTreeMap<ArtifactKey, String> = BTreeMap::new();
         let mut user: BTreeMap<ArtifactKey, Value> = BTreeMap::new();
+        let mut user_fingerprints: BTreeMap<ArtifactKey, String> = BTreeMap::new();
 
         for (artifact_id, instance) in supplied_instances {
             if !setting_ids.contains(artifact_id) {
@@ -51,14 +53,23 @@ impl PlannerRequestSettings {
                 .clone();
             if user_supplied_settings.contains(artifact_id) {
                 user.insert(artifact_id.clone(), value);
+                user_fingerprints.insert(artifact_id.clone(), instance.fingerprint().to_owned());
             } else {
                 defaults.insert(artifact_id.clone(), value);
+                default_fingerprints
+                    .insert(artifact_id.clone(), instance.fingerprint().to_owned());
             }
         }
 
         Ok(Self {
-            default_settings: ResolvedSettingsView::new(defaults),
-            user_settings: ResolvedSettingsView::new(user),
+            default_settings: ResolvedSettingsView::new_with_fingerprints(
+                defaults,
+                default_fingerprints,
+            ),
+            user_settings: ResolvedSettingsView::new_with_fingerprints(
+                user,
+                user_fingerprints,
+            ),
         })
     }
 

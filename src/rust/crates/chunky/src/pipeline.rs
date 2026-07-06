@@ -304,8 +304,7 @@ impl<'a> TaskRunGraphBuilder<'a, TaskRunGraph<'a>> for ExampleTaskRunGraphBuilde
                     }
                 }
                 let pedigree = fingerprint_provider.build_stage_pedigree_fingerprint(
-                    invocation.registration.stage_id(),
-                    &invocation.registration.registration.behavior_version,
+                    &invocation.stage_fingerprint,
                     &input_fingerprints,
                     &invocation.effective_settings_fingerprint,
                 )?;
@@ -338,6 +337,8 @@ impl<'a> TaskRunGraphBuilder<'a, TaskRunGraph<'a>> for ExampleTaskRunGraphBuilde
             Ok(TaskRunGraph {
                 manifest_id: task_request_graph.manifest_id,
                 invocations,
+                dependencies_by_invocation: task_request_graph.dependencies_by_invocation,
+                dependents_by_invocation: task_request_graph.dependents_by_invocation,
                 requested_output_bindings: task_request_graph
                     .requested_output_bindings
                     .into_iter()

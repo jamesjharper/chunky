@@ -152,6 +152,7 @@ impl<'ctx, 'a> TaskRequestGraphBuilder<'ctx, 'a> {
         Ok(PlannedInvocation {
             invocation_id,
             registration: invocation.registration.clone(),
+            stage_fingerprint: invocation.stage_fingerprint.clone(),
             input_bindings,
             requested_output_bindings,
             effective_settings_fingerprint: invocation.effective_settings_fingerprint.clone(),

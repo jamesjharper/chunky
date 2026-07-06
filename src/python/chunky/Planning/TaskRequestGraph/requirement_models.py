@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ...Artifacts.artifact_models import ArtifactKey, ArtifactRequirement
-from ...Stages.stage_models import StagePlanningContext
+from ...Stages.stage_models import ResolvedSettingsView, StagePlanningContext
 from .shared_models import ProducerSelection, instance_id
 from .settings import settings_fingerprint
 
@@ -18,9 +18,18 @@ class ArtifactNeed:
     """
 
     requirement: ArtifactRequirement
-    inherited_settings: tuple[tuple[ArtifactKey, object], ...] = ()
+    inherited_settings: ResolvedSettingsView = field(default_factory=ResolvedSettingsView)
     consumer_invocation_key: str | None = None
     requested_output_id: ArtifactKey | None = None
+
+    def __post_init__(self) -> None:
+        if isinstance(self.inherited_settings, ResolvedSettingsView):
+            return
+        object.__setattr__(
+            self,
+            "inherited_settings",
+            ResolvedSettingsView(dict(self.inherited_settings)),
+        )
 
     @property
     def is_required(self) -> bool:
@@ -40,6 +49,7 @@ class ProducedArtifact:
     selection: ProducerSelection
     resolved_artifact_id: ArtifactKey
     resolved_instance_id: str
+    stage_fingerprint: str
     effective_settings_fingerprint: str
 
     @classmethod
@@ -66,5 +76,6 @@ class ProducedArtifact:
             selection=selection,
             resolved_artifact_id=semantic_id,
             resolved_instance_id=output_instance_id,
+            stage_fingerprint=producer_context.stage_fingerprint,
             effective_settings_fingerprint=effective_settings_fingerprint,
         )

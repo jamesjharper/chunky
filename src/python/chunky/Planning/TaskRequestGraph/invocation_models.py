@@ -12,6 +12,7 @@ from .binding_models import PlannedInputBinding, PlannedOutputBinding
 class PlannedInvocation:
     invocation_id: str
     registration: ManifestStageRegistration
+    stage_fingerprint: str
     input_bindings: tuple[PlannedInputBinding, ...]
     requested_output_bindings: tuple[PlannedOutputBinding, ...]
     effective_settings_fingerprint: str
@@ -45,8 +46,9 @@ class InvocationDraft:
     key: str
     registration: ManifestStageRegistration
 
-    inherited_settings: tuple[tuple[ArtifactKey, object], ...]
+    inherited_settings: ResolvedSettingsView
     effective_settings_fingerprint: str
+    stage_fingerprint: str = ""
 
     # The expected output binding for this invocation.
     output_bindings: dict[ArtifactKey, PlannedOutputBinding] = field(default_factory=dict)
@@ -62,6 +64,11 @@ class InvocationDraft:
     input_requirements_resolved_for_outputs: frozenset[
         tuple[ArtifactKey, ArtifactKey]
     ] = frozenset()
+
+    def __post_init__(self) -> None:
+        if isinstance(self.inherited_settings, ResolvedSettingsView):
+            return
+        self.inherited_settings = ResolvedSettingsView(dict(self.inherited_settings))
 
     def requested_output_signature(self) -> frozenset[tuple[ArtifactKey, ArtifactKey]]:
         """Current declared-to-resolved output bindings requested from this invocation."""

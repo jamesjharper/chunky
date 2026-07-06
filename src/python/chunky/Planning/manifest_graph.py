@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..Artifacts.artifact_models import ArtifactKey
+from ..Artifacts.fingerprints import FingerprintProvider
 from ..Stages.stage_manifest import StageManifest
 
 
@@ -26,8 +27,12 @@ class StageManifestGraph:
 
     manifest_id: str
     stage_ids: tuple[str, ...]
+    stage_fingerprints_by_id: dict[str, str]
     producer_edges: tuple[ManifestProducerEdge, ...]
     consumer_edges: tuple[ManifestConsumerEdge, ...]
+
+    def stage_fingerprint(self, stage_id: str) -> str:
+        return self.stage_fingerprints_by_id[stage_id]
 
 
 class StageManifestGraphBuilder:
@@ -38,6 +43,13 @@ class StageManifestGraphBuilder:
         return StageManifestGraph(
             manifest_id=self._manifest.manifest_id,
             stage_ids=tuple(sorted(self._manifest.stages)),
+            stage_fingerprints_by_id={
+                stage_id: FingerprintProvider.build_stage_fingerprint(
+                    stage_id=stage_id,
+                    behavior_version=registration.behavior_version,
+                )
+                for stage_id, registration in sorted(self._manifest.stages.items())
+            },
             producer_edges=tuple(
                 ManifestProducerEdge(
                     stage_id=producer.stage_id,

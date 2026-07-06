@@ -55,6 +55,8 @@ pub struct TaskRunResult {
 pub struct TaskRunGraph<'a> {
     pub manifest_id: String,
     pub invocations: Vec<RunnableInvocation<'a>>,
+    pub dependencies_by_invocation: BTreeMap<String, Vec<String>>,
+    pub dependents_by_invocation: BTreeMap<String, Vec<String>>,
     pub requested_output_bindings: Vec<TaskOutputBinding>,
 }
 

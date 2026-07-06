@@ -13,6 +13,7 @@ use super::shared_models::InputRequirementKey;
 pub struct PlannedInvocation<'a> {
     pub invocation_id: String,
     pub registration: ManifestStageRegistration<'a>,
+    pub stage_fingerprint: String,
     pub input_bindings: Vec<PlannedInputBinding>,
     pub requested_output_bindings: Vec<PlannedOutputBinding>,
     pub effective_settings_fingerprint: String,
@@ -68,8 +69,9 @@ impl<'a> RunnableInvocation<'a> {
 pub struct InvocationDraft<'a> {
     pub key: String,
     pub registration: ManifestStageRegistration<'a>,
-    pub inherited_settings: Vec<(ArtifactKey, serde_json::Value)>,
+    pub inherited_settings: ResolvedSettingsView,
     pub effective_settings_fingerprint: String,
+    pub stage_fingerprint: String,
     pub output_bindings: BTreeMap<ArtifactKey, PlannedOutputBinding>,
     pub input_bindings: BTreeMap<InputRequirementKey, PlannedInputBinding>,
     pub resource_policy: Option<ResourcePolicy>,
@@ -81,14 +83,16 @@ impl<'a> InvocationDraft<'a> {
     pub fn new(
         key: impl Into<String>,
         registration: ManifestStageRegistration<'a>,
-        inherited_settings: Vec<(ArtifactKey, serde_json::Value)>,
+        inherited_settings: ResolvedSettingsView,
         effective_settings_fingerprint: impl Into<String>,
+        stage_fingerprint: impl Into<String>,
     ) -> Self {
         Self {
             key: key.into(),
             registration,
             inherited_settings,
             effective_settings_fingerprint: effective_settings_fingerprint.into(),
+            stage_fingerprint: stage_fingerprint.into(),
             output_bindings: BTreeMap::new(),
             input_bindings: BTreeMap::new(),
             resource_policy: None,

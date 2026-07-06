@@ -16,6 +16,8 @@ from .TaskRequestGraph.task_request_graph import TaskRequestGraph
 class TaskRunGraph:
     manifest_id: str
     invocations: tuple[RunnableInvocation, ...]
+    dependencies_by_invocation: dict[str, tuple[str, ...]]
+    dependents_by_invocation: dict[str, tuple[str, ...]]
     requested_output_bindings: tuple[TaskOutputBinding, ...]
 
 
@@ -48,8 +50,7 @@ class TaskRunGraphBuilder:
                     input_fingerprints[str(binding.selector)] = fingerprint
 
             pedigree = self._fingerprint_provider.build_stage_pedigree_fingerprint(
-                stage_id=invocation.registration.stage_id,
-                behavior_version=invocation.registration.behavior_version,
+                stage_fingerprint=invocation.stage_fingerprint,
                 input_fingerprints=input_fingerprints,
                 effective_settings_fingerprint=invocation.effective_settings_fingerprint,
             )
@@ -89,6 +90,8 @@ class TaskRunGraphBuilder:
         return TaskRunGraph(
             manifest_id=task_request_graph.manifest_id,
             invocations=tuple(invocations),
+            dependencies_by_invocation=dict(task_request_graph.dependencies_by_invocation),
+            dependents_by_invocation=dict(task_request_graph.dependents_by_invocation),
             requested_output_bindings=tuple(
                 TaskOutputBinding(
                     requested_artifact_id=binding.requested_artifact_id,

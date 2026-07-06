@@ -21,7 +21,7 @@ from ..Artifacts.artifact_models import (
     PhaseMatchMode,
 )
 from ..Artifacts.phase_catalog import ArtifactPhaseCatalog
-from ..Artifacts.fingerprints import stable_hash
+from ..Artifacts.fingerprints import FingerprintProvider
 from .stage_models import (
     FeatureRecord,
     ManifestStageRegistration,
@@ -243,18 +243,24 @@ class StageManifestBuilder:
         self.validate()
         producers = _build_producer_index(self._stages)
         consumers = _build_consumer_index(self._stages)
+
+
         description = _build_description(
             features=self._features,
             stages=self._stages,
             artifacts=self._artifacts,
             default_producers=self._default_producers,
         )
-        identity_description = {
+
+        manifest_id = FingerprintProvider.build_manifest_fingerprint(
+            description,
+            manifest_version=StageManifest.manifest_version,
+        )
+        description = {
             **description,
             "manifest_version": StageManifest.manifest_version,
+            "manifest_id": manifest_id,
         }
-        manifest_id = stable_hash(identity_description)
-        description = {**identity_description, "manifest_id": manifest_id}
         self._frozen = True
         return StageManifest(
             manifest_id=manifest_id,

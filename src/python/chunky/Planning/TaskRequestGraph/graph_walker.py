@@ -11,6 +11,7 @@ from ...Artifacts.artifact_models import (
 )
 from ...Stages.stage_manifest import StageProducer
 from ...Stages.stage_models import (
+    ResolvedSettingEntry,
     ResolvedSettingsView,
     StagePlanningError,
 )
@@ -404,7 +405,7 @@ class ArtifactRequirementResolver:
         # looking for within the inherited_settings object
         inherited_matches = [
             key
-            for key, _value in need.inherited_settings
+            for key, _value in need.inherited_settings.items()
             if key.without_override() == selector.without_override()
         ]
 
@@ -687,7 +688,7 @@ class InvocationRequirementResolver:
         requirements: tuple[ArtifactRequirement, ...],
     ) -> tuple[ArtifactNeed, ...]:
 
-        inherited_view = ResolvedSettingsView(dict(invocation.inherited_settings))
+        inherited_view = invocation.inherited_settings
         settings_used_by_this_stage = invocation.registration.declared_setting_ids()
         pass_through_settings = inherited_view.remove(settings_used_by_this_stage)
 
@@ -718,21 +719,28 @@ class InvocationRequirementResolver:
         invocation: InvocationDraft,
         pass_through_settings: ResolvedSettingsView,
         merged_settings: ResolvedSettingsView,
-    ) -> tuple[tuple[ArtifactKey, object], ...]:
+    ) -> ResolvedSettingsView:
 
         if self._is_settings_artifact(requirement.artifact_id):
             # when a stage asks for a setting artifact, the planner may satisfy it directly from
             # inherited overrides instead of planning another producer
-            inherited_settings = dict(invocation.inherited_settings)
+            inherited_settings = invocation.inherited_settings
         else:
             # Propagate all the setting down stream, minus the settings which where consumed by this stage
-            inherited_settings = dict(pass_through_settings.items())
+            inherited_settings = pass_through_settings
 
         # Resolve the settings pushed by this stage from total merged set
+        pushed_entries: dict[ArtifactKey, ResolvedSettingEntry] = {}
         for pushed in requirement.pushed_settings:
-            inherited_settings[pushed] = merged_settings.require(pushed)
+            pushed_entries[pushed] = ResolvedSettingEntry(
+                value=merged_settings.require(pushed),
+                fingerprint=merged_settings.fingerprint(pushed),
+            )
 
-        return tuple(sorted(inherited_settings.items(), key=lambda item: str(item[0])))
+        if not pushed_entries:
+            return inherited_settings
+
+        return inherited_settings.merge(ResolvedSettingsView(entries=pushed_entries))
 
     def _is_settings_artifact(self, artifact_id: ArtifactKey) -> bool:
         declaration = self._context.manifest.artifacts.get(artifact_id)

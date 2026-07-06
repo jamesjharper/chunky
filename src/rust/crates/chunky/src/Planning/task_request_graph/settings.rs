@@ -10,11 +10,11 @@
 //! Settings resolution for planning.
 
 use anyhow::{bail, Result};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 use crate::artifact_models::ArtifactKey;
-use crate::fingerprints::stable_hash;
+use crate::fingerprints::FingerprintProvider;
 use crate::stage_manifest::StageManifest;
 use crate::stage_models::{ManifestStageRegistration, ResolvedSettingsView, StagePlanningContext};
 
@@ -35,21 +35,26 @@ impl<'a> PlannerSettingsResolver<'a> {
         state: &TaskRequestContext<'a>,
         registration: &ManifestStageRegistration<'a>,
         declared_outputs: impl IntoIterator<Item = ArtifactKey>,
-        inherited_settings: Vec<(ArtifactKey, Value)>,
+        inherited_settings: ResolvedSettingsView,
     ) -> Result<StagePlanningContext> {
-        let inherited_view = ResolvedSettingsView::new(inherited_settings.into_iter().collect());
         let effective_settings = self.resolve_stage_settings(
             registration.declared_setting_ids(),
             &state.request_settings.default_settings,
-            &inherited_view,
+            &inherited_settings,
             &state.request_settings.user_settings,
         )?;
 
         Ok(StagePlanningContext {
             stage_id: registration.stage_id().to_owned(),
+            stage_fingerprint: state
+                .manifest_graph
+                .stage_fingerprints_by_id
+                .get(registration.stage_id())
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("unknown stage fingerprint: {}", registration.stage_id()))?,
             requested_outputs: declared_outputs.into_iter().collect(),
             resolved_settings: effective_settings,
-            inherited_settings: inherited_view,
+            inherited_settings,
             run_policy: state.policy.clone(),
         })
     }
@@ -66,43 +71,62 @@ impl<'a> PlannerSettingsResolver<'a> {
             return Ok(ResolvedSettingsView::default());
         }
 
-        let default_items: BTreeMap<_, _> = default_settings.items().into_iter().collect();
-        let inherited_items: BTreeMap<_, _> = inherited_settings.items().into_iter().collect();
-        let user_items: BTreeMap<_, _> = user_settings.items().into_iter().collect();
         let mut resolved = BTreeMap::new();
+        let mut resolved_fingerprints = BTreeMap::new();
 
         for declared in declared_setting_ids {
-            let default_value = find_exact_or_single_override(&default_items, &declared)?;
-            let inherited_value = find_exact_or_single_override(&inherited_items, &declared)?;
-            let user_value = find_exact(&user_items, &declared);
+            let default_value = find_exact_or_single_override(default_settings, &declared)?;
+            let inherited_value = find_exact_or_single_override(inherited_settings, &declared)?;
+            let user_value = find_exact(user_settings, &declared);
 
             if let Some(value) = default_value {
-                resolved.insert(declared.clone(), value);
+                resolved.insert(declared.clone(), value.value);
+                if let Some(fingerprint) = value.fingerprint {
+                    resolved_fingerprints.insert(declared.clone(), fingerprint);
+                }
             }
             if let Some(value) = user_value {
-                resolved.insert(declared.clone(), value);
+                resolved.insert(declared.clone(), value.value);
+                if let Some(fingerprint) = value.fingerprint {
+                    resolved_fingerprints.insert(declared.clone(), fingerprint);
+                }
             }
             if let Some(value) = inherited_value {
                 // Edge-pushed settings are path-specific and intentionally win
                 // over broader request-level defaults or user roots.
-                resolved.insert(declared.clone(), value);
+                resolved.insert(declared.clone(), value.value);
+                if let Some(fingerprint) = value.fingerprint {
+                    resolved_fingerprints.insert(declared.clone(), fingerprint);
+                }
             }
         }
 
-        Ok(ResolvedSettingsView::new(resolved))
+        Ok(ResolvedSettingsView::new_with_fingerprints(
+            resolved,
+            resolved_fingerprints,
+        ))
     }
 }
 
+struct MaybeSetting {
+    value: Value,
+    fingerprint: Option<String>,
+}
+
 fn find_exact_or_single_override(
-    values: &BTreeMap<ArtifactKey, Value>,
+    values: &ResolvedSettingsView,
     declared: &ArtifactKey,
-) -> Result<Option<Value>> {
+) -> Result<Option<MaybeSetting>> {
     if let Some(value) = values.get(declared) {
-        return Ok(Some(value.clone()));
+        return Ok(Some(MaybeSetting {
+            value: value.clone(),
+            fingerprint: values.fingerprint(declared).map(str::to_owned),
+        }));
     }
 
     let matches: Vec<_> = values
-        .iter()
+        .items()
+        .into_iter()
         .filter(|(key, _)| key.without_override() == declared.without_override())
         .collect();
 
@@ -118,25 +142,25 @@ fn find_exact_or_single_override(
         bail!("multiple override settings resolved for {declared}: {rendered}");
     }
 
-    Ok(Some(matches[0].1.clone()))
+    Ok(Some(MaybeSetting {
+        value: matches[0].1.clone(),
+        fingerprint: values.fingerprint(&matches[0].0).map(str::to_owned),
+    }))
 }
 
-fn find_exact(values: &BTreeMap<ArtifactKey, Value>, declared: &ArtifactKey) -> Option<Value> {
-    values.get(declared).cloned()
+fn find_exact(values: &ResolvedSettingsView, declared: &ArtifactKey) -> Option<MaybeSetting> {
+    values.get(declared).map(|value| MaybeSetting {
+        value: value.clone(),
+        fingerprint: values.fingerprint(declared).map(str::to_owned),
+    })
 }
 
 pub fn settings_fingerprint(settings: &ResolvedSettingsView) -> String {
-    let items = settings.items();
-    if items.is_empty() {
-        return String::new();
-    }
-
-    // Use canonical JSON over the resolved settings map so fingerprints are
-    // stable across runs and implementations.
-    let settings_map: serde_json::Map<String, Value> = items
-        .into_iter()
-        .map(|(key, value)| (key.to_string(), value))
-        .collect();
-    stable_hash(&json!({ "settings": settings_map }))
+    FingerprintProvider
+        .build_settings_fingerprint(
+            &settings
+                .fingerprints()
+                .expect("settings fingerprint derivation should succeed"),
+        )
         .expect("settings fingerprint serialization should succeed")
 }

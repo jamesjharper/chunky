@@ -52,33 +52,40 @@ The response is the planned graph for exactly one request:
 @dataclass(frozen=True)
 class TaskRunGraph:
     manifest_id: str
-    invocations: tuple[PlannedInvocation, ...]
-    requested_output_bindings: tuple[RequestedOutputBinding, ...]
+    invocations: tuple[RunnableInvocation, ...]
+    dependencies_by_invocation: dict[str, tuple[str, ...]]
+    dependents_by_invocation: dict[str, tuple[str, ...]]
+    requested_output_bindings: tuple[TaskOutputBinding, ...]
 
 ```
 
 __`manifest_id`__ identifies the frozen `StageManifest` used to build the graph. It lets downstream execution and diagnostics confirm that the graph was planned against the expected manifest.
 
-__`invocations`__ is the stable ordered set of planned stage invocations that must run. It many include artifacts already satisfied from cache, or be skipped because their explicitly requested outputs are already available.
+__`invocations`__ is the stable ordered set of runnable stage invocations that must run. It may include invocations that later skip execution because their explicitly requested outputs are already available from cache.
 
-_Each invocation is concrete_ its stage registration, input bindings, output bindings, settings fingerprint, resource policy, and pedigree fingerprint have already been resolved.
+_Each invocation is concrete_: its stage registration, input bindings, output bindings, resource policy, resolved settings, and pedigree fingerprint have already been resolved.
+
+__`dependencies_by_invocation`__ maps each `invocation_id` to the upstream `invocation_id`s that must complete before it is eligible to run.
+
+__`dependents_by_invocation`__ maps each `invocation_id` to the downstream `invocation_id`s that become closer to runnable when it completes.
+
+These dependency indexes are redundant with artifact input bindings, but they are included explicitly so runners can determine readiness and concurrency without reconstructing the graph.
 
 __`requested_output_bindings`__ maps each caller-requested output to the resolved artifact instance that will satisfy it. A requested output may bind directly to a supplied artifact instance or to an output produced by one of the planned invocations.
 
 
 #### Invocation:
-Each `PlannedInvocation` records one concrete stage invocation in the request graph.
+Each `RunnableInvocation` records one concrete stage invocation in the run graph.
 
 ```python
 @dataclass(frozen=True)
-class PlannedInvocation:
+class RunnableInvocation:
     invocation_id: str
     registration: ManifestStageRegistration
     input_bindings: tuple[PlannedInputBinding, ...]
     requested_output_bindings: tuple[PlannedOutputBinding, ...]
-    effective_settings_fingerprint: str
     resolved_resource_policy: ResourcePolicy
-    pedigree_fingerprint: str | None = None
+    pedigree_fingerprint: str
     resolved_settings: ResolvedSettingsView = field(default_factory=ResolvedSettingsView)
 ```
 
@@ -90,11 +97,9 @@ __`registration`__ is the manifest stage registration for the stage being invoke
 
 __`requested_output_bindings`__ is the explicit output subset requested from this invocation. Cache skipping and downstream dependency edges are based on this subset, not on incidental outputs the stage might be capable of producing.
 
-__`effective_settings_fingerprint`__ identifies the effective settings used for this invocation after defaults, supplied settings, inherited settings, and pushed settings have been merged.
-
 __`resolved_resource_policy`__ is the resource policy selected for this concrete invocation after applying the request policy and stage planning hooks.
 
-`pedigree_fingerprint` is optional at this point. It may be filled during planning or later by the execution graph builder once all input fingerprints are available.
+`pedigree_fingerprint` is the final execution fingerprint for the invocation pedigree after stage, settings, and bound input instance fingerprints have been combined.
 
 `resolved_settings` is the resolved settings view visible to the invocation.
 

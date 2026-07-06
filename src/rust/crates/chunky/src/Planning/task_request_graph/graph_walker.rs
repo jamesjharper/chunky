@@ -3,7 +3,6 @@
 //! Fixed-point request graph expansion.
 
 use anyhow::{anyhow, bail, Result};
-use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::artifact_models::{ArtifactKey, ArtifactRequirement, ArtifactRole};
@@ -287,7 +286,7 @@ impl GraphWorkQueue {
             .map(|output_id| GraphWorkItem {
                 need: ArtifactNeed {
                     requirement: requirement_factory(output_id.clone()),
-                    inherited_settings: Vec::new(),
+                    inherited_settings: ResolvedSettingsView::default(),
                     consumer_invocation_key: None,
                     requested_output_id: Some(output_id),
                 },
@@ -423,7 +422,8 @@ impl<'s, 'ctx, 'a> ArtifactRequirementResolver<'s, 'ctx, 'a> {
 
         let inherited_matches: Vec<ArtifactKey> = need
             .inherited_settings
-            .iter()
+            .items()
+            .into_iter()
             .filter(|(key, _)| key.without_override() == selector.without_override())
             .map(|(key, _)| key.clone())
             .collect();
@@ -724,8 +724,7 @@ impl<'s, 'ctx, 'a> InvocationRequirementResolver<'s, 'ctx, 'a> {
         invocation: &super::invocation_models::InvocationDraft<'a>,
         requirements: Vec<ArtifactRequirement>,
     ) -> Result<Vec<ArtifactNeed>> {
-        let inherited_view =
-            ResolvedSettingsView::new(invocation.inherited_settings.clone().into_iter().collect());
+        let inherited_view = invocation.inherited_settings.clone();
         let settings_used_by_this_stage = invocation.registration.declared_setting_ids();
         let pass_through_settings = inherited_view.remove(&settings_used_by_this_stage);
         let merged_settings = self
@@ -757,19 +756,30 @@ impl<'s, 'ctx, 'a> InvocationRequirementResolver<'s, 'ctx, 'a> {
         invocation: &super::invocation_models::InvocationDraft<'a>,
         pass_through_settings: &ResolvedSettingsView,
         merged_settings: &ResolvedSettingsView,
-    ) -> Result<Vec<(ArtifactKey, Value)>> {
-        let mut inherited_settings: BTreeMap<ArtifactKey, Value> =
-            if self.is_settings_artifact(&requirement.artifact_id) {
-                invocation.inherited_settings.clone().into_iter().collect()
-            } else {
-                pass_through_settings.items().into_iter().collect()
-            };
+    ) -> Result<ResolvedSettingsView> {
+        let inherited_settings = if self.is_settings_artifact(&requirement.artifact_id) {
+            invocation.inherited_settings.clone()
+        } else {
+            pass_through_settings.clone()
+        };
 
+        let mut pushed_values = BTreeMap::new();
+        let mut pushed_fingerprints = BTreeMap::new();
         for pushed in &requirement.pushed_settings {
-            inherited_settings.insert(pushed.clone(), merged_settings.require(pushed)?.clone());
+            pushed_values.insert(pushed.clone(), merged_settings.require(pushed)?.clone());
+            if let Some(fingerprint) = merged_settings.fingerprint(pushed) {
+                pushed_fingerprints.insert(pushed.clone(), fingerprint.to_owned());
+            }
         }
 
-        Ok(inherited_settings.into_iter().collect())
+        if pushed_values.is_empty() {
+            return Ok(inherited_settings);
+        }
+
+        Ok(inherited_settings.merge(&[ResolvedSettingsView::new_with_fingerprints(
+            pushed_values,
+            pushed_fingerprints,
+        )]))
     }
 
     fn is_settings_artifact(&self, artifact_id: &ArtifactKey) -> bool {

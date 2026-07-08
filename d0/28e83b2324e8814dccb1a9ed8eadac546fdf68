@@ -1,0 +1,29 @@
+specs/01-artifacts/01-artifacts-spec.md
+  s_1979f8d0142aa2::t_f7aa671b1c4d6c 95-97
+  s_1979f8d0142aa2::t_1bda3f84bd9333 458-470,478-482
+  s_1979f8d0142aa2::t_9a371a69948181 113-121
+  s_1979f8d0142aa2::t_d071df4414e2a0 93-94
+  s_1979f8d0142aa2::t_8538bd8b1727a0 483
+  s_1979f8d0142aa2::t_718165db03dd87 24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "d028e83b2324e8814dccb1a9ed8eadac546fdf68",
+  "prompts": {},
+  "humans": {
+    "h_6046a6be1688c0": {
+      "author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  },
+  "sessions": {
+    "s_1979f8d0142aa2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f41ac-9fc3-7910-b00d-b734f9e7757c",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}

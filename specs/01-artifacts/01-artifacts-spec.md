@@ -21,7 +21,7 @@ Artifact IDs must not encode:
 - task IDs;
 - incidental output filenames.
 
-Artifact IDs may include a namespace when it improves semantic clarity. Settings that are private to a single stage may include implementation-specific naming, but those details should still describe the setting’s meaning rather than its storage format.
+Artifact IDs may include a namespace when it improves semantic clarity. Artifact that represent settings that are private to a single stage may include implementation-specific naming, but those details should still describe the setting’s meaning rather than its storage format.
 
 ### Identity format
 ```text
@@ -90,7 +90,11 @@ class ArtifactKey:
 ```
 
 #### Optional Phased Declarations
-Only intermediate artifact families may opt into phases. Source, settings, target, and diagnostic declarations must remain unphased. An intermediate family opts into phase behavior by publishing one or more concrete phase declarations.
+Intermediate artifact families may opt into phases. Source, settings, target, and diagnostic declarations must remain unphased. An intermediate family opts into phase behavior by publishing one or more concrete phase declarations.
+
+Phased declarations let one intermediate artifact family describe multiple named representations of the same logical result. Each phase names a distinct handoff point in the pipeline, such as a fast draft, a normalized form, or a fully finalized value, while still keeping those variants grouped under one semantic family instead of inventing unrelated artifact types.
+
+Their purpose is to make pipeline progression explicit. A stage can declare that it produces or consumes a specific phase, the planner can reason about which transformation steps are still required, and downstream stages can request either an exact intermediate representation or simply the completed value that satisfies the graph. This keeps multi-step derivations legible, avoids overloading one declaration with incompatible storage/schema rules, and allows each phase to carry the contract that best matches its role in the workflow.
 
 For a phased family:
 
@@ -105,6 +109,15 @@ Different phases in one family may use different:
 - codecs;
 - serialized extensions;
 - cacheability policies.
+
+Families that opt into phases are interpreted through a phase catalog. The catalog indexes all concrete intermediate declarations by family and sorts them by ascending phase number. That indexed view defines the family-level semantics used by validation and graph construction rather than leaving each stage to infer phase behavior ad hoc.
+
+For catalog purposes:
+
+- a concrete artifact key is known only when that exact declaration exists;
+- a phase-less selector for a phased family is always a known family selector, even though it is not itself a concrete declaration;
+- a numbered selector is known when the family has at least one declared phase whose number does not exceed the selector;
+- declared phases are the only concrete members of a phased family; source, settings, target, and diagnostic families never participate in this lookup model.
 
 The stage manifest must reject phase usage on a non-intermediate declaration.
 
@@ -442,12 +455,31 @@ Some intermediate artifact families opt into numbered processing phases:
 
 The phase number is used to discover stage processing order. Phase behavior applies only to artifact families that explicitly declare it. Specifically for ArtifactRequirement the `ArtifactRequirement::artifact_id.phase` represents the phase requirements value for this stage. Phase requirements are simple: a numbered requirement selects the closest available phase that does not exceed the requested value.
 
+Graph creation evaluates phased references through the family catalog:
+
+- `PhaseMatchMode.AT_MOST` is the default for numbered requirements and matches any declared phase in the same family whose phase number is less than or equal to the selector;
+- `PhaseMatchMode.EXACT` suppresses fallback and requires the referenced concrete phase declaration to exist;
+- when several concrete phases satisfy an `AT_MOST` selector, planning chooses the highest available phase that does not exceed the selector;
+- a phase-less selector addresses the completed family result rather than a concrete phase and therefore does not use `phase_match` to choose among declarations.
+
+Requesting phased outputs follows the same family rules:
+
+- a concrete phased output may be requested only when that exact declaration exists;
+- a phase-less output request is valid when the family is known, because the planner may terminally remap the producing phase to the completed family ID;
+- a numbered output request for a not-explicitly-declared phase is valid only when the family has both a declared phase at-or-below the requested phase and a declared phase above it, which proves the request names an interior handoff rather than a nonexistent terminal.
+
 
 __For phased families:__
 
 - a numbered output declaration is a concrete phase;
 - a numbered input reference is a maximum phase selector; the concrete phase is resolved while building the stage graph.
 - a phase-less artifact ID represents the completed family selected by the evaluated graph.
+
+Terminal remapping remains planner-owned:
+
+- a stage declares the concrete phased output it materializes;
+- the planner may remap that output to the phase-less family ID only when the declared output is an intermediate declaration in the same family and has a concrete phase number;
+- any other remapping is invalid, including remapping across families, remapping non-intermediate artifacts, or remapping from a phase-less declaration to another key.
 
 The focused artifact example includes an intentionally empty `StageNodeContext` stub. The complete planning context is owned by graph creation and is outside this example.
 

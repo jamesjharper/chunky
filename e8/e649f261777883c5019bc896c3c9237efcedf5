@@ -1,0 +1,139 @@
+src/python/chunky_demo/demo.py
+  h_6046a6be1688c0 19
+  s_77704d09b3f2a5::t_6623e9cb266ab9 10
+src/python/chunky_bench/benchmark_support.py
+  h_6046a6be1688c0 36
+src/python/chunky/__init__.py
+  h_6046a6be1688c0 5,21
+src/python/chunky/Bindings/file_cache_provider/handles.py
+  h_6046a6be1688c0 1-291
+src/rust/crates/chunky/src/Artifacts/artifact_models.rs
+  h_6046a6be1688c0 515-608,610-612
+  s_77704d09b3f2a5::t_6623e9cb266ab9 8
+  s_77704d09b3f2a5::t_802f73213f59cd 20,609
+"specs/05-planning/05-graph-creation copy.md"
+  s_649cd7b5a310dc::t_0f64118db288e8 1-432,434,437,440
+  s_649cd7b5a310dc::t_23967d728bf6e4 433,435-436,438-439,441
+src/python/chunky/ExampleFeatures/align_stage.py
+  h_6046a6be1688c0 3
+specs/03-fingerprinting/01-fingerprint-spec.md
+  s_649cd7b5a310dc::t_93482bd6327cb1 108-118,173-207,209,254-290,316-348
+  s_649cd7b5a310dc::t_245900fae71d55 216,252-253,291-315,349-354
+  s_649cd7b5a310dc::t_00b477af2b5f87 1-13,15-36,38,40-41,48-56,62-69,71,77-84,120,126-134,137,139,146-168,210-212,221-244,247-251,355-446,448-458
+  h_6046a6be1688c0 14,37,39,42-43,46-47,57-61,72-76,86-107,119,121-125,136,140-145,170-172,208,213-215,217-220,246,447
+  s_649cd7b5a310dc::t_2b18cbdab8836b 44-45,70,85,135,138,169,245
+src/python/chunky/Artifacts/artifact_models.py
+  h_6046a6be1688c0 174-190
+specs/01-artifacts/01-artifacts-spec.md
+  h_6046a6be1688c0 1-474
+src/python/chunky/Planning/TaskRequestGraph/request_models.py
+  s_77704d09b3f2a5::t_402cfea0bdec4f 9,49,51-55
+  h_6046a6be1688c0 8
+src/python/chunky_tests/test_planner_evaluation.py
+  h_6046a6be1688c0 25
+src/python/chunky/Bindings/cache_models.py
+  h_6046a6be1688c0 1-70
+specs/05-planning/01-task-planning.md
+  h_6046a6be1688c0 63
+src/rust/crates/chunky/src/lib.rs
+  h_6046a6be1688c0 24,26
+  s_77704d09b3f2a5::t_3b0209e51b564a 7,9
+src/python/chunky/ExampleFeatures/transcribe_stage.py
+  h_6046a6be1688c0 3
+specs/01-artifacts/02-artifact-io-spec.md
+  h_6046a6be1688c0 327,352
+  s_77704d09b3f2a5::t_eab701c8a98560 1-326,328-351,353-411
+src/python/chunky/pipeline.py
+  h_6046a6be1688c0 11-12,15
+src/rust/crates/chunky/src/Scheduling/task_runner.rs
+  s_d3b7e2d5bac015::t_3dee37c387baa0 352,424-445
+  s_d3b7e2d5bac015::t_f1fb4cb04decdd 446-447
+src/python/chunky_demo/demo_support.py
+  h_6046a6be1688c0 7
+src/python/chunky/ExampleFeatures/detect_music_stage.py
+  h_6046a6be1688c0 3
+src/python/chunky/ExampleFeatures/prepare_audio_stage.py
+  h_6046a6be1688c0 3
+src/python/chunky/ExampleFeatures/render_vtt_stage.py
+  h_6046a6be1688c0 3
+specs/01-artifacts/99-terminology.md
+  s_20c986c6f23ac4::t_9ba0552134cc6b 1-191
+src/python/chunky/Stages/stage_models.py
+  h_6046a6be1688c0 18
+src/python/chunky/Planning/task_run_graph.py
+  s_77704d09b3f2a5::t_802f73213f59cd 55
+  h_6046a6be1688c0 7
+src/python/chunky/ExampleFeatures/diarize_stage.py
+  h_6046a6be1688c0 3
+src/python/chunky/Bindings/file_cache_provider/provider.py
+  h_6046a6be1688c0 1-374
+src/python/chunky_tests/test_execution_cache_contract.py
+  h_6046a6be1688c0 9
+  s_77704d09b3f2a5::t_6623e9cb266ab9 10-14
+src/python/chunky_tests/test_planner_refactor.py
+  h_6046a6be1688c0 7
+  s_77704d09b3f2a5::t_6623e9cb266ab9 8
+src/python/chunky/Planning/execution_planner.py
+  h_6046a6be1688c0 20
+src/python/chunky/Planning/TaskRequestGraph/requirement_models.py
+  s_77704d09b3f2a5::t_4b2ee8ccdc004c 6-10,97,104,107-112
+  s_77704d09b3f2a5::t_84585b9a5ded9f 68-70,79-81,91-96,98-103,105-106,113
+src/python/chunky/Bindings/bindings.py
+  h_6046a6be1688c0 20,25-26,36
+specs/04-stages/stages-spec.md
+  h_6046a6be1688c0 1-1286
+src/python/chunky/Bindings/binding_models.py
+  h_6046a6be1688c0 14-20,23
+specs/02-bindings/99-terminology.md
+  s_20c986c6f23ac4::t_ee2ca5ddfe68bf 1-473
+src/python/chunky/Scheduling/task_runner.py
+  s_d3b7e2d5bac015::t_4899c58347cff8 97-110,330
+  h_6046a6be1688c0 11,18
+src/rust/crates/chunky/src/Bindings/binding_models.rs
+  s_77704d09b3f2a5::t_b3468adcc4ac97 9,17-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "e8e649f261777883c5019bc896c3c9237efcedf5",
+  "prompts": {},
+  "humans": {
+    "h_6046a6be1688c0": {
+      "author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  },
+  "sessions": {
+    "s_20c986c6f23ac4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f3ccf-dea3-7502-9f71-446d523c619f",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_649cd7b5a310dc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f3cab-4348-7270-9cd7-530efa9ffafc",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_77704d09b3f2a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f3ca0-2172-7ba2-b03f-db7aa8ab8f11",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_d3b7e2d5bac015": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f3bb5-024a-7be3-ab77-af0c152e28e6",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}

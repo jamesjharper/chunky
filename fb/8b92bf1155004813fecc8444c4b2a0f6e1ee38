@@ -1,0 +1,62 @@
+specs/05-stages/stages-spec.md
+  s_e7d93cff1bb058::t_3a6b3389c1ea44 1,4,6,8-9,11-13,40,43,45,47-49,51-53,55,88,200,230,350,387,451,455,476,487,489,491,493-496,530,532,534,536-541,543,545,547,549-553,555,557-562,564,566,568-571,575,791-793,802-803
+  s_e7d93cff1bb058::t_7f3ca809fa2a50 50,199
+specs/04-pipeline/pipeline-spec.md
+  s_2cd1f8af4bad74::t_cd241ab54d70c6 17,26-27,30,47-53,78,81,86-88,91-93,107,117-124,126-128,131-142,144-152,159,171,188,192,207,211,217,221,229,246,260,270,277,350,382,391,424-526
+  h_6046a6be1688c0 18,40-41,89-90,95-105,116,125,129,169-170,178,282-283,287-292,294,299,301-349,361,363-381
+  s_e7d93cff1bb058::t_a5aedd0ba3d909 284,362
+  s_e7d93cff1bb058::t_037e0242f12a2f 63-72,82,115,130,143,259,395-423
+  s_2cd1f8af4bad74::t_4b05af7d2b1033 14-16
+  s_2cd1f8af4bad74::t_a25c996795e671 28-29
+  s_2cd1f8af4bad74::t_0106ec24f0d11b 79-80
+  s_2cd1f8af4bad74::t_3d7fafed889f82 153-158
+  s_2cd1f8af4bad74::t_46fe612e9cf7c1 189-191
+  s_2cd1f8af4bad74::t_3df80d3916a259 193-195,204-206
+  s_2cd1f8af4bad74::t_7b27e9dfe43748 208-210
+  s_2cd1f8af4bad74::t_45b0651cafb153 212-216
+  s_2cd1f8af4bad74::t_72774f863e9657 218-220
+  s_2cd1f8af4bad74::t_da354b47043b6f 222-224,226-228
+  s_2cd1f8af4bad74::t_e0c623c01ac4ec 230-232,243-245
+  s_2cd1f8af4bad74::t_d2a3ad63b6179a 261-263,267-269
+  s_2cd1f8af4bad74::t_ec21bff022312c 271-276
+  s_2cd1f8af4bad74::t_7135b57cbf299f 383-385,388-390
+specs/05-stages/99-terminology.md
+  s_d00a7df017d62e::t_906a5d458011ba 1-177
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "fb8b92bf1155004813fecc8444c4b2a0f6e1ee38",
+  "prompts": {},
+  "humans": {
+    "h_6046a6be1688c0": {
+      "author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  },
+  "sessions": {
+    "s_2cd1f8af4bad74": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f41d5-e5ca-7ae1-bc25-bd5bead7539f",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_d00a7df017d62e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f41bb-c883-7793-8c62-f397977093e6",
+        "model": "unknown"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_e7d93cff1bb058": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f41ef-be8a-7403-b4c9-857356afd9a0",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}

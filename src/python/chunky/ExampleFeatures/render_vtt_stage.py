@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..Artifacts.binding_models import InputArtifacts, OutputArtifacts
+from ..Bindings.binding_models import InputArtifacts, OutputArtifacts
 from ..Artifacts.artifact_models import ArtifactCapability, ArtifactRequirement
 from ..Stages.stage_models import (
     ResolvedStageRequirements,

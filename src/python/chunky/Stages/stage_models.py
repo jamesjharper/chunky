@@ -15,7 +15,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
-from ..Artifacts.binding_models import InputArtifacts, OutputArtifacts
+from ..Bindings.binding_models import InputArtifacts, OutputArtifacts
 from ..Artifacts.artifact_models import (
     ArtifactCapability,
     ArtifactDeclaration,

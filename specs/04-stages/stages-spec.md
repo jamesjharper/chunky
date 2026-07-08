@@ -1,6 +1,4 @@
-# Stage Model
-
-## Purpose
+# Stage
 
 This document defines Chunky's stage model:
 

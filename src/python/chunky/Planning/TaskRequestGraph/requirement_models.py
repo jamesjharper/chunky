@@ -3,7 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ...Artifacts.artifact_models import ArtifactKey, ArtifactRequirement
-from ...Stages.stage_models import ResolvedSettingsView, StagePlanningContext
+from ...Stages.stage_models import (
+    ResolvedSettingEntry,
+    ResolvedSettingsView,
+    StagePlanningContext,
+)
 from .shared_models import ProducerSelection, instance_id
 from .settings import settings_fingerprint
 
@@ -61,6 +65,9 @@ class ProducedArtifact:
         inherited_settings_fingerprint = settings_fingerprint(
             producer_context.inherited_settings
         )
+        lineage_fingerprint = _lineage_settings_fingerprint(
+            producer_context.inherited_settings
+        )
         effective_settings_fingerprint = (
             settings_fingerprint(producer_context.resolved_settings)
             or inherited_settings_fingerprint
@@ -69,7 +76,9 @@ class ProducedArtifact:
         semantic_id = selection.resolved_output_id
         output_instance_id = instance_id(
             semantic_id,
-            effective_settings_fingerprint or inherited_settings_fingerprint,
+            lineage_fingerprint
+            or inherited_settings_fingerprint
+            or effective_settings_fingerprint,
         )
 
         return cls(
@@ -79,3 +88,26 @@ class ProducedArtifact:
             stage_fingerprint=producer_context.stage_fingerprint,
             effective_settings_fingerprint=effective_settings_fingerprint,
         )
+
+
+def _lineage_settings_fingerprint(settings: ResolvedSettingsView) -> str:
+    if not settings:
+        return ""
+
+    deduped: dict[str, tuple[ArtifactKey, object, str | None]] = {}
+    for key, value in settings.items():
+        marker = key.override_domain
+        if marker is None and isinstance(value, dict):
+            suffix = value.get("target_suffix")
+            if isinstance(suffix, str) and suffix:
+                marker = suffix
+        deduped.setdefault(marker or str(key), (key, value, settings.fingerprint(key)))
+
+    return settings_fingerprint(
+        ResolvedSettingsView(
+            entries={
+                key: ResolvedSettingEntry(value, fingerprint)
+                for key, value, fingerprint in deduped.values()
+            }
+        )
+    )

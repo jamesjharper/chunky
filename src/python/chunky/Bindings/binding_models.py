@@ -11,29 +11,19 @@ the underlying typed readers and writers explicit.
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
 
-from .artifact_handles import ArtifactSourceHandle, ArtifactTargetHandle
-from .artifact_models import ArtifactDeclaration, ArtifactKey
+from ..Artifacts.artifact_handles import ArtifactSourceHandle, ArtifactTargetHandle
+from ..Artifacts.artifact_models import (
+    ArtifactDeclaration,
+    ArtifactHandle,
+    ArtifactInstance,
+    ArtifactKey,
+)
 
 if TYPE_CHECKING:
-    from ..CacheProviders.cache_models import CacheWait
+    from .cache_models import CacheWait
 
 T = TypeVar("T")
 _UNSET = object()
-
-@dataclass(frozen=True)
-class ArtifactHandle(Generic[T]):
-    declaration: ArtifactDeclaration[T]
-    fingerprint: str
-    source: ArtifactSourceHandle[T] | None = None
-    targets: tuple[ArtifactTargetHandle[T], ...] = ()
-
-@dataclass(frozen=True)
-class ArtifactInstance(Generic[T]):
-    handle: ArtifactHandle[T]
-
-    @property
-    def fingerprint(self) -> str:
-        return self.handle.fingerprint
 
 class ArtifactReader(Generic[T]):
     def __init__(self, handle: ArtifactHandle[T]):
@@ -194,20 +184,6 @@ class OutputArtifacts:
 
     def contains(self, selector: ArtifactSelector) -> bool:
         return self._resolved_key(selector) in self._writers
-
-    def produced_instances(self) -> tuple[ArtifactInstance[Any], ...]:
-        missing = [
-            artifact_id
-            for artifact_id, writer in self._writers.items()
-            if not writer.written
-        ]
-        if missing:
-            missing_ids = ", ".join(str(artifact_id) for artifact_id in missing)
-            raise RuntimeError(f"stage did not write declared outputs: {missing_ids}")
-        return tuple(
-            ArtifactInstance(writer.handle)
-            for writer in self._writers.values()
-        )
 
 
 @dataclass(frozen=True)

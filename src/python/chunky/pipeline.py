@@ -8,11 +8,11 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from .Artifacts.binding_models import ArtifactInstance
-from .Artifacts.bindings import ArtifactBindingsProvider, close_instances
+from .Bindings.binding_models import ArtifactInstance
+from .Bindings.bindings import ArtifactBindingsProvider, close_instances
 from .Artifacts.artifact_handles import ArtifactSourceHandle, ArtifactTargetHandle
 from .Artifacts.artifact_models import ArtifactDeclaration, ArtifactKey, ArtifactRole
-from .CacheProviders.cache_models import ArtifactCache
+from .Bindings.cache_models import ArtifactCache
 from .Planning.execution_planner import TaskRunPlanner
 from .Scheduling.progress_models import (
     ProgressDispatcher,

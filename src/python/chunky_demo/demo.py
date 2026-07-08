@@ -7,7 +7,7 @@ from pathlib import Path
 
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from src.python.chunky.CacheProviders.file_cache_provider import (
+    from chunky.Bindings.file_cache_provider import (
         FileCacheProviderGarbageCollectionPolicy,
     )
     from src.python.chunky_demo.demo_support import (
@@ -16,7 +16,7 @@ if not __package__:
         create_demo_fixture,
     )
 else:
-    from ..chunky.CacheProviders.file_cache_provider import (
+    from ..chunky.Bindings.file_cache_provider import (
         FileCacheProviderGarbageCollectionPolicy,
     )
     from .demo_support import DEFAULT_WORK_DIR, build_request, create_demo_fixture

@@ -349,7 +349,7 @@ impl ExampleTaskRunner {
 
         let mut executor = (invocation.registration.registration.executor_factory)();
         let produced = match executor.execute(&inputs, &outputs, &context).await {
-            Ok(()) => outputs.produced_instances().await,
+            Ok(()) => resolve_produced_instances(&resolution.writers).await,
             Err(error) => Err(error),
         };
         progress.clear();
@@ -419,6 +419,30 @@ fn validate_output_fingerprints(
     }
 
     Ok(())
+}
+
+async fn resolve_produced_instances(writers: &[AnyArtifactWriter]) -> Result<Vec<AnyArtifactInstance>> {
+    let mut missing = Vec::new();
+    let mut produced = Vec::with_capacity(writers.len());
+
+    for writer in writers {
+        if writer.is_written().await {
+            produced.push(AnyArtifactInstance {
+                handle: writer.handle.clone(),
+            });
+        } else {
+            missing.push(writer.artifact_id().to_string());
+        }
+    }
+
+    if !missing.is_empty() {
+        bail!(
+            "stage did not write declared outputs: {}",
+            missing.join(", ")
+        );
+    }
+
+    Ok(produced)
 }
 
 async fn abort_writers(writers: &[AnyArtifactWriter]) {

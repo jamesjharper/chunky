@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.python.chunky.Artifacts.bindings import close_instances
-from src.python.chunky.CacheProviders.file_cache_provider import FileCacheProvider
+from python.chunky.Bindings.bindings import close_instances
+from src.python.chunky.Bindings.file_cache_provider import FileCacheProvider
 from src.python.chunky.ExampleFeatures.artifact_handles_examples import FileSource, InMemorySource
 from src.python.chunky.ExampleFeatures.stage_examples import (
     ALIGNMENT_SETTINGS,

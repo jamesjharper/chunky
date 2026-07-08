@@ -171,3 +171,20 @@ class ArtifactDeclaration(Generic[T]):
                 else self.default_value_source_provider
             ),
         )
+
+
+
+@dataclass(frozen=True)
+class ArtifactHandle(Generic[T]):
+    declaration: ArtifactDeclaration[T]
+    fingerprint: str
+    source: ArtifactSourceHandle[T] | None = None
+    targets: tuple[ArtifactTargetHandle[T], ...] = ()
+
+@dataclass(frozen=True)
+class ArtifactInstance(Generic[T]):
+    handle: ArtifactHandle[T]
+
+    @property
+    def fingerprint(self) -> str:
+        return self.handle.fingerprint

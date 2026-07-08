@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import shutil
 
-from ..chunky.CacheProviders.file_cache_provider import FileCacheProvider
+from ..chunky.Bindings.file_cache_provider import FileCacheProvider
 from ..chunky.ExampleFeatures.artifact_handles_examples import (
     AtomicFileTargetHandle,
     FileSource,

@@ -7,7 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Generic, Protocol, TypeAlias, TypeVar
 
-from ..Artifacts.binding_models import ArtifactInstance, ArtifactWriter
+from .binding_models import ArtifactInstance, ArtifactWriter
 from ..Artifacts.artifact_handles import ArtifactSourceHandle, ArtifactTargetHandle
 from ..Artifacts.artifact_models import ArtifactDeclaration
 

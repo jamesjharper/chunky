@@ -6,7 +6,7 @@
 //! stage-facing selectors can remain separate.
 
 use crate::{
-    artifact_handles::{ArtifactSourceHandle, ArtifactTargetHandle},
+    artifact_handles::ArtifactTargetHandle,
     artifact_models::{AnyArtifactDeclaration, ArtifactDeclaration, ArtifactKey, ArtifactValue},
     cache_models::CacheWait,
 };
@@ -14,101 +14,10 @@ use anyhow::{anyhow, bail, Result};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use tokio::sync::Mutex;
 
-pub struct ArtifactHandle {
-    pub declaration: AnyArtifactDeclaration,
-    pub fingerprint: String,
-    pub source: Option<Arc<dyn ArtifactSourceHandle>>,
-    pub targets: Vec<Arc<dyn ArtifactTargetHandle>>,
-}
+pub use crate::artifact_models::{
+    AnyArtifactInstance, AnyArtifactReader, ArtifactHandle, ArtifactInstance,
+};
 
-impl ArtifactHandle {
-    pub fn new(
-        declaration: AnyArtifactDeclaration,
-        fingerprint: impl Into<String>,
-        source: Option<Arc<dyn ArtifactSourceHandle>>,
-        targets: Vec<Arc<dyn ArtifactTargetHandle>>,
-    ) -> Arc<Self> {
-        Arc::new(Self {
-            declaration,
-            fingerprint: fingerprint.into(),
-            source,
-            targets,
-        })
-    }
-}
-
-pub struct ArtifactInstance<T> {
-    pub handle: Arc<ArtifactHandle>,
-    _marker: PhantomData<fn() -> T>,
-}
-
-impl<T> Clone for ArtifactInstance<T> {
-    fn clone(&self) -> Self {
-        Self {
-            handle: self.handle.clone(),
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<T> ArtifactInstance<T>
-where
-    T: Send + Sync + 'static,
-{
-    pub fn new(handle: Arc<ArtifactHandle>) -> Result<Self> {
-        if handle.declaration.codec.value_type_id() != std::any::TypeId::of::<T>() {
-            bail!("artifact instance type does not match its declaration");
-        }
-        Ok(Self {
-            handle,
-            _marker: PhantomData,
-        })
-    }
-
-    pub fn fingerprint(&self) -> &str {
-        &self.handle.fingerprint
-    }
-
-    pub fn erase(&self) -> AnyArtifactInstance {
-        AnyArtifactInstance {
-            handle: self.handle.clone(),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct AnyArtifactInstance {
-    pub handle: Arc<ArtifactHandle>,
-}
-
-impl AnyArtifactInstance {
-    pub fn artifact_id(&self) -> &ArtifactKey {
-        &self.handle.declaration.artifact_id
-    }
-
-    pub fn fingerprint(&self) -> &str {
-        &self.handle.fingerprint
-    }
-
-    pub fn downcast<T>(&self, declaration: &ArtifactDeclaration<T>) -> Result<ArtifactInstance<T>>
-    where
-        T: Send + Sync + 'static,
-    {
-        if self.artifact_id() != declaration.artifact_id() {
-            bail!(
-                "artifact id mismatch: expected {}, got {}",
-                declaration.artifact_id(),
-                self.artifact_id()
-            );
-        }
-        ArtifactInstance::new(self.handle.clone())
-    }
-}
-
-pub struct AnyArtifactReader {
-    pub handle: Arc<ArtifactHandle>,
-    cached: Mutex<Option<ArtifactValue>>,
-}
 
 impl AnyArtifactReader {
     pub fn new(handle: Arc<ArtifactHandle>) -> Result<Self> {
@@ -504,30 +413,6 @@ impl OutputArtifacts {
     pub fn contains(&self, selector: impl Into<ArtifactSelector>) -> Result<bool> {
         let artifact_id = self.resolved_key(selector)?;
         Ok(self.writers.contains_key(&artifact_id))
-    }
-
-    pub async fn produced_instances(&self) -> Result<Vec<AnyArtifactInstance>> {
-        let mut missing = Vec::new();
-        let mut produced = Vec::with_capacity(self.writers.len());
-
-        for writer in self.writers.values() {
-            if writer.is_written().await {
-                produced.push(AnyArtifactInstance {
-                    handle: writer.handle.clone(),
-                });
-            } else {
-                missing.push(writer.artifact_id().to_string());
-            }
-        }
-
-        if !missing.is_empty() {
-            bail!(
-                "stage did not write declared outputs: {}",
-                missing.join(", ")
-            );
-        }
-
-        Ok(produced)
     }
 }
 

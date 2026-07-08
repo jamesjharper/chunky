@@ -17,7 +17,7 @@ the runner/artifact-binding seam.
 from collections.abc import Iterable
 from typing import Any
 
-from ..Artifacts.binding_models import ArtifactInstance
+from ..Bindings.binding_models import ArtifactInstance
 from ..Artifacts.artifact_models import ArtifactKey
 from ..Artifacts.fingerprints import FingerprintProvider
 from .TaskRequestGraph import (

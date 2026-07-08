@@ -17,13 +17,13 @@ from .binding_models import (
     StageCacheWait,
     StageOutputBindings,
 )
-from .artifact_handles import (
+from ..Artifacts.artifact_handles import (
     ArtifactSourceHandle,
     ArtifactTargetHandle,
     IntermediateArtifactHandle,
 )
-from .artifact_models import ArtifactDeclaration
-from ..CacheProviders.cache_models import (
+from ..Artifacts.artifact_models import ArtifactDeclaration
+from .cache_models import (
     ArtifactCache,
     CacheHit,
     CacheWait,
@@ -33,7 +33,7 @@ from ..CacheProviders.cache_models import (
     CacheableOutputProduce,
     CacheableOutputWaiting,
 )
-from .fingerprints import (
+from ..Artifacts.fingerprints import (
     FingerprintProvider,
 )
 

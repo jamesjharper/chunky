@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .Artifacts.binding_models import (
+from .Bindings.binding_models import (
     ArtifactHandle,
     ArtifactInstance,
     ArtifactReader,
@@ -18,7 +18,7 @@ from .Artifacts.artifact_models import (
     ArtifactRole,
     PhaseMatchMode,
 )
-from .CacheProviders.file_cache_provider import (
+from .Bindings.file_cache_provider import (
     FileCacheProvider,
     FileCacheProviderConfig,
     FileCacheProviderGarbageCollectionPolicy,

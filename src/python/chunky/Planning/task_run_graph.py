@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..Artifacts.artifact_models import ArtifactKey
-from ..Artifacts.binding_models import ArtifactInstance
+from ..Bindings.binding_models import ArtifactInstance
 from ..Artifacts.fingerprints import FingerprintProvider
 from ..Stages.stage_manifest import StageManifest
 from .TaskRequestGraph.binding_models import PlannedOutputBinding, TaskOutputBinding
@@ -52,7 +52,7 @@ class TaskRunGraphBuilder:
             pedigree = self._fingerprint_provider.build_stage_pedigree_fingerprint(
                 stage_fingerprint=invocation.stage_fingerprint,
                 input_fingerprints=input_fingerprints,
-                effective_settings_fingerprint=invocation.effective_settings_fingerprint,
+                settings_fingerprint=invocation.effective_settings_fingerprint,
             )
 
             planned_outputs: list[PlannedOutputBinding] = []

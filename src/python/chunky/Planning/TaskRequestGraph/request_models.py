@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from ...Artifacts.artifact_models import ArtifactKey, ArtifactRole
-from ...Artifacts.binding_models import ArtifactInstance, ArtifactReader
+from ...Bindings.binding_models import ArtifactInstance, ArtifactReader
+from ...Artifacts.fingerprints import FingerprintProvider
 from ..manifest_graph import StageManifestGraph
 from ...Stages.stage_manifest import StageManifest
 from ...Stages.stage_models import (
@@ -45,9 +46,13 @@ class PlannerRequestSettings:
                 values = user
             else:
                 values = defaults
+            value = await ArtifactReader(instance.handle).read()
             values[artifact_id] = ResolvedSettingEntry(
-                value=await ArtifactReader(instance.handle).read(),
-                fingerprint=instance.fingerprint,
+                value=value,
+                fingerprint=FingerprintProvider.build_setting_value_fingerprint(
+                    artifact_id,
+                    value,
+                ),
             )
 
         return cls(

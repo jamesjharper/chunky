@@ -16,7 +16,6 @@ Graph creation is not responsible for:
 
 Runtime cache lookup and cache wait behavior belong to the runner, artifact binding layer, cache coordinator, and scheduler.
 
-
 ## Plan Output
 The main public planning interface is `TaskRunPlanner`.
 
@@ -61,7 +60,7 @@ class TaskRunGraph:
 
 __`manifest_id`__ identifies the frozen `StageManifest` used to build the graph. It lets downstream execution and diagnostics confirm that the graph was planned against the expected manifest.
 
-__`invocations`__ is the stable ordered set of runnable stage invocations that must run. It may include invocations that later skip execution because their explicitly requested outputs are already available from cache.
+__`invocations`__ is the topological ordered set of runnable stage invocations that must run. It may include invocations that later skip execution because their explicitly requested outputs are already available from cache.
 
 _Each invocation is concrete_: its stage registration, input bindings, output bindings, resource policy, resolved settings, and pedigree fingerprint have already been resolved.
 

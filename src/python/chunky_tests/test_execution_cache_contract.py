@@ -6,8 +6,12 @@ from collections.abc import Iterable
 from typing import Any
 
 from src.python.chunky.Artifacts.artifact_models import ArtifactDeclaration, ArtifactKey, ArtifactRole
-from src.python.chunky.Artifacts.bindings import ArtifactBindingsProvider
-from src.python.chunky.CacheProviders.cache_models import CacheHit, CacheWait, CacheWriteReservation
+from python.chunky.Bindings.bindings import ArtifactBindingsProvider
+from src.python.chunky.Bindings.cache_models import (
+    CacheHit,
+    CacheWait,
+    CacheWriteReservation,
+)
 
 
 class JsonishCodec:

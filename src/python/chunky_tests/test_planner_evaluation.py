@@ -22,7 +22,7 @@ from src.python.chunky.Artifacts.artifact_models import (
     ArtifactRole,
     PhaseMatchMode,
 )
-from src.python.chunky.Artifacts.binding_models import ArtifactHandle, ArtifactInstance
+from python.chunky.Bindings.binding_models import ArtifactHandle, ArtifactInstance
 from src.python.chunky.Planning.TaskRequestGraph import (
     AmbiguousProducerSelection,
     ArtifactRequirementResolver,

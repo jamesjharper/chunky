@@ -4,9 +4,9 @@
 //! and example-feature layers. The flat re-exports below keep the integration
 //! tests ergonomic.
 
-#[path = "Artifacts/artifact_binding_models.rs"]
+#[path = "Bindings/binding_models.rs"]
 pub mod artifact_binding_models;
-#[path = "Artifacts/artifact_bindings.rs"]
+#[path = "Bindings/bindings.rs"]
 pub mod artifact_bindings;
 #[path = "Artifacts/artifact_codecs_example.rs"]
 pub mod artifact_codecs_example;
@@ -21,9 +21,9 @@ pub mod fingerprints;
 #[path = "Artifacts/phase_catalog.rs"]
 pub mod phase_catalog;
 
-#[path = "CacheProviders/cache_models.rs"]
+#[path = "Bindings/cache_models.rs"]
 pub mod cache_models;
-#[path = "CacheProviders/file_cache_provider/mod.rs"]
+#[path = "Bindings/file_cache_provider/mod.rs"]
 pub mod file_cache_provider;
 
 #[path = "Stages/stage_manifest.rs"]

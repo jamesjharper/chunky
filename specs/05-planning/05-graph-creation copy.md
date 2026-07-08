@@ -417,105 +417,25 @@ Global cache coordination is defined in [Cache management](0x-Cache-management.m
 
 ## 3. Artifact caching and fingerprinting
 
-### 3.1 Building Fingerprints for edges
-After the planned graph shape is known, the planner builds artifact edge fingerprints by walking forward from each available input edge.
+Fingerprint payload composition is centralized in [Fingerprint Spec](../03-fingerprinting/01-fingerprint-spec.md).
 
-Source and supplied artifact edges start with the fingerprint of the supplied artifact instance.
+Planning owns only the selection side of fingerprinting:
 
-For each produced edge, the planner calculates a deterministic fingerprint from:
+- It determines which supplied artifacts, produced artifacts, settings, and stage invocations participate in the run.
+- It computes the planner-owned `pedigree_fingerprint` from stage fingerprint, keyed input fingerprints, and aggregate settings fingerprint.
+- It records the `expected_fingerprint` for each planned output binding so execution can validate cache instances and writers against the plan.
 
-- The aggregate fingerprint of the producing node's required input edges.
-- The producing node's effective settings fingerprint, including inherited settings, user-configured settings, and defaults.
-- The produced edge's identity, such as its artifact ID, selected phase, schema identity, and any terminal remapping applied by the planner.
-
-For example:
-
-```
-  source::audio ──────────── source_audio_fp
-         │
-         ▼
- ┌───────────────┐  
- │ Audio Process │ ───────── audio::settings ── audio_settings_fp
- └───────────────┘
-         │
-         │
-   audio::prepared ───────── audio_prepared_fp
-         │
-         │
-         ▼
-   ┌────────────┐
-   │ transcribe │ ────────── asr::settings ── asr_settings_fp
-   └────────────┘
-         │
-   transcript::token_text ── transcript_token_text_fp
-         │
-         │
-         ▼
-```
-
-```
-source_audio_fp =
-  hash(
-    f(source::audio.content),
-    f(source::audio.identity)
-  )
-
-audio_settings_fp =
-  hash(
-    f(audio::settings.content),
-    f(audio::settings.version),
-    f(audio::settings.identity)
-  )
-
-audio_prepared_fp =
-  hash(
-    source_audio_fp,
-    audio_settings_fp,
-    f(stages.audio_processor.version),
-    f(audio::prepared.identity)
-  )
-
-asr_settings_fp =
-  hash(
-    f(asr::settings.content),
-    f(asr::settings.version),
-    f(asr::settings.identity)
-  )
-
-transcript_token_text_fp =
-  hash(
-    audio_prepared_fp,
-    asr_settings_fp,
-    f(stages.transcribe.version),
-    f(transcript::token_text.identity)
-  )
-```
-
-This means an output edge fingerprint changes when its upstream data changes, when the stage settings that affect production change, or when the logical identity of the produced artifact changes. The same stage invocation can produce multiple output edges, and each output edge receives its own fingerprint because the edge identity is part of the final calculation.
-
-The aggregate input fingerprint must be order-stable. Implementations should combine input fingerprints by declared input role or artifact ID rather than by traversal order, so equivalent graphs produce the same fingerprints.
-
-### 3.2 Artefact Manifest
-Once completed building the edge fingerprints, the planner creates a manifest of all the outstanding artifacts.
-Each manifest entry contains the following
-
-1: Artifacts fingerprint
-2: Artifacts identity 
-3: Artifacts status - one of following states 
- - `{unmanifested}`: Scheduled to be manifested, but hasnt yet been
- - `{manifesting}`: In the process of being manifested
- - `{cache manifested}`: Can be immediately manifested from the cache
- - `{no manifestation}`: The plan did not contain a way to manifest this artifact, and it was marked as optional
+The planner still derives fingerprints by walking forward from available inputs after the graph shape is known. The centralized spec contains the current builder payloads and the updated ASCII diagrams.
 
 ## 5. Cache and Execution
 The planner determines the evaluated graph shape without considering cache availability. Execution-plan finalization then applies supplied artifacts, cache hits, usage reservations, write reservations, and disabled-stage policy. A stage invocation may be skipped only if all requested outputs for that invocation are supplied or cache-reserved.
 
-Stage invocation fingerprints should include:
+In the current model, cache decisions are driven by planned output fingerprints, not by a separately materialized "stage invocation fingerprint" object. Those expected output fingerprints are derived from:
 
-- Stage behavior version.
-- Effective settings, including defaults and inherited settings.
+- Stage identity and `behavior_version`.
+- Effective settings fingerprints, including defaults and inherited settings.
 - Supplied and produced input artifact fingerprints.
-- Borrowed or shared settings artifacts consumed by the stage.
-- Provider versions that affect the stage output.
+- Produced artifact identity.
+- Produced artifact codec identity.
 
-For phase-less final intermediate artifacts, the artifact fingerprint still includes the actual producing stage invocation, resolved settings, input fingerprints, and behavior version. The phase-less artifact ID communicates completed-family identity; the fingerprint preserves cache correctness and provenance.
+For phase-less final intermediate artifacts, the final artifact fingerprint still preserves the actual producing invocation's pedigree even when the stored artifact ID is the phase-less terminal ID.

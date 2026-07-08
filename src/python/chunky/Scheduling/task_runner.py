@@ -8,14 +8,14 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
-from ..Artifacts.binding_models import (
+from ..Bindings.binding_models import (
     ArtifactInstance,
     InputArtifacts,
     OutputArtifacts,
     ResolvedStageOutputBindings,
     StageCacheWait,
 )
-from ..Artifacts.bindings import ArtifactBindingsProvider, abort_writers, close_instances
+from ..Bindings.bindings import ArtifactBindingsProvider, abort_writers, close_instances
 from ..Artifacts.artifact_handles import ArtifactTargetHandle
 from ..Artifacts.artifact_models import ArtifactKey
 from ..Stages.stage_manifest import StageManifest
@@ -92,6 +92,20 @@ class ArtifactRunState:
 
     def all_instances(self) -> tuple[ArtifactInstance[Any], ...]:
         return tuple(self._instances.values())
+
+
+def _resolve_produced_instances(
+    writers: list[Any] | tuple[Any, ...],
+) -> tuple[ArtifactInstance[Any], ...]:
+    missing = [
+        writer.handle.declaration.artifact_id
+        for writer in writers
+        if not writer.written
+    ]
+    if missing:
+        missing_ids = ", ".join(str(artifact_id) for artifact_id in missing)
+        raise RuntimeError(f"stage did not write declared outputs: {missing_ids}")
+    return tuple(ArtifactInstance(writer.handle) for writer in writers)
 
 
 class ExampleTaskRunner:
@@ -313,7 +327,7 @@ class ExampleTaskRunner:
             executor = invocation.registration.executor_factory()
             try:
                 await executor.execute(inputs, outputs, context)
-                produced = outputs.produced_instances()
+                produced = _resolve_produced_instances(resolution.writers)
             except BaseException:
                 await abort_writers(resolution.writers)
                 if cancellation.is_cancelled:

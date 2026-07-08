@@ -33,7 +33,7 @@ from ..chunky.Stages.stage_models import (
 )
 from ..chunky_demo.demo_support import DemoFixture, build_inputs
 from ..chunky.pipeline import ChunkyPipeline, RunRequest
-from ..chunky.CacheProviders.file_cache_provider import FileCacheProvider
+from ..chunky.Bindings.file_cache_provider import FileCacheProvider
 
 JsonObject = dict[str, Any]
 

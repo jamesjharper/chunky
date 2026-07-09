@@ -11,7 +11,7 @@ from threading import RLock
 from typing import Callable, Iterator, TypeAlias
 from uuid import uuid4
 
-from ..Artifacts.artifact_models import ArtifactKey, CachedArtifactReference
+from ..Artifacts.artifact_models import ArtifactInstanceLocator, ArtifactKey
 
 LOGGER = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ class StageProgressSnapshot:
 @dataclass(frozen=True)
 class OutputAvailabilitySnapshot:
     artifact_id: ArtifactKey
-    cached_reference: CachedArtifactReference
+    instance_locator: ArtifactInstanceLocator
 
 
 @dataclass(frozen=True)
@@ -293,17 +293,17 @@ class RunProgressTracker:
     def record_available_output(
         self,
         artifact_id: ArtifactKey,
-        cached_reference: CachedArtifactReference,
+        instance_locator: ArtifactInstanceLocator,
     ) -> None:
-        if cached_reference.artifact_id != artifact_id:
+        if instance_locator.artifact_id != artifact_id.without_projection():
             raise ValueError(
-                "cached reference artifact_id must match available output artifact_id: "
-                f"{cached_reference.artifact_id} != {artifact_id}"
+                "artifact instance locator artifact_id must match available output artifact_id: "
+                f"{instance_locator.artifact_id} != {artifact_id}"
             )
         with self._lock:
             self._available_outputs[artifact_id] = OutputAvailabilitySnapshot(
                 artifact_id=artifact_id,
-                cached_reference=cached_reference,
+                instance_locator=instance_locator,
             )
             self._publish_if_changed()
 

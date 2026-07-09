@@ -173,10 +173,10 @@ from chunky import chunky_run_away
 async def main() -> None:
     handle = chunky_run_away(
         inputs={
-            "source//audio": AudioSource.from_file_path("input.wav"),
+            "source/audio": AudioSource.from_file_path("input.wav"),
         },
         outputs={
-            "render//webvtt_transcript": WebVttTarget.to_file_path(
+            "render/webvtt_transcript": WebVttTarget.to_file_path(
                 "output.vtt"
             ),
         },
@@ -412,9 +412,10 @@ class TargetMaterializationResult:
 @dataclass(frozen=True)
 class OutputResult:
     artifact_id: ArtifactKey
+    task_locator: TaskArtifactLocator
     status: OutputStatus
     fingerprint: str | None
-    cached_reference: CachedArtifactReference | None = None
+    instance_locator: ArtifactInstanceLocator | None = None
     targets: tuple[TargetMaterializationResult, ...] = ()
     error_ids: tuple[str, ...] = ()
 ```
@@ -423,12 +424,12 @@ class OutputResult:
 
 The output statuses mean:
 
-- `succeeded`: the semantic output was available and every configured caller target, if any, was materialized successfully. For target-less outputs, semantic availability plus durable cached-reference publication is enough.
+- `succeeded`: the semantic output was available and every configured caller target, if any, was materialized successfully. For target-less outputs, semantic availability plus durable `a-instance` publication is enough.
 - `failed`: this output failed directly while producing, validating, committing, reading, or materializing it. `error_ids` references the errors that describe the failure.
 - `blocked`: this output did not complete because a different task-fatal failure caused fail-fast shutdown before this output could succeed. This is a terminal result, not a waiting-to-materialize state.
 - `cancelled`: this output did not complete because caller, process-shutdown, or internal cancellation won the task's terminal outcome.
 
-`fingerprint` is present when the semantic artifact fingerprint was known. `cached_reference` is present only after the artifact is committed and durably retrievable. It may therefore be present on a failed output when semantic production succeeded but caller-target materialization failed. In that case the semantic cache entry remains valid and reusable even though one configured target result is `failed`.
+`task_locator` is present for every requested output once planning has finalized. `fingerprint` is present when the semantic artifact fingerprint is known. `instance_locator` is present only after the artifact is committed and durably retrievable. It may therefore be present on a failed output when semantic production succeeded but caller-target materialization failed. In that case the semantic cache entry remains valid and reusable even though one configured target result is `failed`.
 
 ### Error Model
 
@@ -566,7 +567,8 @@ Only running stages normally contain subtasks.
 @dataclass(frozen=True)
 class OutputAvailabilitySnapshot:
     artifact_id: ArtifactKey
-    cached_reference: CachedArtifactReference
+    task_locator: TaskArtifactLocator
+    instance_locator: ArtifactInstanceLocator
 
 
 @dataclass(frozen=True)
@@ -712,7 +714,7 @@ RunProgressSnapshot(
 8. Progress handlers cannot fail or delay the task.
 9. The execution plan fixes `total_stage_count`; scheduling does not add or remove planned invocations.
 10. `RunResult`, not the progress snapshot, remains the authoritative terminal outcome.
-11. Requested-output availability snapshots and terminal results carry the same committed `CachedArtifactReference`.
-12. A cached-reference availability event is emitted only after durable commit.
+11. Requested-output availability snapshots and terminal results carry the same `a-task` and committed externally retrievable `a-instance` locator.
+12. An `a-instance` availability event is emitted only after durable commit.
 13. Future persisted-task resume uses current snapshot continuity, not historical event replay, unless a later replay extension is added.
 14. Shutdown-interrupted durable attempts are distinguishable from ordinary cancellation or failure.

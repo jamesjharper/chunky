@@ -219,7 +219,7 @@ async fn mixed_cacheable_hit_and_non_cacheable_output_runs_stage_for_non_cacheab
 ) -> Result<()> {
     let cacheable = decl("graph//cacheable_out", ArtifactRole::Intermediate);
     let diagnostic = chunky_example::artifact_models::ArtifactDeclaration::new(
-        ArtifactKey::parse("graph//diagnostic_out")?,
+        legacy_key("graph//diagnostic_out")?,
         ArtifactRole::Diagnostic,
         1,
         JsonValueCodec,

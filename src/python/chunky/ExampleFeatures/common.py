@@ -78,7 +78,7 @@ def _coerce_audio_settings(value: object) -> AudioSettings:
     raise TypeError(f"audio settings must be mapping-like, got {type(value).__name__}")
 
 SOURCE_AUDIO = ArtifactDeclaration[bytes](
-    artifact_id=ArtifactKey.parse("source//audio"),
+    artifact_id=ArtifactKey("source", "audio"),
     role=ArtifactRole.SOURCE,
     version=1,
     codec=BytesCodec(),
@@ -86,7 +86,7 @@ SOURCE_AUDIO = ArtifactDeclaration[bytes](
 )
 
 AUDIO_SETTINGS = ArtifactDeclaration[AudioSettings](
-    artifact_id=ArtifactKey.parse("audio_preprocessing//audio_settings"),
+    artifact_id=ArtifactKey("audio_preprocessing", "audio_settings"),
     role=ArtifactRole.SETTINGS,
     version=1,
     codec=JsonCodec[AudioSettings](),
@@ -103,7 +103,7 @@ MUSIC_AUDIO_SETTINGS = AUDIO_SETTINGS.override(
 )
 
 ASR_SETTINGS = ArtifactDeclaration[SettingsObject](
-    artifact_id=ArtifactKey.parse("settings//asr"),
+    artifact_id=ArtifactKey("settings", "asr"),
     role=ArtifactRole.SETTINGS,
     version=1,
     codec=JsonCodec[SettingsObject](),
@@ -111,7 +111,7 @@ ASR_SETTINGS = ArtifactDeclaration[SettingsObject](
 )
 
 LANGUAGE_SETTINGS = ArtifactDeclaration[SettingsObject](
-    artifact_id=ArtifactKey.parse("settings//language"),
+    artifact_id=ArtifactKey("settings", "language"),
     role=ArtifactRole.SETTINGS,
     version=1,
     codec=JsonCodec[SettingsObject](),
@@ -119,7 +119,7 @@ LANGUAGE_SETTINGS = ArtifactDeclaration[SettingsObject](
 )
 
 DIARIZATION_SETTINGS = ArtifactDeclaration[SettingsObject](
-    artifact_id=ArtifactKey.parse("settings//diarization"),
+    artifact_id=ArtifactKey("settings", "diarization"),
     role=ArtifactRole.SETTINGS,
     version=1,
     codec=JsonCodec[SettingsObject](),
@@ -127,7 +127,7 @@ DIARIZATION_SETTINGS = ArtifactDeclaration[SettingsObject](
 )
 
 ALIGNMENT_SETTINGS = ArtifactDeclaration[SettingsObject](
-    artifact_id=ArtifactKey.parse("settings//alignment"),
+    artifact_id=ArtifactKey("settings", "alignment"),
     role=ArtifactRole.SETTINGS,
     version=1,
     codec=JsonCodec[SettingsObject](),
@@ -135,7 +135,7 @@ ALIGNMENT_SETTINGS = ArtifactDeclaration[SettingsObject](
 )
 
 VTT_SETTINGS = ArtifactDeclaration[SettingsObject](
-    artifact_id=ArtifactKey.parse("settings//vtt"),
+    artifact_id=ArtifactKey("settings", "vtt"),
     role=ArtifactRole.SETTINGS,
     version=1,
     codec=JsonCodec[SettingsObject](),
@@ -143,7 +143,7 @@ VTT_SETTINGS = ArtifactDeclaration[SettingsObject](
 )
 
 RENDER_SETTINGS = ArtifactDeclaration[SettingsObject](
-    artifact_id=ArtifactKey.parse("settings//render"),
+    artifact_id=ArtifactKey("settings", "render"),
     role=ArtifactRole.SETTINGS,
     version=1,
     codec=JsonCodec[SettingsObject](),
@@ -151,42 +151,42 @@ RENDER_SETTINGS = ArtifactDeclaration[SettingsObject](
 )
 
 PREPARED_AUDIO = ArtifactDeclaration[JsonObject](
-    artifact_id=ArtifactKey.parse("audio//prepared"),
+    artifact_id=ArtifactKey("audio", "prepared"),
     role=ArtifactRole.INTERMEDIATE,
     version=1,
     codec=JsonCodec[JsonObject](),
 )
 
 TOKEN_TEXT = ArtifactDeclaration[JsonObject](
-    artifact_id=ArtifactKey.parse("transcript//token_text"),
+    artifact_id=ArtifactKey("transcript", "token_text"),
     role=ArtifactRole.INTERMEDIATE,
     version=1,
     codec=JsonCodec[JsonObject](),
 )
 
 SPEAKER_SEGMENTS = ArtifactDeclaration[JsonObject](
-    artifact_id=ArtifactKey.parse("speaker//segments"),
+    artifact_id=ArtifactKey("speaker", "segments"),
     role=ArtifactRole.INTERMEDIATE,
     version=1,
     codec=JsonCodec[JsonObject](),
 )
 
 MUSIC_SPANS = ArtifactDeclaration[JsonObject](
-    artifact_id=ArtifactKey.parse("audio//music_spans"),
+    artifact_id=ArtifactKey("audio", "music_spans"),
     role=ArtifactRole.INTERMEDIATE,
     version=1,
     codec=JsonCodec[JsonObject](),
 )
 
 TIMED_WORDS = ArtifactDeclaration[JsonObject](
-    artifact_id=ArtifactKey.parse("transcript//timed_words"),
+    artifact_id=ArtifactKey("transcript", "timed_words"),
     role=ArtifactRole.INTERMEDIATE,
     version=1,
     codec=JsonCodec[JsonObject](),
 )
 
 WEBVTT_TRANSCRIPT = ArtifactDeclaration[str](
-    artifact_id=ArtifactKey.parse("render//webvtt_transcript"),
+    artifact_id=ArtifactKey("render", "webvtt_transcript"),
     role=ArtifactRole.TARGET,
     version=1,
     codec=TextCodec(),

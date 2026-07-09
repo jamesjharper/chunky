@@ -11,7 +11,7 @@ use std::thread::{self, JoinHandle};
 
 use anyhow::{bail, Result};
 
-use crate::artifact_models::{ArtifactKey, CachedArtifactReference};
+use crate::artifact_models::{ArtifactInstanceLocator, ArtifactKey};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TaskState {
@@ -86,7 +86,7 @@ pub struct StageProgressSnapshot {
 #[derive(Clone, Debug, PartialEq)]
 pub struct OutputAvailabilitySnapshot {
     pub artifact_id: ArtifactKey,
-    pub cached_reference: CachedArtifactReference,
+    pub instance_locator: ArtifactInstanceLocator,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -382,19 +382,19 @@ impl RunProgressTracker {
     pub fn record_available_output(
         &self,
         artifact_id: ArtifactKey,
-        cached_reference: CachedArtifactReference,
+        instance_locator: ArtifactInstanceLocator,
     ) -> Result<()> {
-        if cached_reference.artifact_id != artifact_id {
+        if instance_locator.artifact_id() != &artifact_id.without_projection() {
             bail!(
-                "cached reference artifact_id must match available output artifact_id: {} != {}",
-                cached_reference.artifact_id,
+                "instance locator artifact_id must match available output artifact_id: {} != {}",
+                instance_locator.artifact_id(),
                 artifact_id
             );
         }
         self.mutate(move |state| {
             state.available_outputs.insert(
                 artifact_id.clone(),
-                OutputAvailabilitySnapshot { artifact_id, cached_reference },
+                OutputAvailabilitySnapshot { artifact_id, instance_locator },
             );
         });
         Ok(())

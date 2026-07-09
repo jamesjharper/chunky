@@ -163,25 +163,25 @@ A `RunRequest` is the caller-facing execution contract.
 @dataclass(frozen=True)
 class RunRequest:
     inputs: Mapping[
-        ArtifactKey | str,
-        ArtifactSourceHandle[Any] | CachedArtifactReference | Mapping[str, Any],
+        ArtifactKey | ArtifactRefLocator | str,
+        ArtifactSourceHandle[Any] | ArtifactInstanceLocator | Mapping[str, Any],
     ]
     outputs: Mapping[
-        ArtifactKey | str,
+        ArtifactKey | ArtifactRefLocator | str,
         ArtifactTargetHandle[Any]
         | Sequence[ArtifactTargetHandle[Any]]
         | Mapping[str, Any],
     ]
     run_policy: PlanningRunPolicy | None = None
     cache_policy: Mapping[
-        ArtifactKey | str,
+        ArtifactKey | ArtifactRefLocator | str,
         PerArtifactCachePolicy | Mapping[str, Any],
     ] | None = None
 ```
 
 The request contains:
 
-- `inputs`: caller-supplied source, settings, explicitly supplied intermediate handles, or cached-root references;
+- `inputs`: caller-supplied source, settings, explicitly supplied intermediate handles, or concrete `a-instance` locators for cached roots;
 - `outputs`: caller-requested semantic artifacts plus zero or more materialization targets for each;
 - `run_policy`: optional planning and execution-strategy policy;
 - `cache_policy`: optional per-artifact cache-use intent.
@@ -190,35 +190,28 @@ The request contains:
 
 ## Request Artifact Addressing
 
-`inputs`, `outputs`, and `cache_policy` use the same semantic artifact-address normalization model.
+`inputs`, `outputs`, and `cache_policy` use the same semantic artifact-address normalization model. Public string keys must parse as semantic artifact references. The `a-ref:/` prefix is optional, so examples use short path-like keys such as `source/audio`; bare legacy artifact strings such as `domain//kind`, `domain//kind#phase`, or `domain::kind` are not accepted.
 
-Callers may use direct `ArtifactKey` entries or nested string mappings. Nested mappings normalize into concrete semantic artifact IDs using these path forms:
+Callers may use direct `ArtifactKey` entries, direct `ArtifactRefLocator` entries, or nested string mappings. Nested mappings normalize into `ArtifactRefLocator` values and then into `ArtifactKey` semantic IDs.
 
-```text
-DOMAIN//KIND
-OVERRIDE_DOMAIN//DOMAIN//KIND
-```
-
-Normalization rules:
-
-- nested keys must be strings;
-- direct `ArtifactKey` entries must map directly to values, not nested mappings;
-- normalized paths must resolve to two or three path components;
-- duplicate artifact IDs are rejected;
-- structural validation errors across inputs, outputs, and cache policy should be accumulated and reported together.
-
-The normalized semantic artifact ID is still the key used for planning. A request input may additionally pin the concrete instance by using a cached-root reference value:
+Canonical direct form:
 
 ```python
-@dataclass(frozen=True)
-class CachedArtifactReference:
-    artifact_id: ArtifactKey
-    fingerprint: str
+inputs = {
+    "source/audio": FileSource(audio_path),
+    "render/webvtt_settings": InMemorySource({
+        "include_speakers": True,
+    }),
+}
+
+outputs = {
+    "render/webvtt_transcript": AtomicFileTargetHandle(
+        output_path
+    ),
+}
 ```
 
-The reference is valid only when its `artifact_id` matches the normalized input key and the cache contains a committed entry whose metadata validates against that artifact declaration and fingerprint. Outputs and cache policy continue to target semantic artifact IDs, not concrete cached-instance references.
-
-Example input shape:
+Nested mappings remain an ergonomic request shape. They are interpreted as projected `a-ref` paths, where a three-level mapping uses the first segment as projection context and the second segment as the actual artifact domain:
 
 ```python
 inputs = {
@@ -237,15 +230,40 @@ inputs = {
 }
 ```
 
-Example output shape:
+The nested settings example above normalizes to the projected locator:
+
+```text
+speech_processing/audio_preprocessing/audio_settings
+```
+
+Its semantic identity is the same as:
+
+```text
+audio_preprocessing/audio_settings
+```
+
+Normalization rules:
+
+- nested keys must be strings;
+- direct `ArtifactKey` or locator entries must map directly to values, not nested mappings;
+- direct string keys must parse as semantic `a-ref` references, with the `a-ref:/` prefix optional;
+- normalized nested paths must resolve to two or three path components;
+- omitted projection context canonicalizes to `global`;
+- omitted `a-ref` phase canonicalizes to `any`;
+- duplicate semantic artifact IDs are rejected after projection context is stripped;
+- structural validation errors across inputs, outputs, and cache policy should be accumulated and reported together.
+
+The normalized semantic artifact ID is still the key used for planning. A request input may additionally pin the concrete instance by using an `ArtifactInstanceLocator` value:
 
 ```python
-outputs = {
-    "render": {
-        "webvtt_transcript": AtomicFileTargetHandle(output_path),
-    },
+inputs = {
+    "source/audio": ArtifactInstanceLocator.from_a_instance(
+        "/source/audio/none/fingerprint/b3d9..."
+    ),
 }
 ```
+
+The locator is valid only when its semantic artifact identity matches the normalized input key and the cache contains a committed entry whose metadata validates against that artifact declaration and fingerprint. Outputs and cache policy continue to target semantic `a-ref` identities, not concrete `a-instance` identities.
 
 ## Output Requests and Materialization
 
@@ -255,7 +273,7 @@ One artifact may be materialized to multiple caller targets in the same run:
 
 ```python
 outputs = {
-    "render//webvtt_transcript": [
+    "render/webvtt_transcript": [
         AtomicFileTargetHandle("output.vtt"),
         InMemoryTargetHandle(),
     ],
@@ -272,20 +290,23 @@ Fan-out rules:
 
 If one target materialization fails, the run fails as a whole while reporting which targets succeeded and which failed. Successful target writes are left in place; rollback is not promised. If cancellation arrives during materialization, the runner should stop remaining target writes as soon as practical.
 
-A requested output may also have an empty target list. This is not an omitted output; it is an explicit request for semantic availability and later retrieval. Empty target lists are valid only for artifacts that can be durably published for that request. The terminal result and output-availability progress/event payload must include the requested semantic artifact ID and the committed `CachedArtifactReference`.
+A requested output may also have an empty target list. This is not an omitted output; it is an explicit request for semantic availability and later retrieval. Empty target lists are valid only for artifacts that can be durably published for that request.
+
+Every requested output receives a stable `a-task` locator during planning finalization, even when it has materialization targets. That locator identifies the task-scoped requested-output binding, not a file. Once planning determines the final artifact fingerprint, the `a-task` may resolve to the corresponding internal `a-instance`; content retrieval remains gated on durable commit and retrievability state.
 
 Target-less output validation is intentionally strict:
 
 - the artifact must be known to the manifest;
 - the output declaration must be cacheable for this request;
 - `cache_policy[artifact_id].do_not_cache=True` is a validation error;
-- retrieval references are emitted only after the cache entry has committed.
+- terminal results and progress events expose `a-task` for every requested output;
+- externally retrievable `a-instance` locators are emitted only after durable cache commit.
 
 ## Cache Policy
 
 `cache_policy` is an explicit per-run, per-artifact policy surface. It expresses semantic cache-use intent, not backend-specific operational knobs.
 
-A cache policy entry targets one exact semantic artifact ID. Wildcards, prefixes, domain-wide policy, and family-wide expansion are out of scope.
+A cache policy entry targets one exact semantic artifact ID. Wildcards, prefixes, domain-wide policy, and family-wide expansion are out of scope. String policy keys must parse as semantic `a-ref` references and are normalized by the same rules as `inputs` and `outputs`.
 
 Conceptual shape:
 
@@ -376,7 +397,7 @@ If planning fails after supplied artifacts have already been bound, the pipeline
 
 ## Supplied Inputs
 
-Caller-supplied request inputs and explicit cached-root references become bound `ArtifactInstance` values before planning.
+Caller-supplied request inputs and explicit `a-instance` cached-root locators become bound `ArtifactInstance` values before planning.
 
 ```python
 async def bind_supplied_inputs(
@@ -403,7 +424,7 @@ Supplied settings are still normal artifact roots. They are fingerprinted from t
 
 For cacheable declarations, binding also publishes the provided root into cache by default. The publication uses the already calculated supplied-artifact fingerprint. It does not alter planning semantics, and the supplied instance remains the selected graph root.
 
-If an input is a `CachedArtifactReference`, binding validates the paired semantic ID and fingerprint against cache metadata and returns the reserved cache source as the supplied instance. If the referenced artifact is a settings artifact, the pipeline may read it before planning to populate the request settings view.
+If an input is an `ArtifactInstanceLocator`, binding validates the locator semantic ID and fingerprint against cache metadata and returns the reserved cache source as the supplied instance. If the referenced artifact is a settings artifact, the pipeline may read it before planning to populate the request settings view.
 
 ## Lazy Default Settings Resolution
 
@@ -458,17 +479,17 @@ class ArtifactCacheIO(Protocol):
         source: ArtifactSourceHandle[Any],
         *,
         cache_policy: PerArtifactCachePolicy | None = None,
-    ) -> CachedArtifactReference: ...
+    ) -> ArtifactInstanceLocator: ...
 
     async def open(
         self,
-        reference: CachedArtifactReference,
+        locator: ArtifactInstanceLocator,
     ) -> ArtifactInstance[Any]: ...
 ```
 
 `publish(...)` uses the same supplied-artifact fingerprint builder, metadata validation, reservation acquisition, and atomic commit path as run-time provided-root publication. `open(...)` must acquire a normal cache read reservation before returning an instance. The interface must not expose backend paths or object-store keys.
 
-This facade is the common foundation for upload-first workflows, later output retrieval, duplicate-upload detection, and saved-task cached-root rebinding. A future preflight may ask whether a concrete `artifact_id + fingerprint` already exists before uploading bytes, but this version only reserves that extension.
+This facade is the common foundation for upload-first workflows, later output retrieval, duplicate-upload detection, and saved-task cached-root rebinding. A future preflight may ask whether a concrete `a-instance` already exists before uploading bytes, but this version only reserves that extension.
 
 A cached instance opened through this interface behaves like a normal supplied graph root when referenced in a later request. Cached settings roots are the one planned early-binding case: they may be opened and read before graph planning so settings-dependent planning hooks see their values.
 
@@ -527,7 +548,7 @@ There is no pre-plan progress reporting in this contract. Request normalization,
 
 For `run_away(...)`, pre-plan failures must still produce an observable terminal failed state with phase-specific diagnostics. For both run surfaces, failures after partial production or materialization should surface successful partial outcomes alongside the error.
 
-When a requested output is durably published, the pipeline-facing result/progress surface records the semantic artifact ID and concrete `CachedArtifactReference`. The reference is not exposed for planned or in-progress outputs.
+When a requested output is durably published, the pipeline-facing result/progress surface records the semantic artifact ID and concrete `ArtifactInstanceLocator`. The reference is not exposed for planned or in-progress outputs.
 
 ## Responsibility Boundaries
 
@@ -538,7 +559,7 @@ The pipeline is responsible for:
 - owning the baseline frozen manifest and configured runtime services;
 - accepting run requests;
 - normalizing and validating request artifact mappings;
-- binding caller-supplied inputs and explicit cached-root references;
+- binding caller-supplied inputs and explicit `a-instance` cached-root locators;
 - publishing cacheable provided roots to cache unless opted out;
 - providing cached settings roots and an on-demand default-settings resolver to planning;
 - constructing task-scoped planner and runner instances;
@@ -636,6 +657,6 @@ A typical demo flow is:
 37. Direct cache writes use the same semantic fingerprinting and atomic publish rules as run-time cache writes.
 38. Cached settings roots may be opened before planning so settings-dependent graph logic sees their values.
 39. A future persisted task with any uncached provided root is not restartable.
-40. Requested-output availability records expose a committed `CachedArtifactReference` only after durable publication.
+40. Requested-output availability records expose a committed `ArtifactInstanceLocator` only after durable publication.
 41. Future persisted-task orchestration stores normalized request and compatibility metadata, not live scheduler state.
 42. A persisted task restart creates a fresh live run ID while preserving stable persisted-task identity.

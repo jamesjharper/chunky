@@ -16,7 +16,8 @@ from .Artifacts.artifact_models import (
     ArtifactDeclaration,
     ArtifactKey,
     ArtifactRole,
-    CachedArtifactReference,
+    ArtifactInstanceLocator,
+    ArtifactRefLocator,
 )
 from .Bindings.cache_models import ArtifactCache
 from .Planning.execution_planner import TaskRunPlanner
@@ -57,8 +58,8 @@ class RunRequest:
     inputs: Mapping[
         ArtifactKey | str,
         ArtifactSourceHandle[Any]
-        | CachedArtifactReference
-        | Mapping[str, ArtifactSourceHandle[Any] | CachedArtifactReference],
+        | ArtifactInstanceLocator
+        | Mapping[str, ArtifactSourceHandle[Any] | ArtifactInstanceLocator],
     ]
     outputs: Mapping[
         ArtifactKey | str,
@@ -95,7 +96,7 @@ class ArtifactCacheIO:
         source: ArtifactSourceHandle[Any],
         *,
         cache_policy: ArtifactCachePolicy | None = None,
-    ) -> CachedArtifactReference:
+    ) -> ArtifactInstanceLocator:
         declaration = self._pipeline.stage_manifest.find_artifact(_artifact_key(artifact_id))
         effective_source = await self._pipeline._resolve_settings_source(
             declaration,
@@ -113,12 +114,12 @@ class ArtifactCacheIO:
 
     async def open(
         self,
-        reference: CachedArtifactReference,
+        locator: ArtifactInstanceLocator,
     ) -> ArtifactInstance[Any]:
-        declaration = self._pipeline.stage_manifest.find_artifact(reference.artifact_id)
-        return await self._pipeline._artifact_bindings_provider.open_cached_reference(
+        declaration = self._pipeline.stage_manifest.find_artifact(locator.artifact_id)
+        return await self._pipeline._artifact_bindings_provider.open_instance_locator(
             declaration,
-            reference,
+            locator,
         )
 
 
@@ -277,6 +278,7 @@ class ChunkyPipeline:
                     self.stage_manifest,
                     artifact_bindings_provider,
                 ),
+                task_id=task_id,
             )
             self._validate_cache_policy_reachability(cache_policy, plan)
             self._register_plan_progress(progress_tracker, plan)
@@ -304,7 +306,7 @@ class ChunkyPipeline:
         self,
         request: RunRequest,
     ) -> tuple[
-        dict[ArtifactKey, ArtifactSourceHandle[Any] | CachedArtifactReference],
+        dict[ArtifactKey, ArtifactSourceHandle[Any] | ArtifactInstanceLocator],
         dict[ArtifactKey, tuple[ArtifactTargetHandle[Any], ...]],
         dict[ArtifactKey, ArtifactCachePolicy],
     ]:
@@ -320,11 +322,11 @@ class ChunkyPipeline:
             except Exception:
                 errors.append(f"unknown request artifact: {artifact_id}")
 
-        for artifact_id, source_or_reference in input_sources.items():
-            if isinstance(source_or_reference, CachedArtifactReference) and source_or_reference.artifact_id != artifact_id:
+        for artifact_id, source_or_locator in input_sources.items():
+            if isinstance(source_or_locator, ArtifactInstanceLocator) and source_or_locator.artifact_id != artifact_id.without_projection():
                 errors.append(
-                    "inputs: cached artifact reference artifact_id must match its request key: "
-                    f"{source_or_reference.artifact_id} != {artifact_id}"
+                    "inputs: artifact instance locator artifact_id must match its request key: "
+                    f"{source_or_locator.artifact_id} != {artifact_id}"
                 )
 
         for artifact_id, targets in output_targets.items():
@@ -417,27 +419,27 @@ class ChunkyPipeline:
     async def _bind_supplied_inputs(
         self,
         artifact_bindings_provider: ArtifactBindingsProvider,
-        input_roots: Mapping[ArtifactKey, ArtifactSourceHandle[Any] | CachedArtifactReference],
+        input_roots: Mapping[ArtifactKey, ArtifactSourceHandle[Any] | ArtifactInstanceLocator],
         cache_policy: Mapping[ArtifactKey, ArtifactCachePolicy] | None = None,
     ) -> tuple[dict[ArtifactKey, ArtifactInstance[Any]], set[ArtifactKey]]:
         supplied: dict[ArtifactKey, ArtifactInstance[Any]] = {}
         user_supplied_settings: set[ArtifactKey] = set()
 
-        for artifact_id, source_or_reference in input_roots.items():
+        for artifact_id, source_or_locator in input_roots.items():
             declaration = self.stage_manifest.find_artifact(artifact_id)
             if declaration.role is ArtifactRole.SETTINGS:
                 user_supplied_settings.add(artifact_id)
 
-            if isinstance(source_or_reference, CachedArtifactReference):
-                supplied[artifact_id] = await artifact_bindings_provider.open_cached_reference(
+            if isinstance(source_or_locator, ArtifactInstanceLocator):
+                supplied[artifact_id] = await artifact_bindings_provider.open_instance_locator(
                     declaration,
-                    source_or_reference,
+                    source_or_locator,
                 )
                 continue
 
             effective_source = await self._resolve_settings_source(
                 declaration,
-                source_or_reference,
+                source_or_locator,
             )
 
             supplied[artifact_id] = await artifact_bindings_provider.bind_supplied(
@@ -608,14 +610,19 @@ def _flatten_request_value(
             _flatten_request_value(flattened, next_path, child_key, child_value, errors, label)
         return
 
-    if len(next_path) not in (2, 3):
-        errors.append(
-            f"{label}: request artifact mappings must resolve to DOMAIN//KIND or "
-            "OVERRIDE_DOMAIN//DOMAIN//KIND paths"
-        )
-        return
     try:
-        artifact_id = ArtifactKey.parse("//".join(next_path))
+        if 1 <= len(next_path) <= 4:
+            locator = ArtifactRefLocator.parse("/".join(next_path))
+            artifact_id = locator.artifact_key
+            if locator.projection_context != "global":
+                artifact_id = artifact_id.with_projection(locator.projection_context)
+        else:
+            errors.append(
+                f"{label}: request artifact mappings must resolve to an artifact reference, "
+                "DOMAIN/KIND, DOMAIN/KIND/PHASE, PROJECTION/DOMAIN/KIND, "
+                "or PROJECTION/DOMAIN/KIND/PHASE path"
+            )
+            return
     except ValueError as exc:
         errors.append(f"{label}: {exc}")
         return

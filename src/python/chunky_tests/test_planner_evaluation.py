@@ -112,10 +112,25 @@ def _source_instance(
     )
 
 
+
+def _key_from_legacy(value: str) -> ArtifactKey:
+    parts = value.split("//")
+    if len(parts) == 2:
+        projection_context = None
+        domain, remainder = parts
+    elif len(parts) == 3:
+        projection_context, domain, remainder = parts
+    else:
+        raise ValueError(value)
+    if "#" in remainder:
+        content_kind, phase = remainder.rsplit("#", 1)
+        return ArtifactKey(domain, content_kind, int(phase), projection_context)
+    return ArtifactKey(domain, remainder, projection_context=projection_context)
+
 def _artifact_key(name: str, *, role: ArtifactRole = ArtifactRole.INTERMEDIATE) -> ArtifactKey:
     if name.startswith("setting_"):
         return _setting_key(name)
-    return ArtifactKey.parse(f"graph//{_canonical_node_id(name)}")
+    return ArtifactKey("graph", _canonical_node_id(name))
 
 
 def _setting_key(name: str) -> ArtifactKey:
@@ -130,14 +145,14 @@ def _setting_key(name: str) -> ArtifactKey:
     name = _canonical_node_id(name)
     if name.endswith("_user_or_defaults"):
         base = name.removesuffix("_user_or_defaults")
-        return ArtifactKey.parse(f"settings//{base}")
+        return ArtifactKey("settings", base)
 
     marker = "_override_stage_"
     if marker in name:
         base, target_suffix = name.split(marker, 1)
-        return ArtifactKey.parse(f"stage_{target_suffix}//settings//{base}")
+        return ArtifactKey("settings", base, projection_context=f"stage_{target_suffix}")
 
-    return ArtifactKey.parse(f"settings//{name}")
+    return ArtifactKey("settings", name)
 
 
 def _canonical_node_id(name: str) -> str:
@@ -279,9 +294,21 @@ class CanonicalCaseHarness:
             for invocation in plan.invocations
             for output in invocation.requested_output_bindings
         }
-        supplied_instance_ids = {
-            str(key) for key in self.supplied
+        producer_suffix_by_instance_id = {
+            output.instance_id: self._settings_suffix(invocation)
+            for invocation in plan.invocations
+            for output in invocation.requested_output_bindings
         }
+        supplied_instance_ids = {str(key) for key in self.supplied}
+        for instance in self.supplied.values():
+            # Some canonical graph fixtures deliberately use human-readable fake
+            # fingerprints containing legacy-looking separators. Production
+            # locators reject those as URI path segments, so keep the harness
+            # tolerant while still exercising real locator IDs from the planner.
+            try:
+                supplied_instance_ids.add(str(instance.locator))
+            except ValueError:
+                pass
         edges: set[tuple[str, str]] = set()
         for invocation in plan.invocations:
             stage_node = self._stage_node(invocation)
@@ -311,6 +338,7 @@ class CanonicalCaseHarness:
                         self._artifact_node(
                             binding.resolved_artifact_id,
                             binding.resolved_instance_id,
+                            default_suffix=producer_suffix_by_instance_id.get(binding.resolved_instance_id, ""),
                         ),
                         stage_node,
                     )
@@ -825,7 +853,7 @@ class CanonicalGraphCaseTests(unittest.IsolatedAsyncioTestCase):
             if invocation.registration.stage_id == "stage_b"
         )
         self.assertEqual(
-            (ArtifactKey.parse("graph//int_a"),),
+            (_key_from_legacy("graph//int_a"),),
             tuple(
                 binding.resolved_artifact_id
                 for binding in stage_b.input_bindings
@@ -833,7 +861,7 @@ class CanonicalGraphCaseTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
         self.assertEqual(
-            (ArtifactKey.parse("graph//int_c"),),
+            (_key_from_legacy("graph//int_c"),),
             tuple(
                 binding.resolved_artifact_id
                 for binding in stage_b.input_bindings
@@ -1241,8 +1269,8 @@ class PlannerEvaluationSuppliedIntermediateTests(unittest.IsolatedAsyncioTestCas
         #     transcript//token_text_supplied -> |stage_render| -> out_a
         #
 
-        completed = ArtifactKey.parse("transcript//token_text")
-        terminal_phase = ArtifactKey.parse("transcript//token_text#201")
+        completed = _key_from_legacy("transcript//token_text")
+        terminal_phase = _key_from_legacy("transcript//token_text#201")
         out_a = _artifact_key("out_a")
         artifacts = {
             terminal_phase: _decl(terminal_phase, ArtifactRole.INTERMEDIATE),
@@ -1301,9 +1329,9 @@ class PlannerEvaluationSuppliedIntermediateTests(unittest.IsolatedAsyncioTestCas
         #   EvaluatedPlan, completed request:
         #     stage_terminal -> transcript//token_text -> stage_completed_consumer -> out_completed
         #
-        phase_100 = ArtifactKey.parse("transcript//token_text#100")
-        phase_201 = ArtifactKey.parse("transcript//token_text#201")
-        completed = ArtifactKey.parse("transcript//token_text")
+        phase_100 = _key_from_legacy("transcript//token_text#100")
+        phase_201 = _key_from_legacy("transcript//token_text#201")
+        completed = _key_from_legacy("transcript//token_text")
         out_bounded = _artifact_key("out_bounded")
         out_completed = _artifact_key("out_completed")
         artifacts = {
@@ -1320,10 +1348,10 @@ class PlannerEvaluationSuppliedIntermediateTests(unittest.IsolatedAsyncioTestCas
         )
         bounded_consumer = _stage_registration(
             stage_id="stage_bounded_consumer",
-            input_ids=[ArtifactKey.parse("transcript//token_text#200")],
+            input_ids=[_key_from_legacy("transcript//token_text#200")],
             output_ids=[out_bounded],
             requirements=lambda _ctx: (
-                ArtifactRequirement(ArtifactKey.parse("transcript//token_text#200")),
+                ArtifactRequirement(_key_from_legacy("transcript//token_text#200")),
             ),
         )
         completed_consumer = _stage_registration(
@@ -1523,8 +1551,8 @@ class PlannerEvaluationErrorTests(unittest.IsolatedAsyncioTestCase):
         #   EvaluatedPlan:
         #     StagePlanningError; the request-specific dependency graph is cyclic.
         #
-        int_a = ArtifactKey.parse("graph//loop#1")
-        int_b = ArtifactKey.parse("graph//loop#2")
+        int_a = _key_from_legacy("graph//loop#1")
+        int_b = _key_from_legacy("graph//loop#2")
         artifacts = {
             int_a: _decl(int_a, ArtifactRole.INTERMEDIATE),
             int_b: _decl(int_b, ArtifactRole.INTERMEDIATE),
@@ -1560,8 +1588,8 @@ class PlannerEvaluationPhaseTests(unittest.IsolatedAsyncioTestCase):
         #   EvaluatedPlan:
         #     stage_asr -> transcript//token_text
         #
-        requested = ArtifactKey.parse("transcript//token_text")
-        produced = ArtifactKey.parse("transcript//token_text#200")
+        requested = _key_from_legacy("transcript//token_text")
+        produced = _key_from_legacy("transcript//token_text#200")
         artifacts = {
             produced: _decl(produced, ArtifactRole.INTERMEDIATE),
         }
@@ -1590,9 +1618,9 @@ class PlannerEvaluationPhaseTests(unittest.IsolatedAsyncioTestCase):
         #   EvaluatedPlan:
         #     stage_100 -> transcript//token_text#100
         #
-        selector = ArtifactKey.parse("transcript//token_text#150")
-        phase_100 = ArtifactKey.parse("transcript//token_text#100")
-        phase_200 = ArtifactKey.parse("transcript//token_text#200")
+        selector = _key_from_legacy("transcript//token_text#150")
+        phase_100 = _key_from_legacy("transcript//token_text#100")
+        phase_200 = _key_from_legacy("transcript//token_text#200")
         artifacts = {
             phase_100: _decl(phase_100, ArtifactRole.INTERMEDIATE),
             phase_200: _decl(phase_200, ArtifactRole.INTERMEDIATE),
@@ -1627,9 +1655,9 @@ class PlannerEvaluationPhaseTests(unittest.IsolatedAsyncioTestCase):
         #   EvaluatedPlan:
         #     | stage_100 | -> transcript//token_text#100 -> | stage_201 | -> transcript//token_text -> | stage_render | -> out_a
         #
-        completed = ArtifactKey.parse("transcript//token_text")
-        phase_100 = ArtifactKey.parse("transcript//token_text#100")
-        phase_201 = ArtifactKey.parse("transcript//token_text#201")
+        completed = _key_from_legacy("transcript//token_text")
+        phase_100 = _key_from_legacy("transcript//token_text#100")
+        phase_201 = _key_from_legacy("transcript//token_text#201")
         out_a = _artifact_key("out_a")
         artifacts = {
             phase_100: _decl(phase_100, ArtifactRole.INTERMEDIATE),
@@ -1684,10 +1712,10 @@ class PlannerEvaluationPhaseTests(unittest.IsolatedAsyncioTestCase):
         #   EvaluatedPlan:
         #     stage_150 -> transcript//token_text#150 -> stage_consumer -> out_a
         #
-        selector = ArtifactKey.parse("transcript//token_text#200")
-        phase_100 = ArtifactKey.parse("transcript//token_text#100")
-        phase_150 = ArtifactKey.parse("transcript//token_text#150")
-        phase_201 = ArtifactKey.parse("transcript//token_text#201")
+        selector = _key_from_legacy("transcript//token_text#200")
+        phase_100 = _key_from_legacy("transcript//token_text#100")
+        phase_150 = _key_from_legacy("transcript//token_text#150")
+        phase_201 = _key_from_legacy("transcript//token_text#201")
         out_a = _artifact_key("out_a")
         artifacts = {
             phase_100: _decl(phase_100, ArtifactRole.INTERMEDIATE),
@@ -1753,8 +1781,8 @@ class PlannerEvaluationPhaseTests(unittest.IsolatedAsyncioTestCase):
         #   EvaluatedPlan:
         #     StagePlanningError; exact transcript//token_text#150 is unavailable.
         #
-        requested = ArtifactKey.parse("transcript//token_text#150")
-        phase_100 = ArtifactKey.parse("transcript//token_text#100")
+        requested = _key_from_legacy("transcript//token_text#150")
+        phase_100 = _key_from_legacy("transcript//token_text#100")
         artifacts = {phase_100: _decl(phase_100, ArtifactRole.INTERMEDIATE)}
         stage = _stage_registration(
             stage_id="stage_100",
@@ -2477,7 +2505,7 @@ class PlannerEvaluationSettingsPrecedenceTests(unittest.IsolatedAsyncioTestCase)
     async def test_user_configured_base_setting_resolves_through_supplied_artifact_path(self) -> None:
         in_a = _artifact_key("in_a")
         out_a = _artifact_key("out_a")
-        base_setting = ArtifactKey.parse("settings//mode")
+        base_setting = _key_from_legacy("settings//mode")
         artifacts = {
             in_a: _decl(in_a, ArtifactRole.SOURCE),
             out_a: _decl(out_a, ArtifactRole.TARGET),
@@ -2532,8 +2560,8 @@ class PlannerEvaluationSettingsPrecedenceTests(unittest.IsolatedAsyncioTestCase)
         in_a = _artifact_key("in_a")
         int_a = _artifact_key("int_a")
         out_a = _artifact_key("out_a")
-        base_setting = ArtifactKey.parse("settings//mode")
-        inherited_override = ArtifactKey.parse("downstream//settings//mode")
+        base_setting = _key_from_legacy("settings//mode")
+        inherited_override = _key_from_legacy("downstream//settings//mode")
         artifacts = {
             in_a: _decl(in_a, ArtifactRole.SOURCE),
             int_a: _decl(int_a, ArtifactRole.INTERMEDIATE),
@@ -2597,9 +2625,9 @@ class PlannerEvaluationSettingsPrecedenceTests(unittest.IsolatedAsyncioTestCase)
         route_b = _artifact_key("route_b")
         out_a = _artifact_key("out_a")
         out_b = _artifact_key("out_b")
-        audio_settings = ArtifactKey.parse("settings//audio")
-        asr_override = ArtifactKey.parse("asr//settings//audio")
-        diar_override = ArtifactKey.parse("diarization//settings//audio")
+        audio_settings = _key_from_legacy("settings//audio")
+        asr_override = _key_from_legacy("asr//settings//audio")
+        diar_override = _key_from_legacy("diarization//settings//audio")
         artifacts = {
             source: _decl(source, ArtifactRole.SOURCE),
             prepared: _decl(prepared, ArtifactRole.INTERMEDIATE),
@@ -2895,7 +2923,7 @@ class PlannerEvaluationManifestValidationTests(unittest.TestCase):
         #     No evaluated graph is built; phased settings declarations are invalid.
         #
         with self.assertRaisesRegex(ValueError, "only intermediate artifact declarations may use phases"):
-            _decl(ArtifactKey.parse("settings//mode#1"), ArtifactRole.SETTINGS)
+            _decl(_key_from_legacy("settings//mode#1"), ArtifactRole.SETTINGS)
 
 
 if __name__ == "__main__":

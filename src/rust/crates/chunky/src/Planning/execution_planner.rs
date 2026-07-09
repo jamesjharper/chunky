@@ -37,6 +37,7 @@ pub trait TaskRunGraphBuilder<'a, G>: Clone {
         self,
         task_request_graph: TaskRequestGraph<'a>,
         supplied_instances: BTreeMap<ArtifactKey, AnyArtifactInstance>,
+        task_id: Option<String>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<G>> + Send + 'a>>;
 }
 
@@ -69,6 +70,7 @@ where
         run_policy: Option<PlanningRunPolicy>,
         user_supplied_settings: BTreeSet<ArtifactKey>,
         default_settings_resolver: Option<Arc<dyn DefaultSettingsResolver>>,
+        task_id: Option<String>,
     ) -> Result<G> {
         let manifest = self.manifest;
         self.validate_requested_outputs(&requested_outputs)?;
@@ -104,7 +106,7 @@ where
 
         self.task_execution_graph_builder
             .clone()
-            .build(task_request_graph, planning_roots)
+            .build(task_request_graph, planning_roots, task_id)
             .await
     }
 

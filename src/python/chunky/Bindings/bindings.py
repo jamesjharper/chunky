@@ -22,7 +22,7 @@ from ..Artifacts.artifact_handles import (
     ArtifactTargetHandle,
     IntermediateArtifactHandle,
 )
-from ..Artifacts.artifact_models import ArtifactDeclaration, CachedArtifactReference
+from ..Artifacts.artifact_models import ArtifactDeclaration, ArtifactInstanceLocator
 from .cache_models import (
     ArtifactCache,
     CacheHit,
@@ -216,7 +216,7 @@ class ArtifactBindingsProvider:
         source: ArtifactSourceHandle[T],
         *,
         fingerprint: str | None = None,
-    ) -> CachedArtifactReference:
+    ) -> ArtifactInstanceLocator:
         """Publish a supplied artifact root through the cache reservation path."""
 
         resolved_fingerprint = fingerprint or await (
@@ -233,7 +233,7 @@ class ArtifactBindingsProvider:
             )
             if isinstance(resolution, CacheHit) or hasattr(resolution, "source_handle"):
                 await resolution.source_handle.close()
-                return CachedArtifactReference(
+                return ArtifactInstanceLocator.from_key(
                     declaration.artifact_id,
                     resolved_fingerprint,
                 )
@@ -248,7 +248,7 @@ class ArtifactBindingsProvider:
                     )
                 )
                 await writer.write(value)
-                return CachedArtifactReference(
+                return ArtifactInstanceLocator.from_key(
                     declaration.artifact_id,
                     resolved_fingerprint,
                 )
@@ -257,23 +257,23 @@ class ArtifactBindingsProvider:
                 continue
             raise TypeError(f"unsupported cache resolution: {resolution!r}")
 
-    async def open_cached_reference(
+    async def open_instance_locator(
         self,
         declaration: ArtifactDeclaration[T],
-        reference: CachedArtifactReference,
+        locator: ArtifactInstanceLocator,
     ) -> ArtifactInstance[T]:
-        """Bind one explicit cached-root reference as a supplied root."""
+        """Bind one explicit concrete artifact instance locator as a supplied root."""
 
-        if reference.artifact_id != declaration.artifact_id:
+        if locator.artifact_id != declaration.artifact_id.without_projection():
             raise ValueError(
-                "cached artifact reference artifact_id does not match declaration: "
-                f"{reference.artifact_id} != {declaration.artifact_id}"
+                "artifact instance locator artifact_id does not match declaration: "
+                f"{locator.artifact_id} != {declaration.artifact_id}"
             )
-        hit = await self._cache.open(declaration, reference.fingerprint)
+        hit = await self._cache.open(declaration, locator.fingerprint)
         return ArtifactInstance(
             ArtifactHandle(
                 declaration=declaration,
-                fingerprint=reference.fingerprint,
+                fingerprint=locator.fingerprint,
                 source=hit.source_handle,
             )
         )

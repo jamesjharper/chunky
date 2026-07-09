@@ -12,11 +12,19 @@ class ArtifactHandle(Generic[T]):
     fingerprint: str
     source: ArtifactSourceHandle[T] | None = None
     targets: tuple[ArtifactTargetHandle[T], ...] = ()
+
+    @property
+    def instance_locator(self) -> ArtifactInstanceLocator:
+        return ArtifactInstanceLocator(
+            artifact_key=self.declaration.artifact_id,
+            fingerprint=self.fingerprint,
+        )
 ```
 
 The structure represents both input and output bindings:
 
 - `declaration.artifact_id` represents the fully resolved artifact ID. Any phase selection or terminal remapping is completed before the handle is created;
+- `fingerprint` is the final artifact fingerprint and, together with the resolved artifact ID, derives the concrete `a-instance` locator for this handle;
 - an input binding has one resolved `source` and normally no `targets`;
 - a cache-hit output has a cache-reserved `source` and no `targets`, allowing the producing stage to be skipped;
 - an output that must be produced has one or more pre-resolved `targets` and normally an in-memory `source` that becomes readable after the write commits;
@@ -34,6 +42,10 @@ class ArtifactInstance(Generic[T]):
     @property
     def fingerprint(self) -> str:
         return self.handle.fingerprint
+
+    @property
+    def locator(self) -> ArtifactInstanceLocator:
+        return self.handle.instance_locator
 ```
 
 ## Artifact Source Handle
@@ -155,20 +167,25 @@ class CacheFileSourceHandle(Generic[T]):
 
 A production cache source handle should be created only after the cache coordinator has validated the cache entry and acquired its read reservation, and `close()` should release that reservation. The executable example deliberately mocks this part: it validates cache metadata but only records local closed state and does not implement a durable read reservation.
 
-## Cached Artifact References
+## Concrete Artifact Instance Locators
 
-A cached artifact reference is not a source handle by itself. It is a durable pointer to one committed cache entry:
+A concrete artifact instance locator is not a source handle by itself. It is a structured pointer to one deterministic artifact instance and serializes as `a-instance`:
 
 ```python
 @dataclass(frozen=True)
-class CachedArtifactReference:
-    artifact_id: ArtifactKey
+class ArtifactInstanceLocator:
+    artifact_key: ArtifactKey
     fingerprint: str
+    projection_context: str = "global"
 ```
 
-Before a stage or planner can use it, artifact binding must validate the reference against the manifest declaration and cache metadata, acquire a cache read reservation, and turn it into an `ArtifactInstance` whose source is a cache-backed `ArtifactSourceHandle`.
+Before a stage or planner can use an externally supplied `a-instance`, artifact binding must validate the locator against the manifest declaration and cache metadata, acquire a cache read reservation, and turn it into an `ArtifactInstance` whose source is a cache-backed `ArtifactSourceHandle`.
 
 For settings artifacts, this binding may happen before normal graph planning so settings values can participate in deterministic requirement and output-capability resolution. For other root types, the rebound cache source behaves like any other supplied artifact root.
+
+Internally, every handle can derive an `a-instance` locator from its resolved declaration and final fingerprint, including non-cacheable in-memory instances. Externally exposed `a-instance` locators are limited to durably retrievable artifacts. A non-cacheable handle may have a valid internal locator while still being ineligible for public retrieval.
+
+The locator answers *which concrete artifact instance* is meant. It does not encode whether that instance has been committed, is durably retrievable, or is currently readable by the caller. Those are execution and retrieval state fields.
 
 ## Artifact Target Handle
 
@@ -426,7 +443,7 @@ If the durable cache commit fails:
 
 If the semantic artifact commits successfully but a later caller-provided materialization fails, the semantic cache entry remains valid. A subsequent run may reuse the cached artifact and retry materialization without rerunning the producing stage.
 
-For target-less requested outputs, there are no caller materialization targets to bind. The runner reports success once the semantic artifact has become durably available and exposes the committed `CachedArtifactReference`. Non-cacheable publication-only outputs cannot satisfy target-less requests because there would be no later retrieval path after the task exits.
+For target-less requested outputs, there are no caller materialization targets to bind. The runner reports success once the semantic artifact has become durably available, preserves the requested output's `a-task` locator, and exposes the externally retrievable `a-instance` locator after durable commit. Non-cacheable publication-only outputs cannot satisfy target-less requests because there would be no later retrieval path after the task exits.
 
 
 

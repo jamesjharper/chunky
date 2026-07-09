@@ -33,12 +33,37 @@ A requested inspection or observability artifact, such as logs, performance outp
 ### Artifact ID
 A stable semantic identifier that describes what an artifact means, rather than where it is stored or how it was produced.
 
-### Identity Format
-The canonical artifact ID format:
+### Locator Format
+The preferred public semantic reference shorthand is:
 
 ```text
-{domain}//{content_kind}{#phase}
+{domain}/{content_kind}/{phase-or-any}
 ```
+
+Concrete artifact instances use:
+
+```text
+a-instance:/global/{domain}/{content_kind}/{phase-or-none}/fingerprint/{fingerprint}
+```
+
+Task-scoped requested outputs use:
+
+```text
+a-task:/global/{domain}/{content_kind}/{phase-or-none}/task/{task_id}
+```
+
+
+### Artifact Ref Locator
+The declaration-level semantic artifact reference surface. It may be written as canonical `a-ref:/...` or, in caller-facing examples, as a short path such as `source/audio` or `transcript/token_text/100`. It may use `any` for unresolved phase selection.
+
+### Artifact Instance Locator
+The `a-instance` URI surface for a concrete artifact instance. It pairs resolved artifact identity with the final artifact fingerprint.
+
+### Task Artifact Locator
+The `a-task` URI surface for a task-scoped requested-output binding. It carries task ID, not fingerprint, and resolves through task metadata.
+
+### Projection Context
+The leading contextual path segment in locator URIs. `global` means no projection. Projection context is presentation-only and does not participate in semantic equality, hashing, planning, cache lookup, or fingerprint payloads.
 
 ### Domain
 The first part of an artifact ID. It names the semantic subsystem or concern area that owns the artifact.
@@ -53,7 +78,7 @@ An optional numeric suffix on an intermediate artifact family. A phase identifie
 The structured manifest identity of an artifact declaration. It contains `domain`, `content_kind`, and optional `phase`.
 
 ### Family
-The non-phased identity of an artifact key: `{domain}//{content_kind}`. Multiple concrete phases can belong to the same family.
+The non-phased identity of an artifact key: `{domain}/{content_kind}`. Multiple concrete phases can belong to the same family.
 
 ### Phased Family
 An intermediate artifact family that explicitly publishes one or more phase-specific declarations.

@@ -65,6 +65,26 @@ fn resolved_audio_settings(value: Option<Value>) -> Result<Value> {
 }
 
 #[async_trait]
+
+fn key(domain: &str, content_kind: &str, phase: Option<u32>) -> ArtifactKey {
+    ArtifactKey::new(domain, content_kind, phase, None).expect("valid artifact key")
+}
+
+fn legacy_key(value: &str) -> ArtifactKey {
+    let (path, phase) = match value.rsplit_once('#') {
+        Some((path, phase)) => (path, Some(phase.parse::<u32>().expect("valid phase"))),
+        None => (value, None),
+    };
+    let parts = path.split("//").collect::<Vec<_>>();
+    match parts.as_slice() {
+        [domain, content_kind] => key(domain, content_kind, phase),
+        [projection, domain, content_kind] => key(domain, content_kind, phase)
+            .with_override_domain(*projection)
+            .expect("valid projection"),
+        _ => panic!("invalid legacy artifact key: {value}"),
+    }
+}
+
 impl DefaultValueSourceProvider<Value> for AudioSettingsDefaultValueSourceProvider {
     async fn resolve_source(
         &self,
@@ -95,7 +115,7 @@ impl DefaultValueSourceProvider<Value> for AudioSettingsDefaultValueSourceProvid
 
 pub fn source_audio() -> ArtifactDeclaration<Vec<u8>> {
     ArtifactDeclaration::new(
-        ArtifactKey::parse("source//audio").expect("valid source key"),
+        legacy_key("source//audio"),
         ArtifactRole::Source,
         1,
         BytesCodec,
@@ -158,7 +178,7 @@ pub fn timed_words() -> ArtifactDeclaration<Value> {
 
 pub fn webvtt_transcript() -> ArtifactDeclaration<String> {
     ArtifactDeclaration::new(
-        ArtifactKey::parse("render//webvtt_transcript").expect("valid vtt key"),
+        legacy_key("render//webvtt_transcript"),
         ArtifactRole::Target,
         1,
         TextCodec,
@@ -169,7 +189,7 @@ pub fn webvtt_transcript() -> ArtifactDeclaration<String> {
 
 fn json_decl(id: &str, role: ArtifactRole, cacheable: bool) -> ArtifactDeclaration<Value> {
     ArtifactDeclaration::new(
-        ArtifactKey::parse(id).expect("valid example artifact key"),
+        legacy_key(id),
         role,
         1,
         JsonCodec::<Value>::default(),

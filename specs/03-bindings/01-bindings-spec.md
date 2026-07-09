@@ -12,7 +12,7 @@ Bindings are needed for two reasons:
 Stages receive uniform `execute(inputs, outputs)` bindings. `InputArtifacts` and `OutputArtifacts` are keyed collections over already-resolved readers and writers:
 
 ```python
-ArtifactSelector = ArtifactDeclaration[Any] | ArtifactKey | str
+ArtifactSelector = ArtifactDeclaration[Any] | ArtifactKey | ArtifactRefLocator | str
 
 class InputArtifacts:
     def get_artifact(self, selector: ArtifactSelector) -> ArtifactReader[Any]: ...
@@ -22,7 +22,7 @@ class OutputArtifacts:
     def get_artifact(self, selector: ArtifactSelector) -> ArtifactWriter[Any]: ...
 ```
 
-The selector may be a declaration, a fully resolved `ArtifactKey`, or a string such as `"utterance_detections//vad_stream"`. These collections do not perform cache lookup, phase selection, or reservation acquisition. They expose bindings that were already resolved by the planner, runner, and `ArtifactBindingsProvider`.
+The selector may be a declaration, a fully resolved `ArtifactKey`, an `ArtifactRefLocator`, or a string such as `"utterance_detections/vad_stream"`. These collections do not perform cache lookup, phase selection, or reservation acquisition. They expose bindings that were already resolved by the planner, runner, and `ArtifactBindingsProvider`.
 
 The runner is also responsible for resolving the set of semantic artifacts actually produced by the stage invocation. A stage may write one or many bound outputs during execution, and the runner derives the produced intermediate resources from the bound writers after `execute(inputs, outputs)` returns rather than from a stage return value. If a declared bound output is required but never written, output resolution should fail.
 
@@ -65,9 +65,9 @@ The result is an `ArtifactInstance` whose source handle is the caller-supplied s
 
 If the declaration is cacheable, binding also publishes the supplied root into cache by default unless the exact artifact policy has `do_not_cache=True`. Publication uses the supplied-artifact fingerprint already calculated for the instance and the same cache reservation and atomic publish lifecycle used by stage-produced artifacts. The cache publication result does not replace the current run's supplied source handle; it only makes the same semantic instance durable.
 
-A supplied root may instead be a `CachedArtifactReference`. That reference must pair the semantic artifact ID with the expected final fingerprint. Binding validates the manifest declaration and cache metadata, acquires a read reservation, and returns an `ArtifactInstance` backed by the reserved cache source. If the reference cannot be validated as a committed cache hit, binding fails before planning treats the root as available.
+A supplied root may instead be an `ArtifactInstanceLocator` parsed from `a-instance`. That locator pairs the semantic artifact identity with the expected final fingerprint. Binding validates the manifest declaration and cache metadata, acquires a read reservation, and returns an `ArtifactInstance` backed by the reserved cache source. If the locator cannot be validated as a committed cache hit, binding fails before planning treats the root as available.
 
-Cached settings references may be rebound and read before graph planning so the planner's settings view contains the same value it would have received from a normal supplied settings handle.
+Cached settings locators may be rebound and read before graph planning so the planner's settings view contains the same value it would have received from a normal supplied settings handle.
 
 ### 2. Provided-root cache publication
 
@@ -79,12 +79,12 @@ async def publish_supplied_root(
     instance: ArtifactInstance[T],
     *,
     cache_policy: PerArtifactCachePolicy,
-) -> CachedArtifactReference | None: ...
+) -> ArtifactInstanceLocator | None: ...
 ```
 
-The operation returns `None` when the declaration is not cacheable or the exact policy sets `do_not_cache=True`. Otherwise it atomically publishes the instance under its supplied-artifact fingerprint and returns `CachedArtifactReference(declaration.artifact_id, instance.fingerprint)`.
+The operation returns `None` when the declaration is not cacheable or the exact policy sets `do_not_cache=True`. Otherwise it atomically publishes the instance under its supplied-artifact fingerprint and returns `ArtifactInstanceLocator(declaration.artifact_id, instance.fingerprint)`.
 
-If the cache already contains a valid committed entry for that fingerprint, the operation may validate and return the reference without rewriting it. `desired_ttl` applies only when a new entry is created and must not mutate an existing entry.
+If the cache already contains a valid committed entry for that fingerprint, the operation may validate and return the locator without rewriting it. `desired_ttl` applies only when a new entry is created and must not mutate an existing entry.
 
 ### 3. Intermediate bindings
 
@@ -102,7 +102,7 @@ reader = ArtifactReader(input_handle)
 The concrete source may be supplied, cached, or in memory. The runner exposes the bound readers to the stage through `InputArtifacts`, and the stage uses the same contract in every case:
 
 ```python
-audio = await inputs.get_artifact(ArtifactKey.parse("source//audio")).read()
+audio = await inputs.get_artifact(ArtifactKey.from_a_ref("source/audio")).read()
 ```
 
 #### Stage output bindings
@@ -330,7 +330,7 @@ await ArtifactWriter(materialization_handle).write(value)
 
 No cache lookup is needed during materialization because the semantic artifact source has already been resolved.
 
-If a requested output has zero caller targets, no materialization binding is created. The runner instead records the already-available semantic instance and exposes its committed `CachedArtifactReference` once durable publication has completed.
+If a requested output has zero caller targets, no materialization binding is created. The runner instead records the already-available semantic instance and exposes the requested output `a-task` locator and, once durable publication has completed, the externally retrievable `a-instance` locator.
 
 Later, the task runner materializes requested terminal outputs by calling `ArtifactBindingsProvider.materialize` for each selected `ArtifactInstance` and caller target handle. This materialization flow is the same whether the semantic source came from:
 

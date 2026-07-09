@@ -339,11 +339,11 @@ async fn default_producer_resolves_ambiguous_producer_choice() -> Result<()> {
 #[tokio::test]
 async fn phase_less_intermediate_request_is_terminal_remapped_to_family_id() -> Result<()> {
     let token_1 = decl(
-        ArtifactKey::parse("transcript//token_text#1")?,
+        legacy_key("transcript//token_text#1")?,
         ArtifactRole::Intermediate,
     );
     let token_2 = decl(
-        ArtifactKey::parse("transcript//token_text#2")?,
+        legacy_key("transcript//token_text#2")?,
         ArtifactRole::Intermediate,
     );
     let stage_1 = stage_registration(
@@ -366,7 +366,7 @@ async fn phase_less_intermediate_request_is_terminal_remapped_to_family_id() -> 
         vec![stage_1, stage_2],
         BTreeMap::new(),
     );
-    let family = ArtifactKey::parse("transcript//token_text")?;
+    let family = legacy_key("transcript//token_text")?;
 
     let plan = evaluate(
         &manifest,
@@ -388,15 +388,15 @@ async fn phase_less_intermediate_request_is_terminal_remapped_to_family_id() -> 
 #[tokio::test]
 async fn bounded_phase_requirement_selects_highest_producer_not_exceeding_bound() -> Result<()> {
     let token_1 = decl(
-        ArtifactKey::parse("transcript//token_text#1")?,
+        legacy_key("transcript//token_text#1")?,
         ArtifactRole::Intermediate,
     );
     let token_2 = decl(
-        ArtifactKey::parse("transcript//token_text#2")?,
+        legacy_key("transcript//token_text#2")?,
         ArtifactRole::Intermediate,
     );
     let token_3 = decl(
-        ArtifactKey::parse("transcript//token_text#3")?,
+        legacy_key("transcript//token_text#3")?,
         ArtifactRole::Intermediate,
     );
     let out_a = decl("out_a", ArtifactRole::Target);
@@ -420,11 +420,11 @@ async fn bounded_phase_requirement_selects_highest_producer_not_exceeding_bound(
     );
     let consumer = stage_registration(
         "consumer",
-        vec![ArtifactKey::parse("transcript//token_text#2")?],
+        vec![legacy_key("transcript//token_text#2")?],
         vec![out_a.artifact_id().clone()],
         |_| {
             vec![requirement(
-                ArtifactKey::parse("transcript//token_text#2").unwrap(),
+                legacy_key("transcript//token_text#2").unwrap(),
             )]
         },
     );
@@ -550,11 +550,11 @@ async fn shared_stage_output_subset_expands_and_requirements_are_re_resolved() -
 #[tokio::test]
 async fn inherited_setting_wins_over_default_base_setting() -> Result<()> {
     let setting_a = decl(
-        ArtifactKey::parse("settings//setting_a")?,
+        legacy_key("settings//setting_a")?,
         ArtifactRole::Settings,
     );
     let setting_a_override = decl(
-        ArtifactKey::parse("stage_prepare//settings//setting_a")?,
+        legacy_key("stage_prepare//settings//setting_a")?,
         ArtifactRole::Settings,
     );
     let in_a = decl("in_a", ArtifactRole::Source);

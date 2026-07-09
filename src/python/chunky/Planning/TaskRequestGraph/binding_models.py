@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ...Artifacts.artifact_models import ArtifactKey, PhaseMatchMode
+from ...Artifacts.artifact_models import ArtifactKey, PhaseMatchMode, TaskArtifactLocator
 from .shared_models import instance_id
 
 
@@ -138,3 +138,4 @@ class RequestedOutputBinding:
 class TaskOutputBinding:
     requested_artifact_id: ArtifactKey
     instance_id: str
+    task_locator: TaskArtifactLocator | None = None

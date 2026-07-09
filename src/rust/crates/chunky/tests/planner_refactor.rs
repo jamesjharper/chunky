@@ -57,7 +57,7 @@ impl DefaultValueSourceProvider<serde_json::Value>
 #[tokio::test]
 async fn override_domain_can_replace_default_value_source_provider() -> Result<()> {
     let base = ArtifactDeclaration::new(
-        chunky_example::artifact_models::ArtifactKey::parse("audio_preprocessing//audio_settings")?,
+        legacy_key("audio_preprocessing//audio_settings")?,
         ArtifactRole::Settings,
         1,
         JsonValueCodec,
@@ -190,7 +190,7 @@ impl AudioSettingsHarness {
     fn new(include_user_base_audio_settings: bool) -> Self {
         Self {
             include_user_base_audio_settings,
-            base_audio_settings_key: chunky_example::artifact_models::ArtifactKey::parse(
+            base_audio_settings_key: legacy_key(
                 "settings//audio_settings",
             )
             .unwrap(),
@@ -202,13 +202,13 @@ impl AudioSettingsHarness {
         let base_audio_settings =
             decl(self.base_audio_settings_key.clone(), ArtifactRole::Settings);
         let speech_audio_settings = decl(
-            chunky_example::artifact_models::ArtifactKey::parse(
+            legacy_key(
                 "speech_processing//settings//audio_settings",
             )?,
             ArtifactRole::Settings,
         );
         let music_audio_settings = decl(
-            chunky_example::artifact_models::ArtifactKey::parse(
+            legacy_key(
                 "music_processing//settings//audio_settings",
             )?,
             ArtifactRole::Settings,

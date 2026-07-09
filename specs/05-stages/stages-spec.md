@@ -584,7 +584,7 @@ SummarySettings = dict[str, object]
 SummaryDocument = dict[str, Any]
 
 SOURCE_AUDIO = ArtifactDeclaration[bytes](
-    artifact_id=ArtifactKey.parse("source//audio"),
+    artifact_id=ArtifactKey.from_a_ref("source/audio"),
     role=ArtifactRole.SOURCE,
     version=1,
     codec=BytesCodec(),
@@ -592,7 +592,7 @@ SOURCE_AUDIO = ArtifactDeclaration[bytes](
 )
 
 SUMMARY_SETTINGS = ArtifactDeclaration[SummarySettings](
-    artifact_id=ArtifactKey.parse("render//summary_settings"),
+    artifact_id=ArtifactKey.from_a_ref("render/summary_settings"),
     role=ArtifactRole.SETTINGS,
     version=1,
     codec=JsonCodec[SummarySettings](),
@@ -600,14 +600,14 @@ SUMMARY_SETTINGS = ArtifactDeclaration[SummarySettings](
 )
 
 AUDIO_ANALYSIS = ArtifactDeclaration[AudioAnalysis](
-    artifact_id=ArtifactKey.parse("analysis//audio_summary#100"),
+    artifact_id=ArtifactKey.from_a_ref("analysis/audio_summary/100"),
     role=ArtifactRole.INTERMEDIATE,
     version=1,
     codec=JsonCodec[AudioAnalysis](),
 )
 
 SUMMARY_DOCUMENT = ArtifactDeclaration[SummaryDocument](
-    artifact_id=ArtifactKey.parse("render//summary_document"),
+    artifact_id=ArtifactKey.from_a_ref("render/summary_document"),
     role=ArtifactRole.TARGET,
     version=1,
     codec=JsonCodec[SummaryDocument](),
@@ -800,4 +800,4 @@ Adopting this stage model requires small corresponding updates in adjacent speci
 2. Scheduling should distinguish its rich internal planned-invocation record from the narrower stage-facing `StageExecutionContext` defined here.
 3. Graph creation should refer to planning hooks stored in `StageRegistration`, rather than methods discovered on a stage executor class.
 4. Existing examples that put `input_capabilities`, `output_capabilities`, `stage_id`, or `input_requirements(...)` directly on stage classes should move those values into explicit registrations.
-5. The Artifact Model should finish the concrete representation of constrained requirements used for generic artifacts such as `audio//prepared`; the stage registration contract assumes those constraints are carried by `ArtifactRequirement` or an associated graph-owned requirement object.
+5. The Artifact Model should finish the concrete representation of constrained requirements used for generic artifacts such as `audio/prepared`; the stage registration contract assumes those constraints are carried by `ArtifactRequirement` or an associated graph-owned requirement object.

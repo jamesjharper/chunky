@@ -9,7 +9,7 @@
 | Stage behavior version | `001` |
 | Stage family | Speech detection |
 | Spec status | Draft template example |
-| Primary output | `utterance_detections::vad_stream::001` |
+| Primary output | `utterance_detections/vad_stream/1` |
 | Default resources | `cpu_compute_bound`, or `gpu_compute_bound` when the selected VAD model requires GPU |
 
 This document is both the VAD speech detection spec and the recommended template shape for future stage specs. Future stages should keep the same section order unless the stage has a clear reason to add a focused companion file, such as a large acceptance-test matrix.
@@ -35,27 +35,27 @@ This stage does not:
 
 ### Possible Inputs
 
-- `audio::prepared`
-- `speech_detection::vad_settings`
-- `speech_detection::vad_audio_settings`
-- `speech_detection::vad_detector_profiles`
+- `audio/prepared`
+- `speech_detection/vad_settings`
+- `speech_detection/vad_audio_settings`
+- `speech_detection/vad_detector_profiles`
 
 ### Provided Outputs
 
-- `utterance_detections::vad_stream::001`
+- `utterance_detections/vad_stream/1`
 
 ### Optional Diagnostic Outputs
 
-- `diagnostics::vad::profile_events`
-- `diagnostics::vad::merged_events`
-- `diagnostics::vad::settings_snapshot`
-- `diagnostics::vad::run_report`
+- `diagnostics/vad_profile_events`
+- `diagnostics/vad_merged_events`
+- `diagnostics/vad_settings_snapshot`
+- `diagnostics/vad_run_report`
 
 ### Required Input Resolution
 
-For `utterance_detections::vad_stream::001`, the stage requires:
+For `utterance_detections/vad_stream/1`, the stage requires:
 
-- one audio artifact satisfying `speech_detection::vad_audio_settings`;
+- one audio artifact satisfying `speech_detection/vad_audio_settings`;
 - resolved VAD settings;
 - resolved VAD detector profiles;
 - at least one enabled profile where `detector_type = vad`.
@@ -73,11 +73,11 @@ If a mixed CPU/GPU profile set is allowed by the implementation, the concrete in
 
 ## Artifact Contracts
 
-### Input: `audio::prepared`
+### Input: `audio/prepared`
 
 Role: `intermediate`
 
-The resolved audio resource selected for the VAD `audio::prepared` requirement must expose enough metadata for requirement validation:
+The resolved audio resource selected for the VAD `audio/prepared` requirement must expose enough metadata for requirement validation:
 
 - duration;
 - sample rate;
@@ -85,9 +85,9 @@ The resolved audio resource selected for the VAD `audio::prepared` requirement m
 - container or decoded representation;
 - timing-preservation status.
 
-The stage reads the resolved audio instance in the format required by the selected VAD adapter. The planner may satisfy this requirement by directly binding `source::audio` when the source already satisfies the VAD audio settings, or by inserting/reusing audio preparation.
+The stage reads the resolved audio instance in the format required by the selected VAD adapter. The planner may satisfy this requirement by directly binding `source/audio` when the source already satisfies the VAD audio settings, or by inserting/reusing audio preparation.
 
-### Input: `speech_detection::vad_settings`
+### Input: `speech_detection/vad_settings`
 
 Role: `settings`
 
@@ -103,7 +103,7 @@ Validation:
 - `detection_batch_size >= 1`.
 - If `enable = false`, this stage must not be selected to produce required VAD output unless the requested output is supplied by another producer or caller-supplied artifact.
 
-### Input: `speech_detection::vad_audio_settings`
+### Input: `speech_detection/vad_audio_settings`
 
 Role: `settings`
 
@@ -122,7 +122,7 @@ Validation:
 - `channels >= 1`.
 - `timing_preserved` should normally be `true`; if an adapter allows non-preserved timing, the output must still map timestamps back to the original source timeline before emission.
 
-### Input: `speech_detection::vad_detector_profiles`
+### Input: `speech_detection/vad_detector_profiles`
 
 Role: `settings`
 
@@ -155,7 +155,7 @@ Validation:
 
 The profile fields `speech_onset_pad_duration_ms`, `speech_offset_pad_duration_ms`, and `min_speech_duration_ms` are included in the profile artifact because downstream stages need them, but this stage must not use them to reshape raw detector output.
 
-### Output: `utterance_detections::vad_stream::001`
+### Output: `utterance_detections/vad_stream/1`
 
 Role: `intermediate`
 
@@ -195,7 +195,7 @@ If no enabled VAD profiles remain, planning or execution must fail with `vad_no_
 
 ### 2. Resolve Audio Requirements
 
-The stage consumes the concrete audio instance selected by the planner for `speech_detection::vad_audio_settings`.
+The stage consumes the concrete audio instance selected by the planner for `speech_detection/vad_audio_settings`.
 
 The stage must treat source audio as immutable. Any conversion, resampling, channel mixing, enhancement, or timing-preserving preparation belongs to the audio preparation stage and must appear as an explicit artifact in the run graph.
 
@@ -206,7 +206,7 @@ Each enabled profile runs over the full resolved audio instance.
 Concurrency is bounded by:
 
 ```text
-speech_detection::vad_settings.detection_batch_size
+speech_detection/vad_settings/any.detection_batch_size
 ```
 
 Profile execution order must not affect final output ordering or artifact fingerprints.
@@ -263,15 +263,15 @@ The stage must not merge rows across profiles.
 
 ## Fingerprinting and Cache Behavior
 
-The output fingerprint for `utterance_detections::vad_stream::001` is stage-derived and must include:
+The output fingerprint for `utterance_detections/vad_stream/1` is stage-derived and must include:
 
 - artifact ID and schema version;
 - producing semantic stage ID;
 - stage behavior version;
 - resolved audio artifact fingerprint;
-- resolved `speech_detection::vad_settings` fingerprint;
-- resolved `speech_detection::vad_audio_settings` fingerprint;
-- resolved `speech_detection::vad_detector_profiles` fingerprint;
+- resolved `speech_detection/vad_settings` fingerprint;
+- resolved `speech_detection/vad_audio_settings` fingerprint;
+- resolved `speech_detection/vad_detector_profiles` fingerprint;
 - relevant VAD adapter provider IDs and provider versions.
 
 Changing any enabled profile setting must invalidate the VAD output. Changing only a disabled profile should not invalidate the output if the resolved settings fingerprint supports pruning disabled profiles before fingerprinting. If the settings artifact fingerprints the full supplied profile list, disabled-profile changes will invalidate the output; either behavior is acceptable if it is documented and deterministic.
@@ -289,7 +289,7 @@ stage_state_changed: running
 stage_step_progress: resolving_profiles
 stage_step_progress: running_profile {detector_id}
 stage_step_progress: normalizing_profile_events {detector_id}
-artifact_available: utterance_detections::vad_stream::001
+artifact_available: utterance_detections/vad_stream/1
 stage_state_changed: completed
 ```
 
@@ -297,7 +297,7 @@ On failure:
 
 ```text
 stage_error
-artifact_failed: utterance_detections::vad_stream::001
+artifact_failed: utterance_detections/vad_stream/1
 stage_state_changed: failed
 ```
 
@@ -309,10 +309,10 @@ Diagnostic artifacts are optional semantic artifacts, not required user outputs.
 
 Recommended diagnostic artifacts:
 
-- `diagnostics::vad::profile_events`: one inspection table per enabled detector profile, preserving adapter output before global concatenation;
-- `diagnostics::vad::merged_events`: the final ordered VAD stream in a human-inspectable format;
-- `diagnostics::vad::settings_snapshot`: resolved settings and profiles used by this invocation;
-- `diagnostics::vad::run_report`: counts, warnings, adapter versions, dropped-row counts, and timing metadata.
+- `diagnostics/vad_profile_events`: one inspection table per enabled detector profile, preserving adapter output before global concatenation;
+- `diagnostics/vad_merged_events`: the final ordered VAD stream in a human-inspectable format;
+- `diagnostics/vad_settings_snapshot`: resolved settings and profiles used by this invocation;
+- `diagnostics/vad_run_report`: counts, warnings, adapter versions, dropped-row counts, and timing metadata.
 
 When a workspace exists and diagnostics are enabled, suggested materialized filenames are:
 
@@ -344,7 +344,7 @@ Recommended stable failure codes:
 
 ### Contract Tests
 
-1. Given one enabled VAD profile and valid audio, the stage emits `utterance_detections::vad_stream::001` with `detector_type = vad` on every row.
+1. Given one enabled VAD profile and valid audio, the stage emits `utterance_detections/vad_stream/1` with `detector_type = vad` on every row.
 2. Given multiple enabled VAD profiles, the output contains rows from all profiles and preserves each row's `detector_id`.
 3. Given overlapping intervals from different profiles, the output keeps the overlaps unchanged.
 4. Given unsorted adapter output, the final artifact is sorted by `raw_start`, `raw_end`, and `detector_id`.
@@ -371,22 +371,22 @@ Recommended stable failure codes:
 
 1. With diagnostics enabled and a workspace present, profile-level events and merged events are materialized and listed in the run manifest.
 2. With diagnostics disabled, required semantic output is still produced and no diagnostic artifact is required.
-3. Adapter warnings are represented in `diagnostics::vad::run_report` when that artifact is requested or diagnostics are enabled.
+3. Adapter warnings are represented in `diagnostics/vad_run_report` when that artifact is requested or diagnostics are enabled.
 
 ## Example Resolved Settings
 
 ```yaml
-speech_detection::vad_settings:
+speech_detection/vad_settings:
   enable: true
   detection_batch_size: 2
 
-speech_detection::vad_audio_settings:
+speech_detection/vad_audio_settings:
   audio_source_selector: default
   sample_rate_hz: 16000
   channels: 1
   timing_preserved: true
 
-speech_detection::vad_detector_profiles:
+speech_detection/vad_detector_profiles:
   - detector_id: aggressive
     detector_type: vad
     detector_model: silero_vad
@@ -438,8 +438,8 @@ aggressive,vad,1.0,1.260,1.620
 
 These facts were learned while consolidating `../02-expected_stages.md` and should be reconciled in this document during its own design pass.
 
-1. VAD should consume a logical `audio::prepared` requirement satisfying `speech_detection::vad_audio_settings`, not `audio::source` directly. The planner may bind `source::audio` directly if it satisfies the requirement.
-2. The `audio::prepared` input artifact contract describes the resolved audio resource selected for the VAD audio requirement.
+1. VAD should consume a logical `audio/prepared` requirement satisfying `speech_detection/vad_audio_settings`, not `audio/source` directly. The planner may bind `source/audio` directly if it satisfies the requirement.
+2. The `audio/prepared` input artifact contract describes the resolved audio resource selected for the VAD audio requirement.
 3. VAD output remains low-level detector evidence, but downstream canonicalization terminology should use "utterance event stream" rather than "word-like stream."
-4. Audio preparation should use canonical `audio::prepared` requirements distinguished by constraints and fingerprints, not consumer-specific ready IDs.
+4. Audio preparation should use canonical `audio/prepared` requirements distinguished by constraints and fingerprints, not consumer-specific ready IDs.
 5. Diagnostics remain ordinary declared artifacts. If VAD emits diagnostics that were not requested by the graph, they are incidental outputs.

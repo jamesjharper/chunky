@@ -11,7 +11,7 @@ use crate::{
         StageOutputBindings, StageOutputResolution,
     },
     artifact_handles::{ArtifactSourceHandle, ArtifactTargetHandle, IntermediateArtifactHandle},
-    artifact_models::{AnyArtifactDeclaration, ArtifactDeclaration, ArtifactKey, CachedArtifactReference},
+    artifact_models::{AnyArtifactDeclaration, ArtifactDeclaration, ArtifactInstanceLocator, ArtifactKey},
     cache_models::{ArtifactCache, CacheHit, CacheResolution, CacheWait, CacheableOutputBootstrap},
     fingerprints::FingerprintProvider,
 };
@@ -202,7 +202,7 @@ impl ArtifactBindingsProvider {
         declaration: &AnyArtifactDeclaration,
         source: Arc<dyn ArtifactSourceHandle>,
         fingerprint: Option<String>,
-    ) -> Result<CachedArtifactReference> {
+    ) -> Result<ArtifactInstanceLocator> {
         let fingerprint = match fingerprint {
             Some(value) => value,
             None => {
@@ -216,7 +216,7 @@ impl ArtifactBindingsProvider {
             match self.cache.resolve(declaration, &fingerprint, false).await? {
                 CacheResolution::Hit(hit) => {
                     let _ = hit.source_handle.close().await;
-                    return CachedArtifactReference::new(declaration.artifact_id.clone(), fingerprint);
+                    return ArtifactInstanceLocator::from_key(&declaration.artifact_id, fingerprint, None);
                 }
                 CacheResolution::Write(reservation) => {
                     let value = source.get_value(declaration.codec.as_ref()).await?;
@@ -227,7 +227,7 @@ impl ArtifactBindingsProvider {
                         vec![reservation.target_handle],
                     ))?;
                     writer.write_any(value).await?;
-                    return CachedArtifactReference::new(declaration.artifact_id.clone(), fingerprint);
+                    return ArtifactInstanceLocator::from_key(&declaration.artifact_id, fingerprint, None);
                 }
                 CacheResolution::Wait(wait) => {
                     wait.wait_handle.wait().await?;
@@ -236,23 +236,23 @@ impl ArtifactBindingsProvider {
         }
     }
 
-    pub async fn open_cached_reference(
+    pub async fn open_instance_locator(
         &self,
         declaration: &AnyArtifactDeclaration,
-        reference: &CachedArtifactReference,
+        locator: &ArtifactInstanceLocator,
     ) -> Result<AnyArtifactInstance> {
-        if reference.artifact_id != declaration.artifact_id {
+        if locator.artifact_id() != &declaration.artifact_id.without_projection() {
             bail!(
-                "cached artifact reference artifact_id does not match declaration: {} != {}",
-                reference.artifact_id,
+                "artifact instance locator artifact_id does not match declaration: {} != {}",
+                locator.artifact_id(),
                 declaration.artifact_id
             );
         }
-        let CacheHit { source_handle } = self.cache.open(declaration, &reference.fingerprint).await?;
+        let CacheHit { source_handle } = self.cache.open(declaration, &locator.fingerprint).await?;
         Ok(AnyArtifactInstance {
             handle: ArtifactHandle::new(
                 declaration.clone(),
-                reference.fingerprint.clone(),
+                locator.fingerprint.clone(),
                 Some(source_handle),
                 vec![],
             ),

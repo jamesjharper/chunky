@@ -36,6 +36,6 @@ pub fn instance_id(artifact_id: &ArtifactKey, effective_settings_fingerprint: &s
         artifact_id.to_string()
     } else {
         let prefix: String = effective_settings_fingerprint.chars().take(16).collect();
-        format!("{artifact_id}@{prefix}")
+        format!("{}?lineage={prefix}", artifact_id.to_a_ref(true))
     }
 }

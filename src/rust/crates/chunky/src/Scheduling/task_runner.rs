@@ -18,7 +18,7 @@ use crate::artifact_binding_models::{
 };
 use crate::artifact_bindings::ArtifactBindingsProvider;
 use crate::artifact_handles::ArtifactTargetHandle;
-use crate::artifact_models::{AnyArtifactDeclaration, ArtifactKey, CachedArtifactReference};
+use crate::artifact_models::{AnyArtifactDeclaration, ArtifactInstanceLocator, ArtifactKey, TaskArtifactLocator};
 use crate::pipeline::ArtifactCachePolicy;
 use crate::stage_manifest::StageManifest;
 use crate::stage_models::{
@@ -75,7 +75,8 @@ pub struct OutputResult {
     pub artifact_id: ArtifactKey,
     pub status: OutputStatus,
     pub fingerprint: String,
-    pub cached_reference: Option<CachedArtifactReference>,
+    pub instance_locator: Option<ArtifactInstanceLocator>,
+    pub task_locator: Option<TaskArtifactLocator>,
     pub targets: Vec<TargetMaterializationResult>,
     pub error_ids: Vec<String>,
 }
@@ -101,10 +102,10 @@ pub struct TaskRunGraph<'a> {
     pub requested_output_bindings: Vec<TaskOutputBinding>,
 }
 
-fn durable_cached_reference_for(
+fn durable_instance_locator_for(
     instance: &AnyArtifactInstance,
     cache_policy: &BTreeMap<ArtifactKey, ArtifactCachePolicy>,
-) -> Result<Option<CachedArtifactReference>> {
+) -> Result<Option<ArtifactInstanceLocator>> {
     let declaration = &instance.handle.declaration;
     if !declaration.cacheable {
         return Ok(None);
@@ -116,10 +117,7 @@ fn durable_cached_reference_for(
     {
         return Ok(None);
     }
-    Ok(Some(CachedArtifactReference::new(
-        declaration.artifact_id.clone(),
-        instance.fingerprint().to_owned(),
-    )?))
+    Ok(Some(instance.locator()?))
 }
 
 pub struct ArtifactRunState {
@@ -128,10 +126,13 @@ pub struct ArtifactRunState {
 
 impl ArtifactRunState {
     pub fn new(supplied: BTreeMap<ArtifactKey, AnyArtifactInstance>) -> Self {
-        let instances = supplied
-            .into_iter()
-            .map(|(artifact_id, instance)| (artifact_id.to_string(), instance))
-            .collect();
+        let mut instances = HashMap::new();
+        for (artifact_id, instance) in supplied {
+            instances.insert(artifact_id.to_string(), instance.clone());
+            if let Ok(locator) = instance.locator() {
+                instances.insert(locator.to_string(), instance);
+            }
+        }
         Self { instances }
     }
 
@@ -288,20 +289,21 @@ impl ExampleTaskRunner {
                             requested.requested_artifact_id
                         )
                     })?;
-                let cached_reference = durable_cached_reference_for(&instance, &cache_policy)?;
+                let instance_locator = durable_instance_locator_for(&instance, &cache_policy)?;
+                let task_locator = requested.task_locator.clone();
                 output_fingerprints.insert(
                     requested.requested_artifact_id.clone(),
                     instance.fingerprint().to_owned(),
                 );
-                if let Some(reference) = cached_reference.clone() {
+                if let Some(locator) = instance_locator.clone() {
                     progress_tracker.record_available_output(
                         requested.requested_artifact_id.clone(),
-                        reference,
+                        locator,
                     )?;
                 }
 
                 if targets.is_empty() {
-                    if cached_reference.is_none() {
+                    if instance_locator.is_none() {
                         bail!(
                             "target-less output {} is not durably retrievable",
                             requested.requested_artifact_id
@@ -313,7 +315,8 @@ impl ExampleTaskRunner {
                             artifact_id: requested.requested_artifact_id.clone(),
                             status: OutputStatus::Succeeded,
                             fingerprint: instance.fingerprint().to_owned(),
-                            cached_reference,
+                            instance_locator: instance_locator.clone(),
+                            task_locator: task_locator.clone(),
                             targets: Vec::new(),
                             error_ids: Vec::new(),
                         },
@@ -353,7 +356,8 @@ impl ExampleTaskRunner {
                                     artifact_id: requested.requested_artifact_id.clone(),
                                     status: OutputStatus::Failed,
                                     fingerprint: instance.fingerprint().to_owned(),
-                                    cached_reference,
+                                    instance_locator: instance_locator.clone(),
+                            task_locator: task_locator.clone(),
                                     targets: target_results,
                                     error_ids: vec!["materialization_failed".to_owned()],
                                 },
@@ -373,7 +377,8 @@ impl ExampleTaskRunner {
                         artifact_id: requested.requested_artifact_id.clone(),
                         status: OutputStatus::Succeeded,
                         fingerprint: instance.fingerprint().to_owned(),
-                        cached_reference,
+                        instance_locator: instance_locator.clone(),
+                            task_locator: task_locator.clone(),
                         targets: target_results,
                         error_ids: Vec::new(),
                     },

@@ -24,6 +24,23 @@ use crate::stage_models::{
     StageExecutor, StagePlanningContext, StageRegistration,
 };
 
+
+fn legacy_key(value: &str) -> ArtifactKey {
+    let (path, phase) = match value.rsplit_once('#') {
+        Some((path, phase)) => (path, Some(phase.parse::<u32>().expect("valid phase"))),
+        None => (value, None),
+    };
+    let parts = path.split("//").collect::<Vec<_>>();
+    match parts.as_slice() {
+        [domain, content_kind] => ArtifactKey::new(*domain, *content_kind, phase, None)
+            .expect("valid benchmark artifact key"),
+        [projection, domain, content_kind] => ArtifactKey::new(*domain, *content_kind, phase, None)
+            .and_then(|key| key.with_override_domain(*projection))
+            .expect("valid benchmark projected artifact key"),
+        _ => panic!("invalid legacy artifact key: {value}"),
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BenchmarkScenario {
     FullPipeline,
@@ -101,7 +118,7 @@ impl StageExecutor for SnapshotValueExecutor {
 
 fn json_target(id: &str) -> ArtifactDeclaration<Value> {
     ArtifactDeclaration::new(
-        ArtifactKey::parse(id).expect("valid benchmark target key"),
+        legacy_key(id),
         ArtifactRole::Target,
         1,
         JsonCodec::<Value>::default(),

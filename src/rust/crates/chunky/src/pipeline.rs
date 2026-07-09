@@ -18,7 +18,7 @@ use uuid::Uuid;
 use crate::artifact_binding_models::AnyArtifactInstance;
 use crate::artifact_bindings::ArtifactBindingsProvider;
 use crate::artifact_handles::{ArtifactSourceHandle, ArtifactTargetHandle};
-use crate::artifact_models::{AnyArtifactDeclaration, ArtifactKey, ArtifactRole, CachedArtifactReference};
+use crate::artifact_models::{AnyArtifactDeclaration, ArtifactInstanceLocator, ArtifactKey, ArtifactRole, TaskArtifactLocator};
 use crate::cache_models::ArtifactCache;
 use crate::execution_planner::{DefaultSettingsResolver, TaskRunGraphBuilder, TaskRunPlanner};
 use crate::fingerprints::FingerprintProvider;
@@ -38,7 +38,7 @@ pub struct ArtifactCachePolicy {
 #[derive(Clone)]
 pub enum ProvidedArtifactRoot {
     Source(Arc<dyn ArtifactSourceHandle>),
-    Cached(CachedArtifactReference),
+    Cached(ArtifactInstanceLocator),
 }
 
 impl From<Arc<dyn ArtifactSourceHandle>> for ProvidedArtifactRoot {
@@ -47,8 +47,8 @@ impl From<Arc<dyn ArtifactSourceHandle>> for ProvidedArtifactRoot {
     }
 }
 
-impl From<CachedArtifactReference> for ProvidedArtifactRoot {
-    fn from(value: CachedArtifactReference) -> Self {
+impl From<ArtifactInstanceLocator> for ProvidedArtifactRoot {
+    fn from(value: ArtifactInstanceLocator) -> Self {
         Self::Cached(value)
     }
 }
@@ -113,7 +113,7 @@ impl ArtifactCacheIO {
         &self,
         artifact_id: &ArtifactKey,
         source: Arc<dyn ArtifactSourceHandle>,
-    ) -> Result<CachedArtifactReference> {
+    ) -> Result<ArtifactInstanceLocator> {
         let declaration = self.pipeline.stage_manifest.find_artifact(artifact_id)?;
         let bindings = ArtifactBindingsProvider::new(self.pipeline.artifact_cache.clone());
         let source = self
@@ -125,11 +125,11 @@ impl ArtifactCacheIO {
 
     pub async fn open(
         &self,
-        reference: &CachedArtifactReference,
+        locator: &ArtifactInstanceLocator,
     ) -> Result<AnyArtifactInstance> {
-        let declaration = self.pipeline.stage_manifest.find_artifact(&reference.artifact_id)?;
+        let declaration = self.pipeline.stage_manifest.find_artifact(locator.artifact_id())?;
         let bindings = ArtifactBindingsProvider::new(self.pipeline.artifact_cache.clone());
-        bindings.open_cached_reference(&declaration, reference).await
+        bindings.open_instance_locator(&declaration, locator).await
     }
 }
 
@@ -277,6 +277,7 @@ impl ChunkyPipeline {
                     manifest: self.stage_manifest.clone(),
                     bindings: bindings.clone(),
                 })),
+                Some(task_id.clone()),
             )
             .await?;
 
@@ -298,11 +299,11 @@ impl ChunkyPipeline {
     fn validate_cached_inputs(&self, inputs: &BTreeMap<ArtifactKey, ProvidedArtifactRoot>) -> Result<()> {
         for (artifact_id, root) in inputs {
             self.stage_manifest.find_artifact(artifact_id)?;
-            if let ProvidedArtifactRoot::Cached(reference) = root {
-                if reference.artifact_id != *artifact_id {
+            if let ProvidedArtifactRoot::Cached(locator) = root {
+                if locator.artifact_id() != &artifact_id.without_projection() {
                     bail!(
-                        "cached artifact reference artifact_id must match request key: {} != {}",
-                        reference.artifact_id,
+                        "artifact instance locator artifact_id must match request key: {} != {}",
+                        locator.artifact_id(),
                         artifact_id
                     );
                 }
@@ -377,7 +378,7 @@ impl ChunkyPipeline {
                         .await?
                 }
                 ProvidedArtifactRoot::Cached(reference) => {
-                    bindings.open_cached_reference(&declaration, reference).await?
+                    bindings.open_instance_locator(&declaration, locator).await?
                 }
             };
             supplied.insert(artifact_id.clone(), instance);
@@ -467,6 +468,7 @@ impl<'a> TaskRunGraphBuilder<'a, TaskRunGraph<'a>> for ExampleTaskRunGraphBuilde
         self,
         task_request_graph: crate::task_request_graph::TaskRequestGraph<'a>,
         supplied_instances: BTreeMap<ArtifactKey, AnyArtifactInstance>,
+        task_id: Option<String>,
     ) -> Pin<Box<dyn Future<Output = Result<TaskRunGraph<'a>>> + Send + 'a>> {
         let fingerprint_provider = self.fingerprint_provider.clone();
         Box::pin(async move {
@@ -476,11 +478,31 @@ impl<'a> TaskRunGraphBuilder<'a, TaskRunGraph<'a>> for ExampleTaskRunGraphBuilde
                     (artifact_id.to_string(), instance.fingerprint().to_owned())
                 })
                 .collect::<BTreeMap<_, _>>();
+            let mut final_instance_by_provisional = BTreeMap::new();
+            for (artifact_id, instance) in &supplied_instances {
+                let locator = instance.locator()?;
+                final_instance_by_provisional.insert(artifact_id.to_string(), locator.to_string());
+                fingerprints_by_instance.insert(locator.to_string(), instance.fingerprint().to_owned());
+            }
 
             let mut invocations = Vec::new();
             for invocation in task_request_graph.invocations {
+                let input_bindings = invocation
+                    .input_bindings
+                    .into_iter()
+                    .map(|mut binding| {
+                        if let Some(final_id) = final_instance_by_provisional
+                            .get(&binding.resolved_instance_id)
+                            .cloned()
+                        {
+                            binding.resolved_instance_id = final_id;
+                        }
+                        binding
+                    })
+                    .collect::<Vec<_>>();
+
                 let mut input_fingerprints = BTreeMap::new();
-                for binding in invocation.input_bindings.iter() {
+                for binding in input_bindings.iter() {
                     if let Some(fingerprint) =
                         fingerprints_by_instance.get(&binding.resolved_instance_id)
                     {
@@ -504,14 +526,23 @@ impl<'a> TaskRunGraphBuilder<'a, TaskRunGraph<'a>> for ExampleTaskRunGraphBuilde
                     let expected = fingerprint_provider
                         .build_intermediate_artifact_fingerprint(&declaration, &pedigree)
                         .await?;
-                    binding.expected_fingerprint = Some(expected.clone());
-                    fingerprints_by_instance.insert(binding.instance_id.clone(), expected);
+                    let final_instance_id = ArtifactInstanceLocator::from_key(
+                        &binding.resolved_artifact_id,
+                        expected.clone(),
+                        None,
+                    )?
+                    .to_string();
+                    final_instance_by_provisional
+                        .insert(binding.instance_id.clone(), final_instance_id.clone());
+                    fingerprints_by_instance.insert(final_instance_id.clone(), expected.clone());
+                    binding.instance_id = final_instance_id;
+                    binding.expected_fingerprint = Some(expected);
                     requested_output_bindings.push(binding);
                 }
                 invocations.push(crate::task_request_graph::RunnableInvocation {
                     invocation_id: invocation.invocation_id,
                     registration: invocation.registration,
-                    input_bindings: invocation.input_bindings,
+                    input_bindings,
                     requested_output_bindings,
                     resolved_resource_policy: invocation.resolved_resource_policy,
                     pedigree_fingerprint: pedigree,
@@ -527,11 +558,25 @@ impl<'a> TaskRunGraphBuilder<'a, TaskRunGraph<'a>> for ExampleTaskRunGraphBuilde
                 requested_output_bindings: task_request_graph
                     .requested_output_bindings
                     .into_iter()
-                    .map(|binding| crate::task_request_graph::TaskOutputBinding {
-                        requested_artifact_id: binding.requested_artifact_id,
-                        instance_id: binding.instance_id,
+                    .map(|binding| {
+                        let instance_id = final_instance_by_provisional
+                            .get(&binding.instance_id)
+                            .cloned()
+                            .unwrap_or(binding.instance_id);
+                        let task_locator = task_id.as_ref().map(|task_id| {
+                            TaskArtifactLocator::from_key(
+                                &binding.requested_artifact_id,
+                                task_id.clone(),
+                                None,
+                            )
+                        }).transpose()?;
+                        Ok(crate::task_request_graph::TaskOutputBinding {
+                            requested_artifact_id: binding.requested_artifact_id,
+                            instance_id,
+                            task_locator,
+                        })
                     })
-                    .collect(),
+                    .collect::<Result<Vec<_>>>()?,
             })
         })
     }

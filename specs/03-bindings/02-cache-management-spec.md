@@ -58,16 +58,17 @@ Task IDs, invocation IDs, file paths, temporary paths, and reservation IDs are o
 
 A caller-provided materialization path is not part of the cache key. The same semantic target artifact may be reused and materialized to different caller destinations without rerunning its producing stage.
 
-A public cached-instance reference must pair the semantic artifact ID with the final artifact fingerprint:
+A public cached-instance reference is an `a-instance` locator. It pairs the semantic artifact identity with the final artifact fingerprint:
 
 ```python
 @dataclass(frozen=True)
-class CachedArtifactReference:
-    artifact_id: ArtifactKey
+class ArtifactInstanceLocator:
+    artifact_key: ArtifactKey
     fingerprint: str
+    projection_context: str = "global"
 ```
 
-The cache may physically index primarily by fingerprint, but public rebinding must validate both the fingerprint and the expected artifact declaration metadata. Fingerprints are not treated as untyped global object IDs. The same reference shape is used for upload deduplication, saved-task cached roots, and later retrieval of target-less or otherwise durably published requested outputs.
+The cache may physically index primarily by fingerprint, but public rebinding must validate both the fingerprint and the expected artifact declaration metadata. Fingerprints are not treated as untyped global object IDs. The same `a-instance` shape is used for upload deduplication, saved-task cached roots, and later retrieval of target-less or otherwise durably published requested outputs.
 
 ## Cache Entry Model
 
@@ -170,7 +171,7 @@ Cacheable provided roots are published to durable cache by default during bindin
 
 Publication uses the supplied-artifact fingerprint already calculated from the artifact declaration and source handle content fingerprint. It must go through the same reservation, preparation, metadata validation, commit, abort, and waiter-notification rules as any other cache write. It must not create a weaker cache-entry class.
 
-If a valid committed entry already exists for the supplied fingerprint, the cache may return or confirm the corresponding `CachedArtifactReference` without rewriting the entry. A request-level `desired_ttl` applies only when a new entry is created and must not mutate the TTL of an existing entry.
+If a valid committed entry already exists for the supplied fingerprint, the cache may return or confirm the corresponding `ArtifactInstanceLocator` without rewriting the entry. A request-level `desired_ttl` applies only when a new entry is created and must not mutate the TTL of an existing entry.
 
 The direct artifact-cache IO interface is a public convenience over the same semantics:
 
@@ -182,19 +183,19 @@ class ArtifactCacheIO(Protocol):
         source: ArtifactSourceHandle[T],
         *,
         policy: PerArtifactCachePolicy | None = None,
-    ) -> CachedArtifactReference: ...
+    ) -> ArtifactInstanceLocator: ...
 
     async def open(
         self,
-        reference: CachedArtifactReference,
+        locator: ArtifactInstanceLocator,
     ) -> ArtifactInstance[T]: ...
 ```
 
-`publish` computes the supplied-artifact fingerprint, writes a committed cache entry under that fingerprint, and returns `artifact_id + fingerprint`. `open` validates the paired artifact ID and fingerprint, acquires a normal cache read reservation, and returns a cache-backed source handle. Neither operation exposes backend paths, object-store keys, reservation IDs, or raw lock records.
+`publish` computes the supplied-artifact fingerprint, writes a committed cache entry under that fingerprint, and returns a structured `ArtifactInstanceLocator` serialized as `a-instance`. `open` validates the paired artifact identity and fingerprint, acquires a normal cache read reservation, and returns a cache-backed source handle. Neither operation exposes backend paths, object-store keys, reservation IDs, or raw lock records.
 
-A cached root opened by reference changes availability, not graph semantics. Once opened, it behaves like an ordinary supplied root. Cached settings roots may be opened and read before graph planning so settings-dependent planning hooks receive their values.
+A cached root opened by locator changes availability, not graph semantics. Once opened, it behaves like an ordinary supplied root. Cached settings roots may be opened and read before graph planning so settings-dependent planning hooks receive their values.
 
-This direct cache IO surface is also the foundation for later requested-output retrieval. Results and output-availability events should expose a `CachedArtifactReference` only after the cache entry is committed and validated. A future existence preflight may check whether a concrete `artifact_id + fingerprint` already exists before uploading content, but that optimization is outside this version.
+This direct cache IO surface is also the foundation for later requested-output retrieval. Results and output-availability events should expose an externally retrievable `a-instance` locator only after the cache entry is committed and validated. A future existence preflight may check whether a concrete `a-instance` already exists before uploading content, but that optimization is outside this version.
 
 ## Cache Resolution Contract
 
@@ -1262,21 +1263,21 @@ The producing stage behavior, inputs, and settings remain in pedigree. Terminal 
 Consider:
 
 ```text
-  source//audio ---------------- source_audio_fp
+  source/audio ---------------- source_audio_fp
          |
          v
   +----------------+
-  | audio.prepare  | <----------- audio//settings --- audio_settings_fp
+  | audio.prepare  | <----------- audio/settings --- audio_settings_fp
   +----------------+
          |
-  audio//prepared --------------- audio_prepared_fp
+  audio/prepared --------------- audio_prepared_fp
          |
          v
   +----------------+
-  | asr.transcribe | <----------- asr//settings ----- asr_settings_fp
+  | asr.transcribe | <----------- asr/settings ----- asr_settings_fp
   +----------------+
          |
-  transcript//token_text -------- transcript_token_text_fp
+  transcript/token_text -------- transcript_token_text_fp
 ```
 
 Supplied roots:
@@ -1284,7 +1285,7 @@ Supplied roots:
 ```text
 source_audio_fp = hash(
     artifact_identity(
-        id=source//audio,
+        id=source/audio,
         role=source,
         version=source_audio_schema_version,
     ),
@@ -1293,7 +1294,7 @@ source_audio_fp = hash(
 
 audio_settings_fp = hash(
     artifact_identity(
-        id=audio//settings,
+        id=audio/settings,
         role=settings,
         version=audio_settings_schema_version,
     ),
@@ -1302,7 +1303,7 @@ audio_settings_fp = hash(
 
 asr_settings_fp = hash(
     artifact_identity(
-        id=asr//settings,
+        id=asr/settings,
         role=settings,
         version=asr_settings_schema_version,
     ),
@@ -1315,13 +1316,13 @@ Audio preparation pedigree and output:
 ```text
 audio_prepare_pedigree_fp = hash(
     producer(stage_id=audio.prepare, behavior_version=audio_prepare_version),
-    ordered_inputs(source//audio=source_audio_fp),
-    ordered_settings(audio//settings=audio_settings_fp),
+    ordered_inputs(source/audio=source_audio_fp),
+    ordered_settings(audio/settings=audio_settings_fp),
     behavior_affecting_provider_versions,
 )
 
 audio_prepared_fp = hash(
-    artifact_identity_and_codec(audio//prepared),
+    artifact_identity_and_codec(audio/prepared),
     audio_prepare_pedigree_fp,
 )
 ```
@@ -1331,13 +1332,13 @@ Transcription pedigree and output:
 ```text
 transcribe_pedigree_fp = hash(
     producer(stage_id=asr.transcribe, behavior_version=transcribe_version),
-    ordered_inputs(audio//prepared=audio_prepared_fp),
-    ordered_settings(asr//settings=asr_settings_fp),
+    ordered_inputs(audio/prepared=audio_prepared_fp),
+    ordered_settings(asr/settings=asr_settings_fp),
     behavior_affecting_model_and_provider_versions,
 )
 
 transcript_token_text_fp = hash(
-    artifact_identity_and_codec(transcript//token_text),
+    artifact_identity_and_codec(transcript/token_text),
     transcribe_pedigree_fp,
 )
 ```
@@ -1385,7 +1386,7 @@ It does not change because:
 21. Cacheable provided roots are published to cache by default unless exact artifact policy opts out.
 22. Direct cache IO uses artifact declarations and handles, not backend paths or raw cache keys.
 23. Direct cache writes obey the same correctness and atomicity rules as run-time cache publication.
-24. A cached-instance reference is `artifact_id + fingerprint`; rebinding validates both.
-25. Cached settings roots may be opened before planning when explicitly supplied by reference.
-26. Requested-output retrieval references are exposed only after durable commit.
-27. Upload deduplication and future artifact-existence preflight use the same `artifact_id + fingerprint` identity.
+24. A cached-instance reference is an `a-instance` locator; rebinding validates both artifact identity and fingerprint.
+25. Cached settings roots may be opened before planning when explicitly supplied by `a-instance` locator.
+26. Externally retrievable `a-instance` locators are exposed only after durable commit.
+27. Upload deduplication and future artifact-existence preflight use the same `a-instance` identity.

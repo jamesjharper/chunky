@@ -27,24 +27,6 @@ The run contract must:
 - support resource-aware scheduling for CPU, GPU, memory, and unconstrained work;
 - preserve enough diagnostics to debug request validation, planning, cache reuse, execution, and materialization.
 
-## Non-Goals
-
-The first version does not need to support:
-
-- per-output await;
-- per-run manifest or registry overrides;
-- implicit feature dependency installation;
-- schema compatibility negotiation beyond exact matching;
-- rich constraint expressions beyond exact equality;
-- reachability-aware cache garbage collection.
-
-Restart recovery is expected to come from normal semantic cache reuse when the same work is submitted again. It is not a job-resume guarantee.
-
-A future persisted-task layer may store task configuration records for later re-submission. Such records contain task metadata, the normalized `RunRequest`, the durable root references needed to reconstruct that request, and explicit planning-visible compatibility metadata such as a manifest or pipeline identity. They do not contain live scheduler state, partial stage state, or in-flight progress snapshots.
-
-If a saved task configuration no longer matches an available pipeline configuration, the task remains stored in a non-terminal cannot-start-yet condition owned by the persisted-task layer. That condition is not added to the live `RunHandle` state model. When a saved task is re-entered, it keeps its stable persisted-task ID for client correlation but creates a fresh live `task_id` for that execution attempt. Future persisted-task events and terminal summaries should carry both IDs.
-
-Resumed eventing for such a layer promises stable logical task identity and a coherent current snapshot, not replay of every transient historical event. A future cursor or event-log replay extension is reserved but not required here. Graceful shutdown follows the same boundary: durable tasks preserve restartable task records for later re-submission, while purely in-memory `run_away(...)` work is terminated without a restart guarantee. A shutdown-interrupted live attempt should be distinguishable from ordinary user cancellation or task failure.
 
 ## Pipeline Configuration
 
@@ -62,7 +44,26 @@ pipeline = (
 )
 ```
 
+### Feature
 A feature is a self-contained installer. Most features install artifact declarations and stage registrations. Specialist features may install runtime services such as the cache, fingerprint provider, planner factory, runner factory, or bindings-provider factory.
+
+```python
+class WebVttTopologyExampleFeature:
+    feature_id = "example.webvtt-topology"
+    configuration_fingerprint = "webvtt-topology-example-v1"
+
+    def install(self, manifest_builder: "StageManifestBuilder", _dependency_builder: "DependencyBuilder") -> None:
+        manifest_builder.add_artifact(SOURCE_AUDIO)
+        manifest_builder.add_artifact(AUDIO_SETTINGS)
+        manifest_builder.add_artifact(SPEECH_AUDIO_SETTINGS)
+        manifest_builder.add_artifact(MUSIC_AUDIO_SETTINGS)
+        manifest_builder.add_stage(PREPARE_AUDIO_STAGE)
+        manifest_builder.add_stage(TRANSCRIBE_STAGE)
+        manifest_builder.add_stage(DIARIZE_STAGE)
+        manifest_builder.add_stage(DETECT_MUSIC_STAGE)
+        manifest_builder.add_stage(ALIGN_STAGE)
+        manifest_builder.add_stage(RENDER_VTT_STAGE)
+```
 
 Feature composition rules are intentionally simple:
 
@@ -87,10 +88,10 @@ Language bindings may expose idiomatic syntax, but all bindings compile down to 
 result = await pipeline.run(
     RunRequest(
         inputs={
-            "source//audio": SourceAudioArtifact.from_file_path("input.wav"),
+            "source/audio": SourceAudioArtifact.from_file_path("input.wav"),
         },
         outputs={
-            "render//webvtt_transcript": TargetVttArtifact.to_file_path("output.vtt"),
+            "render/webvtt_transcript": [TargetVttArtifact.to_file_path("output.vtt")],
         },
     )
 )
@@ -104,10 +105,10 @@ result = await pipeline.run(
 handle = pipeline.run_away(
     RunRequest(
         inputs={
-            "source//audio": SourceAudioArtifact.from_file_path("input.wav"),
+            "source/audio": SourceAudioArtifact.from_file_path("input.wav"),
         },
         outputs={
-            "render//webvtt_transcript": TargetVttArtifact.to_file_path("output.vtt"),
+            "render/webvtt_transcript": [TargetVttArtifact.to_file_path("output.vtt")],
         },
     )
 )
@@ -126,19 +127,19 @@ Requesting a speaker-labeled transcript may cause planning to select speaker-det
 result = await pipeline.run(
     RunRequest(
         inputs={
-            "source//audio": SourceAudioArtifact.from_file_path("input.wav"),
-            "speaker_detection//diarization_settings": SourceSettingsArtifact.from_object({
+            "source/audio": SourceAudioArtifact.from_file_path("input.wav"),
+            "speaker_detection/diarization_settings": SourceSettingsArtifact.from_object({
                 "detect_min_speakers": 2,
                 "detect_max_speakers": 10,
             }),
-            "render//webvtt_settings": SourceSettingsArtifact.from_object({
+            "render/webvtt_settings": SourceSettingsArtifact.from_object({
                 "include_speakers": True,
             }),
         },
         outputs={
-            "render//webvtt_transcript": TargetVttArtifact.to_file_path(
+            "render/webvtt_transcript": [TargetVttArtifact.to_file_path(
                 "speaker-labelled-output.vtt"
-            ),
+            )],
         },
     )
 )
@@ -152,42 +153,41 @@ Custom settings that change rarely can be supplied through source handles backed
 result = await pipeline.run(
     RunRequest(
         inputs={
-            "source//audio": SourceAudioArtifact.from_file_path("input.wav"),
-            "speech_detection//vad_detector_profiles": SourceSettingsArtifact.from_yaml_file(
+            "source/audio": SourceAudioArtifact.from_file_path("input.wav"),
+            "speech_detection/vad_detector_profiles": SourceSettingsArtifact.from_yaml_file(
                 "./vad_detector_profiles.yaml"
             ),
-            "speaker_detection//diarization_settings": SourceSettingsArtifact.from_yaml_file(
+            "speaker_detection/diarization_settings": SourceSettingsArtifact.from_yaml_file(
                 "./diarization_settings.yaml"
             ),
-            "render//webvtt_settings": SourceSettingsArtifact.from_object({
+            "render/webvtt_settings": SourceSettingsArtifact.from_object({
                 "include_speakers": True,
             }),
         },
         outputs={
-            "render//webvtt_transcript": TargetVttArtifact.to_file_path("output.vtt"),
+            "render/webvtt_transcript": [TargetVttArtifact.to_file_path("output.vtt")],
         },
     )
 )
 ```
 
 ### Multiple Outputs
-
 Multiple requested outputs are resolved into one shared dependency graph. Shared upstream artifacts are produced once and reused.
 
 ```python
 result = await pipeline.run(
     RunRequest(
         inputs={
-            "source//audio": SourceAudioArtifact.from_file_path("input.wav"),
-            "render//webvtt_settings": SourceSettingsArtifact.from_object({
+            "source/audio": SourceAudioArtifact.from_file_path("input.wav"),
+            "render/webvtt_settings": SourceSettingsArtifact.from_object({
                 "include_speakers": True,
             }),
         },
         outputs={
-            "render//webvtt_transcript": TargetVttArtifact.to_file_path("output.vtt"),
-            "speaker_detection//speaker_embeddings": TargetJsonArtifact.to_file_path(
+            "render/webvtt_transcript": [TargetVttArtifact.to_file_path("output.vtt")],
+            "speaker_detection/speaker_embeddings": [TargetJsonArtifact.to_file_path(
                 "speaker-embeddings.json"
-            ),
+            )],
         },
     )
 )
@@ -198,15 +198,17 @@ result = await pipeline.run(
 One semantic artifact may be materialized to an ordered list of caller targets in the same run.
 
 ```python
+
+output = InMemoryTargetArtifact()
 result = await pipeline.run(
     RunRequest(
         inputs={
-            "source//audio": SourceAudioArtifact.from_file_path("input.wav"),
+            "source/audio": SourceAudioArtifact.from_file_path("input.wav"),
         },
         outputs={
-            "render//webvtt_transcript": [
+            "render/webvtt_transcript/any": [
                 TargetVttArtifact.to_file_path("output.vtt"),
-                InMemoryTargetArtifact.capture(),
+                output,
             ],
         },
     )
@@ -223,22 +225,26 @@ A requested output may name zero caller materialization targets. This means: mak
 result = await pipeline.run(
     RunRequest(
         inputs={
-            "source//audio": SourceAudioArtifact.from_file_path("input.wav"),
+            "source/audio": SourceAudioArtifact.from_file_path("input.wav"),
         },
         outputs={
-            "render//webvtt_transcript": [],
+            "render/webvtt_transcript/any": [],
         },
     )
 )
 
-webvtt_ref = result.outputs[ArtifactKey.parse(
-    "render//webvtt_transcript"
-)].cached_reference
+webvtt_output = result.outputs[ArtifactKey.from_a_ref("render/webvtt_transcript")]
+print(webvtt_output.instance_locator)
+print(webvtt_output.task_locator)
 ```
 
-Target-less outputs are valid only when the requested artifact is durably retrievable after the run. In practice, the artifact must be cacheable for that request. A target-less output combined with `cache_policy[artifact_id].do_not_cache=True` is a validation error because it asks the run to promise later retrieval while forbidding durable publication.
+Target-less outputs are valid only when the requested artifact is durably retrievable after the run. In practice, the artifact must be cacheable for that request. 
 
-When a requested output becomes durably available, terminal results and progress/event payloads include both the requested semantic artifact ID and the concrete `CachedArtifactReference` (`artifact_id + fingerprint`). That reference is emitted only after the cache entry has committed, never while the output is merely planned or in progress.
+*A target-less output combined with `cache_policy[artifact_id].do_not_cache=True` is a validation error because it asks the run to promise later retrieval while forbidding durable publication.*
+
+Every requested output receives a stable `a-instance` locator at planning finalization. 
+
+When a requested output becomes durably available, terminal results and progress/event payloads may also include the externally retrievable `a-instance` locator. The `a-task` is available once the final plan exists; the public `a-instance` is emitted only after the cache entry has committed and is retrievable.
 
 ### Per-Artifact Cache Policy
 
@@ -248,16 +254,16 @@ Cache backend configuration belongs to installed features. Per-run cache behavio
 result = await pipeline.run(
     RunRequest(
         inputs={
-            "source//audio": SourceAudioArtifact.from_file_path("input.wav"),
+            "source/audio": SourceAudioArtifact.from_file_path("input.wav"),
         },
         outputs={
-            "render//webvtt_transcript": TargetVttArtifact.to_file_path("output.vtt"),
+            "render/webvtt_transcript/any": TargetVttArtifact.to_file_path("output.vtt"),
         },
         cache_policy={
-            "audio//prepared": ArtifactCachePolicy(
+            "audio/prepared": ArtifactCachePolicy(
                 ignore_existing_cache=True,
             ),
-            "render//webvtt_transcript": ArtifactCachePolicy(
+            "render/webvtt_transcript": ArtifactCachePolicy(
                 do_not_cache=True,
             ),
         },
@@ -287,39 +293,39 @@ Chunky also reserves a dedicated artifact-cache IO surface separate from `run(..
 
 The interface is semantic and handle-based: callers use artifact declarations or artifact IDs plus source or target handles. It must not expose backend-native cache paths, object keys, or lock records. Direct cache writes must use the same fingerprinting, metadata validation, reservation, and atomic publish rules as run-time cache publication. A directly published artifact is therefore a normal cache entry, not a weaker side channel.
 
-Direct cache IO returns or accepts a concrete cached-instance reference of the form `artifact_id + fingerprint`. When such a reference is later used as a provided root, planning treats it like the same artifact supplied normally, apart from provenance diagnostics. This direct cache IO surface is the common foundation for upload-first web-service flows, duplicate-upload detection, cached-root rebinding, and later output retrieval. A future artifact-existence preflight may check `artifact_id + fingerprint` before a large upload, but that optimization is not required by this version.
+Direct cache IO returns or accepts a concrete `a-instance` locator. When such a locator is later used as a provided root, planning treats it like the same artifact supplied normally, apart from provenance diagnostics. This direct cache IO surface is the common foundation for upload-first web-service flows, duplicate-upload detection, cached-root rebinding, and later output retrieval. A future artifact-existence preflight may check an `a-instance` before a large upload, but that optimization is not required by this version.
 
 #### Publishing an artifact through `ArtifactCacheIO`
 A caller may publish a root before creating a run request. The cache IO surface computes the same supplied-artifact fingerprint that normal root binding would compute, reserves the cache entry, writes through the declaration codec, validates metadata, and returns a typed cache reference.
 
 ```python
-audio_ref = await pipeline.cache_io.publish(
-    "source//audio",
+audio_instance = await pipeline.cache_io.publish(
+    "source/audio",
     SourceAudioArtifact.from_file_path("input.wav"),
 )
 
-# The reference is semantic plus concrete: it is not just a raw fingerprint.
-assert audio_ref.artifact_id == ArtifactKey.parse("source//audio")
-print(audio_ref.fingerprint)
+# The locator is semantic plus concrete: it is not just a raw fingerprint.
+assert audio_instance.artifact_key == ArtifactKey.from_a_ref("source/audio")
+print(audio_instance)
 ```
 
 The returned reference is suitable for saved task configuration, upload-first service flows, or explicit rebinding in a later run. Publishing through `ArtifactCacheIO` does not expose a cache path or backend object key.
 
 #### Using a cached artifact in a task
 
-A cached reference can later be supplied as a graph root in `RunRequest.inputs`. The request key still declares the semantic artifact being supplied, and the reference pins which committed cache instance should be used. The embedded `artifact_id` must match the normalized request key.
+A cached locator can later be supplied as a graph root in `RunRequest.inputs`. The request key still declares the semantic artifact being supplied, and the `a-instance` locator pins which committed cache instance should be used. The locator's artifact identity must match the normalized request key.
 
 ```python
 result = await pipeline.run(
     RunRequest(
         inputs={
-            "source//audio": audio_ref,
-            "render//webvtt_settings": SourceSettingsArtifact.from_object({
+            "source/audio": audio_ref,
+            "render/webvtt_settings": SourceSettingsArtifact.from_object({
                 "include_speakers": True,
             }),
         },
         outputs={
-            "render//webvtt_transcript": TargetVttArtifact.to_file_path(
+            "render/webvtt_transcript": TargetVttArtifact.to_file_path(
                 "output-from-cached-audio.vtt"
             ),
         },
@@ -327,7 +333,7 @@ result = await pipeline.run(
 )
 ```
 
-During binding, the pipeline opens the cache entry by `artifact_id + fingerprint`, validates the cache metadata against the declaration, and acquires a read reservation before planning proceeds. If the cached root is a settings artifact, the pipeline may read it early so settings-dependent planning hooks see the same value they would have seen from an ordinary supplied settings source.
+During binding, the pipeline opens the cache entry by `a-instance`, validates the cache metadata against the declaration, and acquires a read reservation before planning proceeds. If the cached root is a settings artifact, the pipeline may read it early so settings-dependent planning hooks see the same value they would have seen from an ordinary supplied settings source.
 
 ## Run Request Model
 
@@ -335,16 +341,16 @@ A `RunRequest` is the canonical language-neutral request shape.
 
 ```text
 RunRequest
-  inputs: map<SemanticArtifactId, SourceHandle | CachedArtifactReference>
-  outputs: map<SemanticArtifactId, TargetHandle | ordered-list<TargetHandle> | empty-list>
+  inputs: map<a-ref, SourceHandle | a-instance>
+  outputs: map<a-ref, TargetHandle | ordered-list<TargetHandle> | empty-list>
   run_policy?: PlanningRunPolicy
-  cache_policy?: map<SemanticArtifactId, ArtifactCachePolicy>
+  cache_policy?: map<a-ref, ArtifactCachePolicy>
 ```
 
 Required fields:
 
-- `inputs`: caller-supplied source artifacts, settings artifacts, explicitly supplied intermediate artifacts, or explicit cached-root references for those same semantic artifacts;
-- `outputs`: requested semantic artifact IDs and their caller materialization targets. The target list may be empty only for target-less outputs that can be durably retrieved later.
+- `inputs`: caller-supplied source artifacts, settings artifacts, explicitly supplied intermediate artifacts, or explicit `a-instance` cached-root locators for those same semantic artifacts;
+- `outputs`: requested semantic artifact references and their caller materialization targets. The target list may be empty only for target-less outputs that can be durably retrieved later.
 
 Optional fields:
 
@@ -355,14 +361,27 @@ Optional fields:
 
 ## Artifact Addressing and References
 
-Request fields use `ArtifactKey` values or their string form:
+Public request fields use semantic artifact reference strings or structured `ArtifactRefLocator` values. The `a-ref:/` prefix is accepted but optional for declaration-level references, so documentation examples use short paths such as `source/audio`. `ArtifactKey` remains the internal semantic value object, while `ArtifactRefLocator` owns boundary parsing and serialization.
+
+Preferred short semantic reference form:
 
 ```text
-DOMAIN//KIND
-OVERRIDE_DOMAIN//DOMAIN//KIND
+{domain}/{content_kind}/{phase-or-any}
 ```
 
-Language bindings may expose nested mappings that normalize to the same keys:
+Concrete instance form:
+
+```text
+a-instance:/global/{domain}/{content_kind}/{phase-or-none}/fingerprint/{fingerprint}
+```
+
+Task-scoped requested-output form:
+
+```text
+a-task:/global/{domain}/{content_kind}/{phase-or-none}/task/{task_id}
+```
+
+Language bindings may expose nested mappings that normalize to the same `a-ref` values. Three-level nested mappings use the first segment as projection context and the second segment as the actual artifact domain. Projection context is presentation-only and does not participate in equality, hashing, planning, cache lookup, or fingerprint payloads.
 
 ```python
 RunRequest(
@@ -388,28 +407,23 @@ RunRequest(
 
 Normalization is deterministic:
 
+- direct string keys must parse as semantic `a-ref` references; the `a-ref:/` prefix is optional;
 - nested keys must be strings;
-- direct `ArtifactKey` entries map directly to values, not nested mappings;
-- normalized paths must resolve to two or three path components;
-- duplicate artifact IDs are rejected;
+- direct `ArtifactKey` or locator entries map directly to values, not nested mappings;
+- normalized paths must resolve to two or three nested path components before conversion to `a-ref`;
+- omitted projection context canonicalizes to `global`;
+- omitted `a-ref` phase canonicalizes to `any`;
+- `a-instance` and `a-task` never infer `any`;
+- duplicate artifact IDs are rejected after projection context is stripped;
 - structural validation errors across `inputs`, `outputs`, and `cache_policy` should be accumulated and reported together.
 
-The public model distinguishes two related address kinds:
+The public model distinguishes three related address kinds:
 
-- a **semantic artifact ID** says what artifact is needed, produced, cached, or materialized;
-- a **concrete cached-instance reference** says which published artifact instance should be rebound as a provided root.
+- an `a-ref` says what artifact is needed, produced, cached, or materialized;
+- an `a-instance` says which concrete artifact instance is meant, paired with the final artifact fingerprint;
+- an `a-task` says which task-scoped requested-output binding is meant.
 
-The concrete reference shape is:
-
-```text
-CachedArtifactReference
-  artifact_id: SemanticArtifactId
-  fingerprint: ArtifactFingerprint
-```
-
-Plain semantic artifact IDs remain the default for normal planning, outputs, and cache policy. Concrete cached-instance references are explicit pinning mechanisms used by saved-task and upload-first workflows. The fingerprint is not an untyped global identifier: it must be paired with the semantic artifact ID and validated against the manifest declaration and cache metadata before binding.
-
-The textual representation should remain compatible with a future URI form, but this overview does not standardize the final URI syntax.
+Plain semantic artifact references remain the default for normal planning, outputs, and cache policy; their public string form may be short path-like syntax or canonical `a-ref:/...`. Concrete `a-instance` locators are explicit pinning mechanisms used by saved-task and upload-first workflows. The fingerprint is not an untyped global identifier: it must be paired with the semantic artifact identity and validated against the manifest declaration and cache metadata before binding.
 
 ## Settings and Defaults
 
@@ -419,7 +433,7 @@ Caller-supplied settings are bound before planning. Declaration defaults are res
 
 A resolved default behaves exactly like a supplied graph root after it is bound. Default-source providers must be deterministic and local to the setting declaration plus optional caller override; they must not inspect broader request shape, planner state, cache state, wall-clock time, or resource availability.
 
-A cached settings root referenced by `artifact_id + fingerprint` may be bound and read before normal graph planning proceeds, so planning hooks see the same settings value they would have seen from an ordinary supplied settings source.
+A cached settings root referenced by `a-instance` may be bound and read before normal graph planning proceeds, so planning hooks see the same settings value they would have seen from an ordinary supplied settings source.
 
 ## Minimal Stage and Artifact Contract
 
@@ -506,7 +520,7 @@ Pre-plan failures are still surfaced clearly:
 
 If a run fails after producing semantic artifacts or writing some caller targets, the failure surface should include successful partial outcomes where available.
 
-A requested output availability event is emitted only after the semantic artifact has committed durably. The event/result payload carries the requested semantic artifact ID plus the concrete `CachedArtifactReference`; clients should store that reference rather than trying to reconstruct it from graph metadata.
+A requested output receives an `a-task` locator after planning finalization. A requested-output availability event is emitted only after the semantic artifact has committed durably, and then the event/result payload may also carry the externally retrievable `a-instance` locator. Clients should store returned locators rather than reconstructing them from graph metadata.
 
 ## Recommended Invariants
 
@@ -547,12 +561,12 @@ A requested output availability event is emitted only after the semantic artifac
 35. A saved task with any uncached provided root is not restartable because the durable root set is incomplete.
 36. Direct artifact-cache IO is semantic and handle-based, not backend-path-based.
 37. Direct cache writes obey the same fingerprinting, metadata, reservation, and atomic-publish rules as run-time cache publication.
-38. A concrete cached-instance reference is `artifact_id + fingerprint`, not a bare fingerprint.
-39. Plain semantic artifact IDs remain the default public addressing form.
+38. A concrete cached-instance reference is an `a-instance` locator, not a bare fingerprint.
+39. Plain semantic artifact references remain the default public addressing form and serialize as `a-ref`.
 40. Cached settings roots may be early-bound for planning when explicitly referenced as provided roots.
 41. Requested outputs may have zero caller targets only when durable cache publication satisfies later retrieval.
 42. A target-less output with `cache_policy.do_not_cache=True` is a validation error.
-43. Published requested-output results and events carry both semantic artifact ID and concrete cached-instance reference.
+43. Published requested-output results and events carry the requested `a-task` and, when durably retrievable, the concrete `a-instance` locator.
 44. Concrete retrieval references are emitted only after durable cache commit.
 45. Future persisted-task execution is a higher-level orchestration layer over the same `RunRequest` and execution core.
 46. Persisted task records store normalized request/configuration and compatibility metadata, not live scheduler state.

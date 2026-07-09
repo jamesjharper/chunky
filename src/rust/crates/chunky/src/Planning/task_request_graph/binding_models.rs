@@ -3,7 +3,7 @@
 //! Binding models produced during request graph planning.
 
 use super::shared_models::instance_id;
-use crate::artifact_models::{ArtifactKey, PhaseMatchMode};
+use crate::artifact_models::{ArtifactKey, PhaseMatchMode, TaskArtifactLocator};
 
 /// Resolved artifact instance selected while expanding the request graph.
 ///
@@ -158,4 +158,5 @@ pub struct RequestedOutputBinding {
 pub struct TaskOutputBinding {
     pub requested_artifact_id: ArtifactKey,
     pub instance_id: String,
+    pub task_locator: Option<TaskArtifactLocator>,
 }

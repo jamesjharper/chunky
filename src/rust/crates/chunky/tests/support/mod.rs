@@ -204,23 +204,40 @@ pub fn dummy_executor_factory() -> chunky_example::stage_models::StageExecutorFa
     Arc::new(|| Box::new(NoopStageExecutor))
 }
 
+
+pub fn legacy_key(value: &str) -> ArtifactKey {
+    let (path, phase) = match value.rsplit_once('#') {
+        Some((path, phase)) => (path, Some(phase.parse::<u32>().expect("valid phase"))),
+        None => (value, None),
+    };
+    let parts = path.split("//").collect::<Vec<_>>();
+    match parts.as_slice() {
+        [domain, content_kind] => ArtifactKey::new(*domain, *content_kind, phase, None)
+            .expect("valid test artifact key"),
+        [projection, domain, content_kind] => ArtifactKey::new(*domain, *content_kind, phase, None)
+            .and_then(|key| key.with_override_domain(*projection))
+            .expect("valid projected test artifact key"),
+        _ => panic!("invalid legacy artifact key: {value}"),
+    }
+}
+
 pub fn artifact_key(name: &str) -> ArtifactKey {
     if name.starts_with("setting_") {
         return setting_key(name);
     }
-    ArtifactKey::parse(&format!("graph//{}", canonical_node_id(name))).unwrap()
+    legacy_key(&format!("graph//{}", canonical_node_id(name)))
 }
 
 pub fn setting_key(name: &str) -> ArtifactKey {
     let name = canonical_node_id(name);
     if let Some(base) = name.strip_suffix("_user_or_defaults") {
-        return ArtifactKey::parse(&format!("settings//{base}")).unwrap();
+        return legacy_key(&format!("settings//{base}"));
     }
     let marker = "_override_stage_";
     if let Some((base, target_suffix)) = name.split_once(marker) {
-        return ArtifactKey::parse(&format!("stage_{target_suffix}//settings//{base}")).unwrap();
+        return legacy_key(&format!("stage_{target_suffix}//settings//{base}"));
     }
-    ArtifactKey::parse(&format!("settings//{name}")).unwrap()
+    legacy_key(&format!("settings//{name}"))
 }
 
 pub fn canonical_node_id(name: &str) -> String {
@@ -258,7 +275,7 @@ impl From<&str> for KeyOrName {
 
 pub fn artifact_key_with_role(name: &str, _role: ArtifactRole) -> ArtifactKey {
     if name.contains("//") {
-        ArtifactKey::parse(name).unwrap()
+        legacy_key(name)
     } else {
         artifact_key(name)
     }

@@ -18,7 +18,7 @@ from ..Bindings.binding_models import (
 )
 from ..Bindings.bindings import ArtifactBindingsProvider, abort_writers, close_instances
 from ..Artifacts.artifact_handles import ArtifactTargetHandle
-from ..Artifacts.artifact_models import ArtifactKey, CachedArtifactReference
+from ..Artifacts.artifact_models import ArtifactInstanceLocator, ArtifactKey, TaskArtifactLocator
 from ..Stages.stage_manifest import StageManifest
 from ..Stages.stage_models import (
     CancellationOrigin,
@@ -66,7 +66,8 @@ class OutputResult:
     artifact_id: ArtifactKey
     status: OutputStatus
     fingerprint: str
-    cached_reference: CachedArtifactReference | None
+    instance_locator: ArtifactInstanceLocator | None
+    task_locator: TaskArtifactLocator | None = None
     targets: tuple[TargetMaterializationResult, ...] = ()
     error_ids: tuple[str, ...] = ()
 
@@ -80,15 +81,15 @@ class TaskRunResult:
     outputs: dict[ArtifactKey, OutputResult] | None = None
 
 
-def _durable_cached_reference_for(
+def _durable_instance_locator_for(
     instance: ArtifactInstance[Any],
     cache_policy: dict[ArtifactKey, Any],
-) -> CachedArtifactReference | None:
+) -> ArtifactInstanceLocator | None:
     declaration = instance.handle.declaration
     policy = cache_policy.get(declaration.artifact_id)
     if not declaration.cacheable or getattr(policy, "do_not_cache", False):
         return None
-    return CachedArtifactReference(declaration.artifact_id, instance.fingerprint)
+    return ArtifactInstanceLocator.from_key(declaration.artifact_id, instance.fingerprint)
 
 
 class ArtifactRunState:
@@ -96,10 +97,10 @@ class ArtifactRunState:
         self,
         supplied: dict[ArtifactKey, ArtifactInstance[Any]],
     ) -> None:
-        self._instances = {
-            str(artifact_id): instance
-            for artifact_id, instance in supplied.items()
-        }
+        self._instances: dict[str, ArtifactInstance[Any]] = {}
+        for artifact_id, instance in supplied.items():
+            self._instances[str(artifact_id)] = instance
+            self._instances[str(instance.locator)] = instance
 
     def provide(self, instance_id: str, instance: ArtifactInstance[Any]) -> None:
         self._instances[instance_id] = instance
@@ -241,13 +242,13 @@ class ExampleTaskRunner:
                         f"no caller materialization target supplied for {artifact_id}"
                     ) from exc
 
-                cached_reference = _durable_cached_reference_for(instance, cache_policy or {})
+                instance_locator = _durable_instance_locator_for(instance, cache_policy or {})
                 output_fingerprints[artifact_id] = instance.fingerprint
-                if cached_reference is not None:
-                    progress_tracker.record_available_output(artifact_id, cached_reference)
+                if instance_locator is not None:
+                    progress_tracker.record_available_output(artifact_id, instance_locator)
 
                 if not targets:
-                    if cached_reference is None:
+                    if instance_locator is None:
                         raise RuntimeError(
                             f"target-less output {artifact_id} is not durably retrievable"
                         )
@@ -255,7 +256,8 @@ class ExampleTaskRunner:
                         artifact_id=artifact_id,
                         status=OutputStatus.SUCCEEDED,
                         fingerprint=instance.fingerprint,
-                        cached_reference=cached_reference,
+                        instance_locator=instance_locator,
+                        task_locator=requested.task_locator,
                     )
                     events.append(f"published {artifact_id} for later retrieval")
                     continue
@@ -277,7 +279,8 @@ class ExampleTaskRunner:
                             artifact_id=artifact_id,
                             status=OutputStatus.FAILED,
                             fingerprint=instance.fingerprint,
-                            cached_reference=cached_reference,
+                            instance_locator=instance_locator,
+                            task_locator=requested.task_locator,
                             targets=tuple(target_results),
                             error_ids=(type(exc).__name__,),
                         )
@@ -296,7 +299,8 @@ class ExampleTaskRunner:
                     artifact_id=artifact_id,
                     status=OutputStatus.SUCCEEDED,
                     fingerprint=instance.fingerprint,
-                    cached_reference=cached_reference,
+                    instance_locator=instance_locator,
+                    task_locator=requested.task_locator,
                     targets=tuple(target_results),
                 )
                 events.append(f"materialized {artifact_id} to {len(targets)} target(s)")

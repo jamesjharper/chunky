@@ -106,6 +106,9 @@ __Expected Behavior:__
 
 ## Artifact Inventory fingerprints
 
+Fingerprint payloads serialize artifact identity using the canonical unprojected `a-ref` form. Projection context must never be included in a fingerprint payload.
+
+
 There are two key types of final artifact fingerprints:
 
 - __Supplied artifact fingerprints__ for artifacts that enter the run already available from a caller, settings provider, cache source, or other pre-existing source handle.
@@ -208,17 +211,17 @@ full supplied calculation =
 
 The nested `content` field is not always literally `stable_hash({ ... })`; it is whatever stable semantic digest the source handle defines. The examples above show the full enclosing payload shape.
 
-### Cached-instance reference fingerprint shape
+### Concrete instance locator fingerprint shape
 
-A concrete cached-instance reference is the pair:
+A concrete artifact instance locator is the pair of resolved artifact identity and final fingerprint, serialized as `a-instance`:
 
 ```text
-CachedArtifactReference = { artifact_id, fingerprint }
+a-instance:/global/{domain}/{content_kind}/{phase-or-none}/fingerprint/{fingerprint}
 ```
 
-The `fingerprint` is the final artifact fingerprint produced by either the supplied-artifact or stage-produced fingerprint builder. It is not recalculated from cache bytes when the reference is used. Rebinding validates that the cache entry metadata matches the paired `artifact_id`, declaration version, role, codec metadata, and fingerprint.
+The `fingerprint` is the final artifact fingerprint produced by either the supplied-artifact or stage-produced fingerprint builder. It is not recalculated from cache bytes when the locator is used. Rebinding validates that the cache entry metadata matches the paired artifact identity, declaration version, role, codec metadata, and fingerprint.
 
-For cacheable provided roots, the reference returned by binding-time publication or direct cache IO uses the supplied-artifact fingerprint. For stage-produced artifacts, it uses the stage-produced artifact fingerprint. The same reference shape works for both because the fingerprint already commits to the correct lineage source.
+For cacheable provided roots, the locator returned by binding-time publication or direct cache IO uses the supplied-artifact fingerprint. For stage-produced artifacts, it uses the stage-produced artifact fingerprint. The same locator shape works for both because the fingerprint already commits to the correct lineage source. Projection context is not part of fingerprint payloads.
 
 ### Stage-produced artifact fingerprint builder
 
@@ -370,36 +373,36 @@ The important recursive property is:
 After the graph shape is known, the planner can derive the expected fingerprint for each artifact edge by walking forward from available inputs.
 
 ```text
-  source//audio ──────────── source_audio_fp
+  source/audio ──────────── source_audio_fp
          │
          ▼
  ┌───────────────┐
- │ prepare_audio │ ───────── audio//settings ── audio_settings_fp
+ │ prepare_audio │ ───────── audio/settings ── audio_settings_fp
  └───────────────┘
          │
          ▼
-  audio//prepared ────────── audio_prepared_fp
+  audio/prepared ────────── audio_prepared_fp
          │
          ▼
    ┌────────────┐
-   │ transcribe │ ────────── asr//settings ─── asr_settings_fp
+   │ transcribe │ ────────── asr/settings ─── asr_settings_fp
    └────────────┘
          │
          ▼
- transcript//token_text ──── transcript_token_text_fp
+ transcript/token_text ──── transcript_token_text_fp
 ```
 
 ```text
 source_audio_fp =
   hash(
-    source//audio identity,
-    source//audio content fingerprint
+    source/audio identity,
+    source/audio content fingerprint
   )
 
 audio_settings_fp =
   hash(
-    audio//settings identity,
-    audio//settings content fingerprint
+    audio/settings identity,
+    audio/settings content fingerprint
   )
 
 prepare_audio_stage_fp =
@@ -411,14 +414,14 @@ prepare_audio_stage_fp =
 prepare_audio_pedigree_fp =
   hash(
     prepare_audio_stage_fp,
-    { "source//audio": source_audio_fp },
+    { "source/audio": source_audio_fp },
     audio_settings_fp
   )
 
 audio_prepared_fp =
   hash(
-    audio//prepared identity,
-    audio//prepared codec identity,
+    audio/prepared identity,
+    audio/prepared codec identity,
     prepare_audio_pedigree_fp
   )
 
@@ -431,14 +434,14 @@ transcribe_stage_fp =
 transcribe_pedigree_fp =
   hash(
     transcribe_stage_fp,
-    { "audio//prepared": audio_prepared_fp },
+    { "audio/prepared": audio_prepared_fp },
     asr_settings_fp
   )
 
 transcript_token_text_fp =
   hash(
-    transcript//token_text identity,
-    transcript//token_text codec identity,
+    transcript/token_text identity,
+    transcript/token_text codec identity,
     transcribe_pedigree_fp
   )
 ```

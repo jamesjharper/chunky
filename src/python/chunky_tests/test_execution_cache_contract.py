@@ -9,7 +9,7 @@ from src.python.chunky.Artifacts.artifact_models import (
     ArtifactDeclaration,
     ArtifactKey,
     ArtifactRole,
-    CachedArtifactReference,
+    ArtifactInstanceLocator,
 )
 from python.chunky.Bindings.bindings import ArtifactBindingsProvider
 from src.python.chunky.Bindings.cache_models import (
@@ -120,6 +120,21 @@ class ScriptedCache:
         return outcome
 
 
+
+def _key_from_legacy(value: str) -> ArtifactKey:
+    domain_parts = value.split("//")
+    if len(domain_parts) == 2:
+        projection_context = None
+        domain, remainder = domain_parts
+    elif len(domain_parts) == 3:
+        projection_context, domain, remainder = domain_parts
+    else:
+        raise ValueError(value)
+    if "#" in remainder:
+        content_kind, phase = remainder.rsplit("#", 1)
+        return ArtifactKey(domain, content_kind, int(phase), projection_context)
+    return ArtifactKey(domain, remainder, projection_context=projection_context)
+
 def _decl(
     artifact_id: str,
     *,
@@ -127,7 +142,7 @@ def _decl(
     cacheable: bool = True,
 ) -> ArtifactDeclaration[Any]:
     return ArtifactDeclaration(
-        artifact_id=ArtifactKey.parse(artifact_id),
+        artifact_id=_key_from_legacy(artifact_id),
         role=role,
         version=1,
         codec=JsonishCodec(),
@@ -277,26 +292,26 @@ class ExecutionCacheBindingContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([], cache.calls)
         self.assertEqual(0, source.read_count)
 
-    async def test_cached_reference_opens_exact_artifact_instance(self) -> None:
+    async def test_instance_locator_opens_exact_artifact_instance(self) -> None:
         root = _decl("source//audio", role=ArtifactRole.SOURCE, cacheable=True)
         cached_source = RecordingSource({"audio": "cached"})
-        reference = CachedArtifactReference(root.artifact_id, "cached-root-fp")
+        reference = ArtifactInstanceLocator.from_key(root.artifact_id, "cached-root-fp")
         cache = ScriptedCache([CacheHit(cached_source)])
         provider = ArtifactBindingsProvider(cache)
 
-        instance = await provider.open_cached_reference(root, reference)
+        instance = await provider.open_instance_locator(root, reference)
 
         self.assertIs(cached_source, instance.handle.source)
         self.assertEqual("cached-root-fp", instance.fingerprint)
         self.assertEqual([(root.artifact_id, "cached-root-fp", False)], cache.calls)
 
-    async def test_cached_reference_must_match_declaration_artifact_id(self) -> None:
+    async def test_instance_locator_must_match_declaration_artifact_id(self) -> None:
         root = _decl("source//audio", role=ArtifactRole.SOURCE, cacheable=True)
-        reference = CachedArtifactReference(ArtifactKey.parse("source//other_audio"), "fp")
+        reference = ArtifactInstanceLocator.from_key(_key_from_legacy("source//other_audio"), "fp")
         provider = ArtifactBindingsProvider(ScriptedCache([]))
 
         with self.assertRaises(ValueError):
-            await provider.open_cached_reference(root, reference)
+            await provider.open_instance_locator(root, reference)
 
 
 if __name__ == "__main__":

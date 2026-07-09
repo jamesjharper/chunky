@@ -76,6 +76,7 @@ class TaskRunPlanner:
         run_policy: PlanningRunPolicy | None = None,
         user_supplied_settings: Iterable[ArtifactKey] = frozenset(),
         default_settings_resolver: DefaultSettingsResolver | None = None,
+        task_id: str | None = None,
     ) -> TaskRunGraph:
         
         self._validate_requested_outputs(requested_outputs)
@@ -105,6 +106,7 @@ class TaskRunPlanner:
         return await self._task_execution_graph_builder.build(
             task_request_graph=task_request_graph,
             supplied_instances=planning_roots,
+            task_id=task_id,
         )
 
     def _validate_requested_outputs(self, requested_outputs: set[ArtifactKey]) -> None:

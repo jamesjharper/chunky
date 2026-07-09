@@ -39,7 +39,7 @@ graph = planner.plan(
 )
 ```
 
-__`supplied_instances`__ contains the request roots that are already available before planning starts. These may include source artifacts, settings artifacts, or intermediate artifacts supplied by the caller, plus artifacts rebound from explicit `artifact_id + fingerprint` cached-root references. Supplied instances are considered before producer paths, so a supplied or rebound artifact can satisfy a requirement without adding a producing stage invocation to the graph.
+__`supplied_instances`__ contains the request roots that are already available before planning starts. These may include source artifacts, settings artifacts, or intermediate artifacts supplied by the caller, plus artifacts rebound from explicit `a-instance` cached-root locators. Supplied instances are considered before producer paths, so a supplied or rebound artifact can satisfy a requirement without adding a producing stage invocation to the graph.
 
 __`requested_outputs`__ is the set of terminal artifact IDs the caller wants from this run. Each requested output may have one or more caller materialization targets, or zero targets when the request is target-less and durable cache retrieval is the intended delivery path. Planning starts from these outputs and walks backward through the stage manifest until every required input is satisfied by either a supplied instance or a planned producer invocation.
 
@@ -111,7 +111,7 @@ Input and output bindings provide the artifact-level contract for each planned i
 class PlannedInputBinding:
     selector: ArtifactKey
     resolved_artifact_id: ArtifactKey
-    resolved_instance_id: str
+    resolved_instance_locator: ArtifactInstanceLocator
     required: bool
     phase_match: PhaseMatchMode
     pushed_settings: tuple[ArtifactKey, ...] = ()
@@ -122,14 +122,14 @@ class PlannedInputBinding:
 class PlannedOutputBinding:
     declared_artifact_id: ArtifactKey
     resolved_artifact_id: ArtifactKey
-    instance_id: str
-    expected_fingerprint: str | None = None
+    instance_locator: ArtifactInstanceLocator
+    expected_fingerprint: str
 
 ```
 
-`PlannedInputBinding.selector` is the original artifact selector from the stage requirement. `resolved_artifact_id` is the concrete artifact ID selected to satisfy that selector, and `resolved_instance_id` is the request-graph instance ID for the selected artifact. `required` records whether the original requirement was required or optional. `phase_match` records the phase matching behavior used during resolution. `pushed_settings` records settings artifacts pushed through this input edge. `producer_invocation_key` links the input to a planned producer when the artifact is not supplied.
+`PlannedInputBinding.selector` is the original artifact selector from the stage requirement. `resolved_artifact_id` is the concrete artifact ID selected to satisfy that selector, and `resolved_instance_locator` is the concrete `a-instance` identity selected for the input. `required` records whether the original requirement was required or optional. `phase_match` records the phase matching behavior used during resolution. `pushed_settings` records settings artifacts pushed through this input edge. `producer_invocation_key` links the input to a planned producer when the artifact is not supplied.
 
-`PlannedOutputBinding.declared_artifact_id` is the output declared by the producing stage. `resolved_artifact_id` is the artifact ID under which the graph binds the output. These differ when terminal remapping maps a concrete phased output to a phase-less requested output. `instance_id` is the request-graph artifact instance ID, and `expected_fingerprint` is the semantic output fingerprint when it is already known.
+`PlannedOutputBinding.declared_artifact_id` is the output declared by the producing stage. `resolved_artifact_id` is the artifact ID under which the graph binds the output. These differ when terminal remapping maps a concrete phased output to a phase-less requested output. `instance_locator` is the concrete `a-instance` identity for that output, and `expected_fingerprint` is the final artifact fingerprint contained in that locator.
 
 
 ## Plan Phases
@@ -267,7 +267,7 @@ Older names such as `PlannedInvocationDraft` and `PlannedStageInvocation` are co
 class PlannedInputBinding:
     selector: ArtifactKey
     resolved_artifact_id: ArtifactKey
-    resolved_instance_id: str
+    resolved_instance_locator: ArtifactInstanceLocator
     required: bool
     phase_match: PhaseMatchMode
     pushed_settings: tuple[ArtifactKey, ...] = ()
@@ -278,8 +278,8 @@ class PlannedInputBinding:
 class PlannedOutputBinding:
     declared_artifact_id: ArtifactKey
     resolved_artifact_id: ArtifactKey
-    instance_id: str
-    expected_fingerprint: str | None = None
+    instance_locator: ArtifactInstanceLocator
+    expected_fingerprint: str
 
 ```
 
@@ -313,7 +313,7 @@ A target-less requested output is an output entry with an empty caller-target li
 
 Validation before or around planning must reject target-less outputs when the artifact cannot be durably retrieved after the run. The common validation rule is: the requested artifact must be cacheable for this request, and the same exact artifact must not have `cache_policy.do_not_cache=True`.
 
-The planner records the requested output binding normally. Execution is responsible for emitting the committed `CachedArtifactReference` after durable publication and skipping caller materialization because there are no targets to write.
+The planner records the requested output binding normally and assigns it a stable `a-task` locator. Execution is responsible for exposing the externally retrievable `a-instance` locator after durable publication and skipping caller materialization because there are no targets to write.
 
 ## 2. Implementation Model
 
@@ -422,7 +422,7 @@ It owns:
 
 - draft invocations;
 - requested output bindings;
-- producer invocation lookup by resolved artifact instance ID;
+- producer invocation lookup by resolved artifact `a-instance` locator;
 - per-stage invocation sequence allocation.
 
 ```python
@@ -430,7 +430,7 @@ It owns:
 class GraphBuildState:
     invocations_by_key: dict[str, InvocationDraft]
     requested_output_bindings: dict[ArtifactKey, RequestedOutputBinding]
-    producer_invocation_by_instance_id: dict[str, str]
+    producer_invocation_by_instance_locator: dict[str, str]
     next_invocation_sequence_by_stage: dict[str, int]
 ```
 
@@ -491,7 +491,7 @@ It is intentionally narrower than final input/output bindings.
 @dataclass(frozen=True)
 class ArtifactResolution:
     resolved_artifact_id: ArtifactKey
-    resolved_instance_id: str
+    resolved_instance_locator: ArtifactInstanceLocator
     producer_invocation_key: str | None = None
 ```
 
@@ -520,7 +520,7 @@ It records:
 
 - the original selector from the requirement;
 - the resolved artifact ID;
-- the resolved artifact instance ID;
+- the resolved `a-instance` locator;
 - whether the input is required;
 - the phase-match behavior;
 - pushed settings associated with that requirement;
@@ -534,14 +534,20 @@ It records:
 
 - the declared output artifact ID;
 - the resolved output artifact ID;
-- the resolved artifact instance ID;
-- the expected fingerprint, when already calculated.
+- the resolved `a-instance` locator;
+- the expected fingerprint, which is the fingerprint embedded in `instance_locator`.
 
 When `declared_artifact_id != resolved_artifact_id`, the output was terminal-remapped. This is expected for phase-less final intermediate requirements satisfied by a concrete phase-numbered output.
 
 #### `RequestedOutputBinding`
 
-A `RequestedOutputBinding` maps a user-requested output artifact ID to the artifact instance selected to satisfy it.
+A `RequestedOutputBinding` maps a user-requested output artifact ID to the artifact instance selected to satisfy it. Every requested output binding also receives a `TaskArtifactLocator`:
+
+```text
+a-task:/global/{domain}/{content_kind}/{phase-or-none}/task/{task_id}
+```
+
+The `a-task` locator is public and stable for the live task. It resolves through task metadata to the selected internal `a-instance` locator once planning has finalized concrete identity. Download or content retrieval may still fail with a typed state error when the instance is not yet committed or is not durably retrievable.
 
 ## 3. Evaluated Graph Expansion
 
@@ -665,18 +671,17 @@ The produced artifact records:
 
 - producer selection;
 - resolved semantic artifact ID;
-- resolved artifact instance ID;
+- final expected artifact fingerprint;
+- concrete `a-instance` locator;
 - effective settings fingerprint.
 
-The current implementation uses a deterministic instance ID of:
+The concrete instance identity is no longer an ad hoc request-graph string. It is the structured `ArtifactInstanceLocator` derived from the resolved artifact ID and the final artifact fingerprint:
 
 ```text
-{artifact_id}@{effective_settings_fingerprint[:16]}
+a-instance:/global/{domain}/{content_kind}/{phase-or-none}/fingerprint/{fingerprint}
 ```
 
-When the effective settings fingerprint is empty, the instance ID is simply the artifact ID.
-
-This instance ID is a planner/runtime binding identity. It is not the final semantic cache fingerprint.
+This means planning finalization must calculate final supplied and produced artifact fingerprints early enough to populate every planned input and output binding with a real `a-instance` locator. Durability is not encoded into that locator. A planned-but-not-yet-committed artifact and the later durable cache entry share the same concrete instance identity.
 
 ### 4.2 Invocation Deduplication
 
@@ -767,7 +772,7 @@ with user settings winning over inherited settings.
 Some intermediate artifact families opt into numbered processing phases:
 
 ```text
-{domain}::{content_kind}::{phase}
+{domain}/{content_kind}/{phase}
 ```
 
 The phase number is a sparse processing phase, not a schema version. Phase numbers are meaningful only within their own artifact family.
@@ -836,13 +841,13 @@ Each requested output receives its own fingerprint derived from:
 
 One invocation may produce multiple requested outputs. They share the same invocation pedigree but receive distinct output fingerprints because each output contributes its own resolved artifact identity and declaration metadata.
 
-### 6.4 Instance IDs vs Fingerprints
+### 6.4 Concrete Instance Locators
 
-The planner's `instance_id(...)` helper produces request-graph binding identities.
+The planner no longer emits a separate `instance_id(...)` binding string. Final artifact fingerprints are the concrete discriminators for planned artifact instances, and each resolved binding receives an `ArtifactInstanceLocator`.
 
-These IDs are useful for deduplicating producer invocations and connecting inputs to outputs during graph discovery.
+These locators are useful for deduplicating producer invocations, connecting inputs to outputs during graph discovery, and giving execution a stable identity for cache lookup and progress correlation. They must still be treated as structured objects internally; the `a-instance` URI string is generated lazily for API, logs, metadata, or diagnostics boundaries.
 
-They must not be confused with final semantic artifact fingerprints used for cache lookup. Final fingerprints must include declaration identity, codec identity, producer behavior, input fingerprints, settings fingerprints, and terminal-remapping decisions.
+Final fingerprints must include declaration identity, codec identity, producer behavior, input fingerprints, settings fingerprints, and terminal-remapping decisions. Projection context is never included in fingerprint payloads.
 
 ## 7. Cache and Execution
 
@@ -878,12 +883,15 @@ Finalization performs:
 1. Topological ordering of draft invocation keys using producer dependencies from input bindings.
 2. Detection of request-specific cycles or unresolved dependency references.
 3. Assignment of stable planned invocation IDs in topological order.
-4. Conversion from `InvocationDraft` to `PlannedInvocation`.
-5. Partitioning of input bindings into required and optional input binding tuples.
-6. Stable ordering of requested output bindings.
-7. Construction of `dependencies_by_invocation`.
-8. Construction of `dependents_by_invocation`.
-9. Stable ordering of requested output bindings for user-requested terminal artifacts.
+4. Calculation of final expected fingerprints for every supplied and produced artifact binding.
+5. Minting of structured internal `a-instance` locators for every planned artifact binding.
+6. Minting of stable `a-task` locators for every user-requested output.
+7. Conversion from `InvocationDraft` to `PlannedInvocation`.
+8. Partitioning of input bindings into required and optional input binding tuples.
+9. Stable ordering of requested output bindings.
+10. Construction of `dependencies_by_invocation`.
+11. Construction of `dependents_by_invocation`.
+12. Stable ordering of requested output bindings for user-requested terminal artifacts.
 
 A request-specific graph is invalid if no topological ordering can be produced.
 
@@ -904,7 +912,7 @@ The stable request-graph API should expose only the concepts needed by downstrea
 - `ProducerSelection`;
 - `InputRequirementKey`.
 
-Internal aliases may remain during migration, but they should not appear in new spec text or new code unless the purpose is backwards compatibility.
+No legacy artifact string or `instance_id` compatibility layer is specified. Implementation migrations should be coordinated cutovers rather than mixed-format transitions.
 
 Deprecated compatibility names include:
 

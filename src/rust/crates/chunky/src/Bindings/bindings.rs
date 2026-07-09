@@ -11,8 +11,8 @@ use crate::{
         StageOutputBindings, StageOutputResolution,
     },
     artifact_handles::{ArtifactSourceHandle, ArtifactTargetHandle, IntermediateArtifactHandle},
-    artifact_models::{AnyArtifactDeclaration, ArtifactDeclaration, ArtifactKey},
-    cache_models::{ArtifactCache, CacheResolution, CacheWait, CacheableOutputBootstrap},
+    artifact_models::{AnyArtifactDeclaration, ArtifactDeclaration, ArtifactKey, CachedArtifactReference},
+    cache_models::{ArtifactCache, CacheHit, CacheResolution, CacheWait, CacheableOutputBootstrap},
     fingerprints::FingerprintProvider,
 };
 use anyhow::{bail, Result};
@@ -160,17 +160,10 @@ impl ArtifactBindingsProvider {
     where
         T: Send + Sync + 'static,
     {
-        let erased = declaration.erase();
-        let fingerprint = self
-            .fingerprint_provider
-            .build_supplied_artifact_fingerprint(&erased, source.as_ref())
+        let instance = self
+            .bind_supplied_any_with_cache_policy(&declaration.erase(), source, None)
             .await?;
-        ArtifactInstance::new(ArtifactHandle::new(
-            erased,
-            fingerprint,
-            Some(source),
-            vec![],
-        ))
+        ArtifactInstance::new(instance.handle)
     }
 
     pub async fn bind_supplied_any(
@@ -178,12 +171,91 @@ impl ArtifactBindingsProvider {
         declaration: &AnyArtifactDeclaration,
         source: Arc<dyn ArtifactSourceHandle>,
     ) -> Result<AnyArtifactInstance> {
+        self.bind_supplied_any_with_cache_policy(declaration, source, None)
+            .await
+    }
+
+    pub async fn bind_supplied_any_with_cache_policy(
+        &self,
+        declaration: &AnyArtifactDeclaration,
+        source: Arc<dyn ArtifactSourceHandle>,
+        cache_policy: Option<&ArtifactCachePolicy>,
+    ) -> Result<AnyArtifactInstance> {
         let fingerprint = self
             .fingerprint_provider
             .build_supplied_artifact_fingerprint(declaration, source.as_ref())
             .await?;
+        let do_not_cache = cache_policy
+            .map(|policy| policy.do_not_cache)
+            .unwrap_or(false);
+        if declaration.cacheable && !do_not_cache {
+            self.publish_supplied_root(declaration, source.clone(), Some(fingerprint.clone()))
+                .await?;
+        }
         Ok(AnyArtifactInstance {
             handle: ArtifactHandle::new(declaration.clone(), fingerprint, Some(source), vec![]),
+        })
+    }
+
+    pub async fn publish_supplied_root(
+        &self,
+        declaration: &AnyArtifactDeclaration,
+        source: Arc<dyn ArtifactSourceHandle>,
+        fingerprint: Option<String>,
+    ) -> Result<CachedArtifactReference> {
+        let fingerprint = match fingerprint {
+            Some(value) => value,
+            None => {
+                self.fingerprint_provider
+                    .build_supplied_artifact_fingerprint(declaration, source.as_ref())
+                    .await?
+            }
+        };
+
+        loop {
+            match self.cache.resolve(declaration, &fingerprint, false).await? {
+                CacheResolution::Hit(hit) => {
+                    let _ = hit.source_handle.close().await;
+                    return CachedArtifactReference::new(declaration.artifact_id.clone(), fingerprint);
+                }
+                CacheResolution::Write(reservation) => {
+                    let value = source.get_value(declaration.codec.as_ref()).await?;
+                    let writer = AnyArtifactWriter::new(ArtifactHandle::new(
+                        declaration.clone(),
+                        fingerprint.clone(),
+                        Some(source.clone()),
+                        vec![reservation.target_handle],
+                    ))?;
+                    writer.write_any(value).await?;
+                    return CachedArtifactReference::new(declaration.artifact_id.clone(), fingerprint);
+                }
+                CacheResolution::Wait(wait) => {
+                    wait.wait_handle.wait().await?;
+                }
+            }
+        }
+    }
+
+    pub async fn open_cached_reference(
+        &self,
+        declaration: &AnyArtifactDeclaration,
+        reference: &CachedArtifactReference,
+    ) -> Result<AnyArtifactInstance> {
+        if reference.artifact_id != declaration.artifact_id {
+            bail!(
+                "cached artifact reference artifact_id does not match declaration: {} != {}",
+                reference.artifact_id,
+                declaration.artifact_id
+            );
+        }
+        let CacheHit { source_handle } = self.cache.open(declaration, &reference.fingerprint).await?;
+        Ok(AnyArtifactInstance {
+            handle: ArtifactHandle::new(
+                declaration.clone(),
+                reference.fingerprint.clone(),
+                Some(source_handle),
+                vec![],
+            ),
         })
     }
 

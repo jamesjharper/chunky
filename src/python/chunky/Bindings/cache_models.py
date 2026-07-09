@@ -47,6 +47,12 @@ class ArtifactCache(Protocol):
         force_write: bool = False,
     ) -> CacheResolution[T]: ...
 
+    async def open(
+        self,
+        declaration: ArtifactDeclaration[T],
+        fingerprint: str,
+    ) -> CacheHit[T]: ...
+
 
 @dataclass(frozen=True)
 class CacheableOutputAvailable(Generic[T]):

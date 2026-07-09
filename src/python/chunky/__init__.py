@@ -16,6 +16,7 @@ from .Artifacts.artifact_models import (
     ArtifactKey,
     ArtifactRequirement,
     ArtifactRole,
+    CachedArtifactReference,
     PhaseMatchMode,
 )
 from .Bindings.file_cache_provider import (
@@ -24,6 +25,7 @@ from .Bindings.file_cache_provider import (
     FileCacheProviderGarbageCollectionPolicy,
 )
 from .pipeline import (
+    ArtifactCacheIO,
     ArtifactCachePolicy,
     ChunkyPipeline,
     ChunkyPipelineBuilder,
@@ -56,6 +58,7 @@ from .Planning.TaskRequestGraph import TaskRequestGraph
 EvaluatedPlan = TaskRequestGraph
 
 __all__ = [
+    "ArtifactCacheIO",
     "ArtifactCachePolicy",
     "ArtifactCapability",
     "ArtifactDeclaration",
@@ -65,6 +68,7 @@ __all__ = [
     "ArtifactReader",
     "ArtifactRequirement",
     "ArtifactRole",
+    "CachedArtifactReference",
     "ArtifactWriter",
     "CancellationSource",
     "ChunkyPipeline",

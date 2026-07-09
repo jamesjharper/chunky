@@ -77,6 +77,31 @@ class ArtifactKey:
         prefix = "" if self.override_domain is None else f"{self.override_domain}//"
         return f"{prefix}{self.domain}//{self.content_kind}{suffix}"
 
+
+
+@dataclass(frozen=True)
+class CachedArtifactReference:
+    """Concrete reference to a published cache instance for one artifact.
+
+    The artifact id preserves the semantic type of the root being rebound; the
+    fingerprint selects the exact committed cache instance. Fingerprints are not
+    treated as untyped global identifiers.
+    """
+
+    artifact_id: ArtifactKey
+    fingerprint: str
+
+    def __post_init__(self) -> None:
+        if not self.fingerprint:
+            raise ValueError("cached artifact reference fingerprint must not be empty")
+
+    @classmethod
+    def parse(cls, artifact_id: ArtifactKey | str, fingerprint: str) -> "CachedArtifactReference":
+        return cls(
+            artifact_id=artifact_id if isinstance(artifact_id, ArtifactKey) else ArtifactKey.parse(artifact_id),
+            fingerprint=fingerprint,
+        )
+
 class ArtifactRole(str, Enum):
     SOURCE = "source"
     SETTINGS = "settings"

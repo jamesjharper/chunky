@@ -12,7 +12,12 @@ from uuid import uuid4
 from .Bindings.binding_models import ArtifactInstance
 from .Bindings.bindings import ArtifactBindingsProvider, close_instances
 from .Artifacts.artifact_handles import ArtifactSourceHandle, ArtifactTargetHandle
-from .Artifacts.artifact_models import ArtifactDeclaration, ArtifactKey, ArtifactRole
+from .Artifacts.artifact_models import (
+    ArtifactDeclaration,
+    ArtifactKey,
+    ArtifactRole,
+    CachedArtifactReference,
+)
 from .Bindings.cache_models import ArtifactCache
 from .Planning.execution_planner import TaskRunPlanner
 from .Scheduling.progress_models import (
@@ -51,7 +56,9 @@ class RequestValidationError(ValueError):
 class RunRequest:
     inputs: Mapping[
         ArtifactKey | str,
-        ArtifactSourceHandle[Any] | Mapping[str, ArtifactSourceHandle[Any]],
+        ArtifactSourceHandle[Any]
+        | CachedArtifactReference
+        | Mapping[str, ArtifactSourceHandle[Any] | CachedArtifactReference],
     ]
     outputs: Mapping[
         ArtifactKey | str,
@@ -69,6 +76,51 @@ class RunRequest:
 ArtifactBindingsProviderFactory = Callable[[ArtifactCache], ArtifactBindingsProvider]
 PlannerFactory = Callable[[StageManifest, ArtifactBindingsProvider], TaskRunPlanner]
 RunnerFactory = Callable[[StageManifest, ArtifactBindingsProvider], ExampleTaskRunner]
+
+
+class ArtifactCacheIO:
+    """Semantic direct artifact-cache IO facade.
+
+    This facade exposes cache publication and open-by-reference without leaking
+    backend paths or reservation records. It uses the same binding provider and
+    fingerprint path as run-time provided-root publication.
+    """
+
+    def __init__(self, pipeline: "ChunkyPipeline") -> None:
+        self._pipeline = pipeline
+
+    async def publish(
+        self,
+        artifact_id: ArtifactKey | str,
+        source: ArtifactSourceHandle[Any],
+        *,
+        cache_policy: ArtifactCachePolicy | None = None,
+    ) -> CachedArtifactReference:
+        declaration = self._pipeline.stage_manifest.find_artifact(_artifact_key(artifact_id))
+        effective_source = await self._pipeline._resolve_settings_source(
+            declaration,
+            source,
+        )
+        if cache_policy is not None and cache_policy.do_not_cache:
+            fingerprint = await (
+                self._pipeline._artifact_bindings_provider.fingerprint_provider
+                .build_supplied_artifact_fingerprint(declaration, effective_source)
+            )
+            return CachedArtifactReference(declaration.artifact_id, fingerprint)
+        return await self._pipeline._artifact_bindings_provider.publish_supplied_root(
+            declaration,
+            effective_source,
+        )
+
+    async def open(
+        self,
+        reference: CachedArtifactReference,
+    ) -> ArtifactInstance[Any]:
+        declaration = self._pipeline.stage_manifest.find_artifact(reference.artifact_id)
+        return await self._pipeline._artifact_bindings_provider.open_cached_reference(
+            declaration,
+            reference,
+        )
 
 
 class ChunkyPipelineBuilder:
@@ -127,6 +179,10 @@ class ChunkyPipeline:
         artifact_cache: ArtifactCache,
     ) -> ChunkyPipelineBuilder:
         return ChunkyPipelineBuilder(artifact_cache=artifact_cache)
+
+    @property
+    def cache_io(self) -> ArtifactCacheIO:
+        return ArtifactCacheIO(self)
 
     async def run(
         self,
@@ -193,7 +249,7 @@ class ChunkyPipeline:
         cancellation: CancellationSource,
         progress_tracker: RunProgressTracker,
     ) -> TaskRunResult:
-        input_sources, output_targets, cache_policy = self._normalize_request(request)
+        input_roots, output_targets, cache_policy = self._normalize_request(request)
 
         task_cache = self._cache_for_task(task_id)
         artifact_bindings_provider = self._build_artifact_bindings_provider(task_cache)
@@ -204,7 +260,8 @@ class ChunkyPipeline:
         try:
             supplied, user_supplied_settings = await self._bind_supplied_inputs(
                 artifact_bindings_provider,
-                input_sources,
+                input_roots,
+                cache_policy,
             )
 
             plan = await planner.plan(
@@ -243,7 +300,7 @@ class ChunkyPipeline:
         self,
         request: RunRequest,
     ) -> tuple[
-        dict[ArtifactKey, ArtifactSourceHandle[Any]],
+        dict[ArtifactKey, ArtifactSourceHandle[Any] | CachedArtifactReference],
         dict[ArtifactKey, tuple[ArtifactTargetHandle[Any], ...]],
         dict[ArtifactKey, ArtifactCachePolicy],
     ]:
@@ -257,6 +314,13 @@ class ChunkyPipeline:
                 self.stage_manifest.find_artifact(artifact_id)
             except Exception:
                 errors.append(f"unknown request artifact: {artifact_id}")
+
+        for artifact_id, source_or_reference in input_sources.items():
+            if isinstance(source_or_reference, CachedArtifactReference) and source_or_reference.artifact_id != artifact_id:
+                errors.append(
+                    "inputs: cached artifact reference artifact_id must match its request key: "
+                    f"{source_or_reference.artifact_id} != {artifact_id}"
+                )
 
         if not output_targets:
             errors.append("run request must contain at least one output")
@@ -333,23 +397,33 @@ class ChunkyPipeline:
     async def _bind_supplied_inputs(
         self,
         artifact_bindings_provider: ArtifactBindingsProvider,
-        input_sources: Mapping[ArtifactKey, ArtifactSourceHandle[Any]],
+        input_roots: Mapping[ArtifactKey, ArtifactSourceHandle[Any] | CachedArtifactReference],
+        cache_policy: Mapping[ArtifactKey, ArtifactCachePolicy] | None = None,
     ) -> tuple[dict[ArtifactKey, ArtifactInstance[Any]], set[ArtifactKey]]:
         supplied: dict[ArtifactKey, ArtifactInstance[Any]] = {}
         user_supplied_settings: set[ArtifactKey] = set()
 
-        for artifact_id, source in input_sources.items():
+        for artifact_id, source_or_reference in input_roots.items():
             declaration = self.stage_manifest.find_artifact(artifact_id)
             if declaration.role is ArtifactRole.SETTINGS:
                 user_supplied_settings.add(artifact_id)
+
+            if isinstance(source_or_reference, CachedArtifactReference):
+                supplied[artifact_id] = await artifact_bindings_provider.open_cached_reference(
+                    declaration,
+                    source_or_reference,
+                )
+                continue
+
             effective_source = await self._resolve_settings_source(
                 declaration,
-                source,
+                source_or_reference,
             )
 
             supplied[artifact_id] = await artifact_bindings_provider.bind_supplied(
                 declaration,
                 effective_source,
+                cache_policy=(cache_policy or {}).get(artifact_id),
             )
         return supplied, user_supplied_settings
 

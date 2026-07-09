@@ -29,9 +29,6 @@ The run contract must:
 
 The first version does not need to support:
 
-- durable cross-process background jobs;
-- resumable persisted run handles;
-- distributed scheduling;
 - per-output await;
 - per-run manifest or registry overrides;
 - implicit feature dependency installation;
@@ -260,6 +257,46 @@ Chunky also reserves a dedicated artifact-cache IO surface separate from `run(..
 The interface is semantic and handle-based: callers use artifact declarations or artifact IDs plus source or target handles. It must not expose backend-native cache paths, object keys, or lock records. Direct cache writes must use the same fingerprinting, metadata validation, reservation, and atomic publish rules as run-time cache publication. A directly published artifact is therefore a normal cache entry, not a weaker side channel.
 
 Direct cache IO returns or accepts a concrete cached-instance reference of the form `artifact_id + fingerprint`. When such a reference is later used as a provided root, planning treats it like the same artifact supplied normally, apart from provenance diagnostics.
+
+#### Publishing an artifact through `ArtifactCacheIO`
+A caller may publish a root before creating a run request. The cache IO surface computes the same supplied-artifact fingerprint that normal root binding would compute, reserves the cache entry, writes through the declaration codec, validates metadata, and returns a typed cache reference.
+
+```python
+audio_ref = await pipeline.cache_io.publish(
+    "source//audio",
+    SourceAudioArtifact.from_file_path("input.wav"),
+)
+
+# The reference is semantic plus concrete: it is not just a raw fingerprint.
+assert audio_ref.artifact_id == ArtifactKey.parse("source//audio")
+print(audio_ref.fingerprint)
+```
+
+The returned reference is suitable for saved task configuration, upload-first service flows, or explicit rebinding in a later run. Publishing through `ArtifactCacheIO` does not expose a cache path or backend object key.
+
+#### Using a cached artifact in a task
+
+A cached reference can later be supplied as a graph root in `RunRequest.inputs`. The request key still declares the semantic artifact being supplied, and the reference pins which committed cache instance should be used. The embedded `artifact_id` must match the normalized request key.
+
+```python
+result = await pipeline.run(
+    RunRequest(
+        inputs={
+            "source//audio": audio_ref,
+            "render//webvtt_settings": SourceSettingsArtifact.from_object({
+                "include_speakers": True,
+            }),
+        },
+        outputs={
+            "render//webvtt_transcript": TargetVttArtifact.to_file_path(
+                "output-from-cached-audio.vtt"
+            ),
+        },
+    )
+)
+```
+
+During binding, the pipeline opens the cache entry by `artifact_id + fingerprint`, validates the cache metadata against the declaration, and acquires a read reservation before planning proceeds. If the cached root is a settings artifact, the pipeline may read it early so settings-dependent planning hooks see the same value they would have seen from an ordinary supplied settings source.
 
 ## Run Request Model
 

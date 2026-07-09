@@ -18,7 +18,7 @@ use uuid::Uuid;
 use crate::artifact_binding_models::AnyArtifactInstance;
 use crate::artifact_bindings::ArtifactBindingsProvider;
 use crate::artifact_handles::{ArtifactSourceHandle, ArtifactTargetHandle};
-use crate::artifact_models::{AnyArtifactDeclaration, ArtifactKey, ArtifactRole};
+use crate::artifact_models::{AnyArtifactDeclaration, ArtifactKey, ArtifactRole, CachedArtifactReference};
 use crate::cache_models::ArtifactCache;
 use crate::execution_planner::{DefaultSettingsResolver, TaskRunGraphBuilder, TaskRunPlanner};
 use crate::fingerprints::FingerprintProvider;
@@ -35,9 +35,27 @@ pub struct ArtifactCachePolicy {
     pub desired_ttl_seconds: Option<u64>,
 }
 
+#[derive(Clone)]
+pub enum ProvidedArtifactRoot {
+    Source(Arc<dyn ArtifactSourceHandle>),
+    Cached(CachedArtifactReference),
+}
+
+impl From<Arc<dyn ArtifactSourceHandle>> for ProvidedArtifactRoot {
+    fn from(value: Arc<dyn ArtifactSourceHandle>) -> Self {
+        Self::Source(value)
+    }
+}
+
+impl From<CachedArtifactReference> for ProvidedArtifactRoot {
+    fn from(value: CachedArtifactReference) -> Self {
+        Self::Cached(value)
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct RunRequest {
-    pub inputs: BTreeMap<ArtifactKey, Arc<dyn ArtifactSourceHandle>>,
+    pub inputs: BTreeMap<ArtifactKey, ProvidedArtifactRoot>,
     pub outputs: BTreeMap<ArtifactKey, Vec<Arc<dyn ArtifactTargetHandle>>>,
     pub run_policy: Option<PlanningRunPolicy>,
     pub cache_policy: BTreeMap<ArtifactKey, ArtifactCachePolicy>,
@@ -49,7 +67,10 @@ impl RunRequest {
         outputs: BTreeMap<ArtifactKey, Arc<dyn ArtifactTargetHandle>>,
     ) -> Self {
         Self {
-            inputs,
+            inputs: inputs
+                .into_iter()
+                .map(|(key, source)| (key, ProvidedArtifactRoot::Source(source)))
+                .collect(),
             outputs: outputs.into_iter().map(|(key, target)| (key, vec![target])).collect(),
             run_policy: None,
             cache_policy: BTreeMap::new(),
@@ -61,7 +82,10 @@ impl RunRequest {
         outputs: BTreeMap<ArtifactKey, Vec<Arc<dyn ArtifactTargetHandle>>>,
     ) -> Self {
         Self {
-            inputs,
+            inputs: inputs
+                .into_iter()
+                .map(|(key, source)| (key, ProvidedArtifactRoot::Source(source)))
+                .collect(),
             outputs,
             run_policy: None,
             cache_policy: BTreeMap::new(),
@@ -76,6 +100,36 @@ impl RunRequest {
     pub fn with_cache_policy(mut self, cache_policy: BTreeMap<ArtifactKey, ArtifactCachePolicy>) -> Self {
         self.cache_policy = cache_policy;
         self
+    }
+}
+
+#[derive(Clone)]
+pub struct ArtifactCacheIO {
+    pipeline: ChunkyPipeline,
+}
+
+impl ArtifactCacheIO {
+    pub async fn publish(
+        &self,
+        artifact_id: &ArtifactKey,
+        source: Arc<dyn ArtifactSourceHandle>,
+    ) -> Result<CachedArtifactReference> {
+        let declaration = self.pipeline.stage_manifest.find_artifact(artifact_id)?;
+        let bindings = ArtifactBindingsProvider::new(self.pipeline.artifact_cache.clone());
+        let source = self
+            .pipeline
+            .resolve_settings_source(&declaration, Some(source))
+            .await?;
+        bindings.publish_supplied_root(&declaration, source, None).await
+    }
+
+    pub async fn open(
+        &self,
+        reference: &CachedArtifactReference,
+    ) -> Result<AnyArtifactInstance> {
+        let declaration = self.pipeline.stage_manifest.find_artifact(&reference.artifact_id)?;
+        let bindings = ArtifactBindingsProvider::new(self.pipeline.artifact_cache.clone());
+        bindings.open_cached_reference(&declaration, reference).await
     }
 }
 
@@ -127,6 +181,10 @@ pub struct ChunkyPipeline {
 impl ChunkyPipeline {
     pub fn builder(artifact_cache: Arc<dyn ArtifactCache>) -> ChunkyPipelineBuilder {
         ChunkyPipelineBuilder::new(artifact_cache)
+    }
+
+    pub fn cache_io(&self) -> ArtifactCacheIO {
+        ArtifactCacheIO { pipeline: self.clone() }
     }
 
     pub async fn run(&self, request: RunRequest) -> Result<TaskRunResult> {
@@ -189,6 +247,7 @@ impl ChunkyPipeline {
             bail!("run request must contain at least one output");
         }
 
+        self.validate_cached_inputs(&request.inputs)?;
         let bindings = ArtifactBindingsProvider::new(self.artifact_cache.clone());
         let (supplied, user_supplied_settings) =
             self.bind_supplied_inputs(&bindings, &request).await?;
@@ -231,6 +290,22 @@ impl ChunkyPipeline {
             .await
     }
 
+    fn validate_cached_inputs(&self, inputs: &BTreeMap<ArtifactKey, ProvidedArtifactRoot>) -> Result<()> {
+        for (artifact_id, root) in inputs {
+            self.stage_manifest.find_artifact(artifact_id)?;
+            if let ProvidedArtifactRoot::Cached(reference) = root {
+                if reference.artifact_id != *artifact_id {
+                    bail!(
+                        "cached artifact reference artifact_id must match request key: {} != {}",
+                        reference.artifact_id,
+                        artifact_id
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn validate_cache_policy(&self, cache_policy: &BTreeMap<ArtifactKey, ArtifactCachePolicy>) -> Result<()> {
         for artifact_id in cache_policy.keys() {
             self.stage_manifest.find_artifact(artifact_id)?;
@@ -249,15 +324,28 @@ impl ChunkyPipeline {
         let mut supplied = BTreeMap::new();
         let mut user_supplied_settings = BTreeSet::new();
 
-        for (artifact_id, source) in &request.inputs {
+        for (artifact_id, root) in &request.inputs {
             let declaration = self.stage_manifest.find_artifact(artifact_id)?;
             if declaration.role == ArtifactRole::Settings {
                 user_supplied_settings.insert(artifact_id.clone());
             }
-            let source = self
-                .resolve_settings_source(&declaration, Some(source.clone()))
-                .await?;
-            let instance = bindings.bind_supplied_any(&declaration, source).await?;
+            let instance = match root {
+                ProvidedArtifactRoot::Source(source) => {
+                    let source = self
+                        .resolve_settings_source(&declaration, Some(source.clone()))
+                        .await?;
+                    bindings
+                        .bind_supplied_any_with_cache_policy(
+                            &declaration,
+                            source,
+                            request.cache_policy.get(artifact_id),
+                        )
+                        .await?
+                }
+                ProvidedArtifactRoot::Cached(reference) => {
+                    bindings.open_cached_reference(&declaration, reference).await?
+                }
+            };
             supplied.insert(artifact_id.clone(), instance);
         }
 

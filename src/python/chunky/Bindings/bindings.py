@@ -22,7 +22,7 @@ from ..Artifacts.artifact_handles import (
     ArtifactTargetHandle,
     IntermediateArtifactHandle,
 )
-from ..Artifacts.artifact_models import ArtifactDeclaration
+from ..Artifacts.artifact_models import ArtifactDeclaration, CachedArtifactReference
 from .cache_models import (
     ArtifactCache,
     CacheHit,
@@ -181,18 +181,100 @@ class ArtifactBindingsProvider:
         self,
         declaration: ArtifactDeclaration[T],
         source: ArtifactSourceHandle[T],
+        *,
+        cache_policy: Any | None = None,
     ) -> ArtifactInstance[T]:
-        """Bind a supplied graph root using content and an empty pedigree."""
+        """Bind a supplied graph root and publish it to cache by default.
+
+        Cacheable caller-provided roots are published under their supplied
+        artifact fingerprint unless the exact artifact policy says
+        ``do_not_cache``. The current run still reads from the caller's source;
+        cache publication only makes the same semantic instance durable.
+        """
 
         fingerprint = await self._fingerprint_provider.build_supplied_artifact_fingerprint(
             declaration,
             source,
         )
+        if declaration.cacheable and not getattr(cache_policy, "do_not_cache", False):
+            await self.publish_supplied_root(
+                declaration,
+                source,
+                fingerprint=fingerprint,
+            )
         return ArtifactInstance(
             ArtifactHandle(
                 declaration=declaration,
                 fingerprint=fingerprint,
                 source=source,
+            )
+        )
+
+    async def publish_supplied_root(
+        self,
+        declaration: ArtifactDeclaration[T],
+        source: ArtifactSourceHandle[T],
+        *,
+        fingerprint: str | None = None,
+    ) -> CachedArtifactReference:
+        """Publish a supplied artifact root through the cache reservation path."""
+
+        resolved_fingerprint = fingerprint or await (
+            self._fingerprint_provider.build_supplied_artifact_fingerprint(
+                declaration,
+                source,
+            )
+        )
+        while True:
+            resolution = await self._cache.resolve(
+                declaration,
+                resolved_fingerprint,
+                force_write=False,
+            )
+            if isinstance(resolution, CacheHit) or hasattr(resolution, "source_handle"):
+                await resolution.source_handle.close()
+                return CachedArtifactReference(
+                    declaration.artifact_id,
+                    resolved_fingerprint,
+                )
+            if isinstance(resolution, CacheWriteReservation) or hasattr(resolution, "target_handle"):
+                value = await source.get_value(declaration.codec)
+                writer = ArtifactWriter(
+                    ArtifactHandle(
+                        declaration=declaration,
+                        fingerprint=resolved_fingerprint,
+                        source=source,
+                        targets=(resolution.target_handle,),
+                    )
+                )
+                await writer.write(value)
+                return CachedArtifactReference(
+                    declaration.artifact_id,
+                    resolved_fingerprint,
+                )
+            if isinstance(resolution, CacheWait) or hasattr(resolution, "wait_handle"):
+                await resolution.wait_handle.wait()
+                continue
+            raise TypeError(f"unsupported cache resolution: {resolution!r}")
+
+    async def open_cached_reference(
+        self,
+        declaration: ArtifactDeclaration[T],
+        reference: CachedArtifactReference,
+    ) -> ArtifactInstance[T]:
+        """Bind one explicit cached-root reference as a supplied root."""
+
+        if reference.artifact_id != declaration.artifact_id:
+            raise ValueError(
+                "cached artifact reference artifact_id does not match declaration: "
+                f"{reference.artifact_id} != {declaration.artifact_id}"
+            )
+        hit = await self._cache.open(declaration, reference.fingerprint)
+        return ArtifactInstance(
+            ArtifactHandle(
+                declaration=declaration,
+                fingerprint=reference.fingerprint,
+                source=hit.source_handle,
             )
         )
 

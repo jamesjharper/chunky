@@ -153,6 +153,23 @@ impl Display for ArtifactKey {
     }
 }
 
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CachedArtifactReference {
+    pub artifact_id: ArtifactKey,
+    pub fingerprint: String,
+}
+
+impl CachedArtifactReference {
+    pub fn new(artifact_id: ArtifactKey, fingerprint: impl Into<String>) -> Result<Self> {
+        let fingerprint = fingerprint.into();
+        if fingerprint.is_empty() {
+            bail!("cached artifact reference fingerprint must not be empty");
+        }
+        Ok(Self { artifact_id, fingerprint })
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ArtifactRole {
     Source,

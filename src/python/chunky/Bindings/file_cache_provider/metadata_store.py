@@ -353,6 +353,121 @@ class FileCacheProviderMetadataStore:
                 connection.rollback()
                 raise
 
+
+    def _open_existing_sync(
+        self,
+        declaration: ArtifactDeclaration[T],
+        fingerprint: str,
+    ) -> tuple[CacheHitDescriptor | CacheWaitDescriptor | None, tuple[Path, ...]]:
+        if not fingerprint:
+            raise ValueError("fingerprint must not be empty")
+        cleanup_paths: list[Path] = []
+        now = time.time()
+
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                writer = connection.execute(
+                    "SELECT * FROM write_reservations WHERE fingerprint = ?",
+                    (fingerprint,),
+                ).fetchone()
+                if writer is not None and self._reservation_row_is_stale(writer, now):
+                    connection.execute(
+                        "DELETE FROM write_reservations WHERE reservation_id = ?",
+                        (writer["reservation_id"],),
+                    )
+                    cleanup_paths.extend(self._paths_from_write_row(writer))
+                    writer = None
+
+                entry = connection.execute(
+                    """
+                    SELECT * FROM cache_entries
+                    WHERE fingerprint = ?
+                      AND is_current = 1
+                      AND status = ?
+                    """,
+                    (fingerprint, ENTRY_COMMITTED),
+                ).fetchone()
+                if entry is not None:
+                    validation_error = self._validate_entry_row(
+                        entry,
+                        declaration,
+                        fingerprint,
+                    )
+                    if validation_error is None:
+                        reservation_id = uuid4().hex
+                        connection.execute(
+                            """
+                            INSERT INTO read_reservations(
+                                reservation_id, entry_id, fingerprint,
+                                owner_task_id, owner_invocation_id,
+                                owner_stage_id, owner_process_id,
+                                owner_host_id, owner_process_instance_id,
+                                acquired_at, heartbeat_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                reservation_id,
+                                entry["entry_id"],
+                                fingerprint,
+                                self.owner_task_id,
+                                self.owner_invocation_id,
+                                self.owner_stage_id,
+                                self._owner_process_id,
+                                self._owner_host_id,
+                                self._owner_process_instance_id,
+                                now,
+                                now,
+                            ),
+                        )
+                        connection.execute(
+                            "UPDATE cache_entries SET last_used_at = ? WHERE entry_id = ?",
+                            (now, entry["entry_id"]),
+                        )
+                        connection.commit()
+                        return (
+                            CacheHitDescriptor(
+                                entry_id=entry["entry_id"],
+                                reservation_id=reservation_id,
+                                data_path=self.root / entry["relative_path"],
+                                data_size=int(entry["data_size"]),
+                                data_digest=cast(str, entry["data_digest"]),
+                                fingerprint=fingerprint,
+                            ),
+                            tuple(cleanup_paths),
+                        )
+                    connection.execute(
+                        """
+                        UPDATE cache_entries
+                        SET status = ?, is_current = 0,
+                            status_changed_at = ?, quarantine_reason = ?
+                        WHERE entry_id = ?
+                        """,
+                        (
+                            ENTRY_INVALID,
+                            now,
+                            validation_error,
+                            entry["entry_id"],
+                        ),
+                    )
+
+                if writer is not None:
+                    connection.commit()
+                    return (
+                        CacheWaitDescriptor(
+                            reservation_id=writer["reservation_id"],
+                            fingerprint=fingerprint,
+                            owner_task_id=writer["owner_task_id"],
+                        ),
+                        tuple(cleanup_paths),
+                    )
+
+                connection.commit()
+                return None, tuple(cleanup_paths)
+            except BaseException:
+                connection.rollback()
+                raise
+
     def _validate_entry_row(
         self,
         row: sqlite3.Row,

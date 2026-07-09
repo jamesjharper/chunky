@@ -5,13 +5,19 @@ import unittest
 from collections.abc import Iterable
 from typing import Any
 
-from src.python.chunky.Artifacts.artifact_models import ArtifactDeclaration, ArtifactKey, ArtifactRole
+from src.python.chunky.Artifacts.artifact_models import (
+    ArtifactDeclaration,
+    ArtifactKey,
+    ArtifactRole,
+    CachedArtifactReference,
+)
 from python.chunky.Bindings.bindings import ArtifactBindingsProvider
 from src.python.chunky.Bindings.cache_models import (
     CacheHit,
     CacheWait,
     CacheWriteReservation,
 )
+from src.python.chunky.pipeline import ArtifactCachePolicy
 
 
 class JsonishCodec:
@@ -99,6 +105,19 @@ class ScriptedCache:
         if not self._outcomes:
             raise AssertionError("cache script exhausted")
         return self._outcomes.pop(0)
+
+    async def open(
+        self,
+        declaration: ArtifactDeclaration[Any],
+        fingerprint: str,
+    ) -> CacheHit[Any]:
+        self.calls.append((declaration.artifact_id, fingerprint, False))
+        if not self._outcomes:
+            raise AssertionError("cache script exhausted")
+        outcome = self._outcomes.pop(0)
+        if not isinstance(outcome, CacheHit):
+            raise RuntimeError("scripted open did not return a cache hit")
+        return outcome
 
 
 def _decl(
@@ -226,6 +245,58 @@ class ExecutionCacheBindingContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(instance.fingerprint, first_sink.prepared[0][1])
         self.assertEqual(instance.fingerprint, second_sink.prepared[0][1])
         self.assertNotEqual(first_sink.name, second_sink.name)
+
+    async def test_supplied_cacheable_root_is_published_by_default(self) -> None:
+        root = _decl("source//audio", role=ArtifactRole.SOURCE, cacheable=True)
+        source = RecordingSource({"audio": "bytes"})
+        cache_target = RecordingTarget("root-cache-entry")
+        cache = ScriptedCache([CacheWriteReservation(cache_target)])
+        provider = ArtifactBindingsProvider(cache)
+
+        instance = await provider.bind_supplied(root, source)
+
+        self.assertIs(source, instance.handle.source)
+        self.assertEqual(root.artifact_id, instance.handle.declaration.artifact_id)
+        self.assertTrue(cache_target.committed)
+        self.assertEqual(instance.fingerprint, cache_target.prepared[0][1])
+        self.assertEqual(1, source.read_count, "publication reads the supplied content once")
+
+    async def test_do_not_cache_skips_supplied_root_publication(self) -> None:
+        root = _decl("source//audio", role=ArtifactRole.SOURCE, cacheable=True)
+        source = RecordingSource({"audio": "bytes"})
+        cache = ScriptedCache([])
+        provider = ArtifactBindingsProvider(cache)
+
+        instance = await provider.bind_supplied(
+            root,
+            source,
+            cache_policy=ArtifactCachePolicy(do_not_cache=True),
+        )
+
+        self.assertIs(source, instance.handle.source)
+        self.assertEqual([], cache.calls)
+        self.assertEqual(0, source.read_count)
+
+    async def test_cached_reference_opens_exact_artifact_instance(self) -> None:
+        root = _decl("source//audio", role=ArtifactRole.SOURCE, cacheable=True)
+        cached_source = RecordingSource({"audio": "cached"})
+        reference = CachedArtifactReference(root.artifact_id, "cached-root-fp")
+        cache = ScriptedCache([CacheHit(cached_source)])
+        provider = ArtifactBindingsProvider(cache)
+
+        instance = await provider.open_cached_reference(root, reference)
+
+        self.assertIs(cached_source, instance.handle.source)
+        self.assertEqual("cached-root-fp", instance.fingerprint)
+        self.assertEqual([(root.artifact_id, "cached-root-fp", False)], cache.calls)
+
+    async def test_cached_reference_must_match_declaration_artifact_id(self) -> None:
+        root = _decl("source//audio", role=ArtifactRole.SOURCE, cacheable=True)
+        reference = CachedArtifactReference(ArtifactKey.parse("source//other_audio"), "fp")
+        provider = ArtifactBindingsProvider(ScriptedCache([]))
+
+        with self.assertRaises(ValueError):
+            await provider.open_cached_reference(root, reference)
 
 
 if __name__ == "__main__":

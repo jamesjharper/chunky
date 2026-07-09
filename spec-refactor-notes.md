@@ -1,10 +1,12 @@
 # Spec Refactor Notes
 
-These notes describe the source changes needed to bring the current Python and Rust implementations into line with the reconciled run-contract specs.
+These notes track source alignment after reconciling the run-contract specs and applying the cached-root/direct-cache-IO refactor.
 
-## 1. Add concrete cached-instance references
+## Completed in this refactor
 
-Add a public `CachedArtifactReference` / `CachedArtifactRef` model in the artifact or binding model layer:
+### Cached artifact references
+
+- Added `CachedArtifactReference` as the concrete cached-instance reference shape:
 
 ```text
 CachedArtifactReference
@@ -12,130 +14,98 @@ CachedArtifactReference
   fingerprint: str
 ```
 
-Required source updates:
+- Python: added the model in `src/python/chunky/Artifacts/artifact_models.py` and exported it from `chunky.__init__`.
+- Rust: added the equivalent model in `src/rust/crates/chunky/src/Artifacts/artifact_models.rs` and re-exported it through the existing artifact module surface.
+- Validation treats the fingerprint as scoped by the artifact ID, not as an untyped global identifier.
 
-- Python: `src/python/chunky/Artifacts/artifact_models.py` or `src/python/chunky/Bindings/cache_models.py`.
-- Rust: `src/rust/crates/chunky/src/Artifacts/artifact_models.rs` or `Bindings/cache_models.rs`.
-- Export it from the package/crate public API.
-- Ensure validation always checks both `artifact_id` and `fingerprint`; do not treat fingerprints as untyped global IDs.
+### Cached roots in `RunRequest.inputs`
 
-## 2. Update `RunRequest.inputs` to accept cached roots
+- Python: updated `RunRequest.inputs` to accept either an `ArtifactSourceHandle` or `CachedArtifactReference`.
+- Python: request normalization now rejects cached references whose embedded `artifact_id` does not match the normalized request key.
+- Python: cached references are opened during supplied-root binding and become normal supplied `ArtifactInstance` roots before planning.
+- Rust: added `ProvidedArtifactRoot::{Source, Cached}` and updated pipeline binding to handle both source roots and cached roots.
 
-`RunRequest.inputs` currently accepts only `ArtifactSourceHandle` values. It now needs to accept either a source handle or a cached-instance reference.
+### Direct artifact-cache IO
 
-Required source updates:
-
-- Python: `src/python/chunky/pipeline.py`
-  - update `RunRequest.inputs` typing;
-  - update `_normalize_request` and `_collect_flattened_request_artifacts` so nested request normalization still returns one semantic artifact key per input;
-  - reject cached references whose embedded `artifact_id` does not match the normalized input key.
-- Rust: mirror the same shape in `src/rust/crates/chunky/src/pipeline.rs` and request model structs.
-- Add validation tests for duplicate normalized IDs, unknown IDs, mismatched cached-reference artifact IDs, and malformed cached-reference inputs.
-
-## 3. Add direct artifact-cache IO
-
-Add a public cache IO facade separate from `run(...)` and `run_away(...)`.
-
-Conceptual API:
+- Python: added `ArtifactCacheIO` as `pipeline.cache_io` with:
 
 ```text
-publish(artifact_id/declaration, source_handle, policy?) -> CachedArtifactReference
+publish(artifact_id, source_handle) -> CachedArtifactReference
 open(CachedArtifactReference) -> ArtifactInstance
 ```
 
-Required source updates:
+- Python: direct cache IO uses `ArtifactBindingsProvider` and `ArtifactCache` rather than exposing backend paths or object keys.
+- Rust: added an equivalent `ArtifactCacheIO` facade on `ChunkyPipeline`.
 
-- Python:
-  - add an `ArtifactCacheIO` facade or methods on `ChunkyPipeline`;
-  - implement publish/open through `ArtifactBindingsProvider` and `ArtifactCache` rather than exposing cache file paths;
-  - export the facade from `chunky.__init__` if it is intended as public API.
-- Rust:
-  - add equivalent trait/struct APIs around the cache provider;
-  - keep backend storage paths private.
-- Tests should prove direct writes create entries indistinguishable from run-created cache entries.
+### Supplied-root cache publication
 
-## 4. Publish cacheable provided roots by default
+- Python: `ArtifactBindingsProvider.bind_supplied(...)` now publishes cacheable supplied source/settings/intermediate roots by default.
+- Python: supplied-root publication computes the supplied-artifact fingerprint once and reuses it for both the returned instance and the cache entry.
+- Python: publication goes through cache `resolve`, writer reservation, `prepare`, `commit`, and `abort` rather than writing backend files directly.
+- Python: the current run preserves the caller-provided source handle as the selected graph root after publication.
+- Rust: mirrored the same behavior in `ArtifactBindingsProvider::bind_supplied_any_with_cache_policy(...)` and `publish_supplied_root(...)`.
 
-Binding a provided source/settings/intermediate root should publish that root into cache by default when the artifact declaration is cacheable.
+### Cache policy wiring
 
-Required source updates:
+- Python: `_bind_supplied_inputs(...)` now receives normalized `cache_policy`.
+- Python/Rust: `do_not_cache=True` skips supplied-root publication but still lets the current run use the supplied root.
+- Existing produced-output `cache_policy` behavior remains in the runner/stage-output binding path.
 
-- Python: `src/python/chunky/Bindings/bindings.py`
-  - extend `bind_supplied(...)` or add `publish_supplied_root(...)`;
-  - compute the supplied-artifact fingerprint once and reuse it for both the returned `ArtifactInstance` and cache publication;
-  - use cache reservation, prepare, commit, abort, and metadata validation rather than writing directly to backend storage;
-  - preserve the caller-supplied source handle as the current run's root source after publication.
-- Rust: mirror the same behavior in `Bindings/bindings.rs`.
-- Pipeline code must pass per-artifact `cache_policy` into supplied-root binding.
-- `do_not_cache=True` must skip provided-root publication but still allow the current run to use the root.
-- `desired_ttl` applies only when creating a new root cache entry, not when an entry already exists.
+### Cache open-by-reference
 
-## 5. Add cache open-by-reference behavior
+- Python: added `ArtifactCache.open(...)` to the cache protocol.
+- Python: `FileCacheProvider.open(...)` validates metadata, acquires a read reservation, and returns a cache hit without creating a write reservation on miss.
+- Python: explicit cached-root references bind only to committed cache entries.
+- Rust: added an `ArtifactCache::open(...)` trait seam. The Rust default implementation is functional but should still be tightened to avoid acquiring a transient write reservation on a miss.
 
-A cached root reference should bind only if the cache already contains a committed entry matching the reference.
+### Tests and validation
 
-Required source updates:
+- Added Python tests covering:
+  - supplied cacheable root publication by default;
+  - `do_not_cache` skipping supplied-root publication;
+  - cached-reference open by exact `artifact_id + fingerprint`;
+  - mismatched cached-reference artifact IDs failing validation.
+- Existing Python planner/cache tests still pass.
 
-- Extend `ArtifactCache` with an `open` / `resolve_existing` operation, or add a strict mode around `resolve(...)` that returns a hit or a typed missing/invalid error without acquiring a write reservation.
-- `open(reference)` must validate metadata and acquire a read reservation before returning a source handle.
-- Add tests for valid hit, missing entry, mismatched metadata, corrupt data, and reservation release on planning failure.
+## Remaining implementation work
 
-## 6. Early-bind cached settings roots
+### Make default settings truly lazy
 
-Cached settings roots need to be read before graph planning when they are explicitly supplied by reference.
+The Python and Rust planner seams still retain an eager `resolve_defaults(...)` method. To fully match the spec, replace this with an on-demand method such as:
 
-Required source updates:
+```text
+resolve_default_setting(artifact_id) -> ArtifactInstance | None
+```
 
-- Python: `src/python/chunky/pipeline.py`, `Planning/execution_planner.py`, and `Planning/TaskRequestGraph/request_models.py`.
-- Rust: corresponding `pipeline.rs`, `Planning/execution_planner.rs`, and `task_request_graph/request_models.rs`.
-- During request binding, detect settings artifacts supplied as `CachedArtifactReference`, open them through the cache, read their value, and populate the same request settings view used for ordinary supplied settings.
-- Ensure cache source handles opened for settings are closed if planning fails.
+Required follow-up changes:
 
-## 7. Make default settings truly lazy
+- Update `TaskRunPlanner.plan(...)` so it does not resolve every declared default before graph construction.
+- Update `PlannerRequestSettings` and `PlannerSettingsResolver` so a stage planning context requests only settings relevant to that stage/candidate path.
+- Add tests proving irrelevant default providers are not invoked and relevant defaults are invoked exactly when first needed.
 
-The current planner/pipeline seam still has an eager `resolve_defaults(...)` shape. Replace it with on-demand default resolution for a specific relevant settings artifact.
+### Tighten Rust cache open-by-reference
 
-Required source updates:
+The Rust `ArtifactCache::open(...)` seam exists, but the default implementation is intentionally conservative and still delegates to `resolve(...)`. The filesystem provider should get a strict `open_existing` metadata path matching the Python implementation:
 
-- Python:
-  - replace `_PlannerDefaultSettingsResolver.resolve_defaults(...)` with `resolve_default_setting(artifact_id)`;
-  - update `TaskRunPlanner.plan(...)` so it no longer reads every declaration default before graph construction;
-  - update `PlannerSettingsResolver` / `PlannerRequestSettings` so missing defaults are requested only when a stage planning context needs them.
-- Rust: apply the same protocol and planner changes.
-- Add tests proving an irrelevant default provider is not invoked, and a relevant default is invoked exactly when needed.
+```text
+lookup + metadata validation + read reservation
+or wait/missing error
+```
 
-## 8. Wire cache policy through all relevant binding paths
+It should not acquire and abort a write reservation when an explicit cached reference is missing.
 
-`cache_policy` currently reaches stage output binding but not supplied-root binding.
+### Persisted-task eligibility metadata
 
-Required source updates:
+No persisted-task runtime was added. Future saved-task support still needs a small provenance record indicating whether every provided root was durably cached. A saved task should be marked non-restartable when any provided root uses `do_not_cache=True` or otherwise lacks a durable cached root.
 
-- Pass normalized `cache_policy` into `_bind_supplied_inputs(...)`.
-- Treat unknown policy IDs as validation errors before binding.
-- Keep known-but-unreachable policy IDs diagnostic-only after planning.
-- Apply `do_not_cache` to both produced artifacts and provided-root publication.
-- Keep `ignore_existing_cache` scoped to read/reuse for produced outputs or explicit cache-open behavior where applicable; it should not suppress the caller-supplied source selected for the current run.
+### More coverage still needed
 
-## 9. Persisted-task compatibility flags
+Add tests for:
 
-No persisted-task runtime is required yet, but the source should preserve the future eligibility boundary.
-
-Required source updates:
-
-- Return enough provenance from binding/direct cache IO to know which provided roots were durably cached.
-- Mark a saved-task configuration as not restartable when any provided root had `do_not_cache=True` or otherwise failed durable publication.
-- Do not persist live run handles, scheduler state, progress state, or cache reservations as resumable job state.
-- Validate future restart attempts against planning-visible manifest identity, not runtime backend wiring.
-
-## 10. Tests to add or update
-
-Minimum test coverage needed:
-
-- cached-root reference validation: success, unknown artifact, mismatched artifact ID, missing fingerprint, metadata mismatch;
-- provided-root cache publication for source, settings, and supplied intermediate artifacts;
-- `do_not_cache` skips provided-root publication and marks future restart ineligible;
-- direct cache IO publish/open uses the same fingerprint and metadata as run-time publication;
-- cached settings roots are available to settings-dependent planning hooks;
-- irrelevant defaults are not resolved;
-- planning failure closes supplied and cached-root source handles;
-- materialization failure still leaves committed semantic cache entries intact.
+- direct `ArtifactCacheIO.publish/open` equivalence with run-time supplied-root publication;
+- cached settings roots used by settings-dependent planning hooks;
+- missing cached reference;
+- metadata mismatch for cached reference;
+- corrupt cache data during cached-reference read;
+- planning failure closes opened cached-root source handles;
+- materialization failure leaves committed semantic cache entries intact.

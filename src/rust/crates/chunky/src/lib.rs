@@ -96,6 +96,6 @@ pub mod example_features;
 pub mod pipeline;
 
 pub use pipeline::{
-    chunky_run, chunky_run_away, ArtifactCachePolicy, ChunkyPipeline, ChunkyPipelineBuilder,
-    RunRequest,
+    chunky_run, chunky_run_away, ArtifactCacheIO, ArtifactCachePolicy, ChunkyPipeline,
+    ChunkyPipelineBuilder, ProvidedArtifactRoot, RunRequest,
 };

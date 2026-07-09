@@ -9,7 +9,7 @@ use crate::{
     artifact_handles::{ArtifactSourceHandle, ArtifactTargetHandle},
     artifact_models::AnyArtifactDeclaration,
 };
-use anyhow::Result;
+use anyhow::{bail, Result};
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -50,6 +50,23 @@ pub trait ArtifactCache: Send + Sync {
         fingerprint: &str,
         force_write: bool,
     ) -> Result<CacheResolution>;
+
+    async fn open(
+        &self,
+        declaration: &AnyArtifactDeclaration,
+        fingerprint: &str,
+    ) -> Result<CacheHit> {
+        match self.resolve(declaration, fingerprint, false).await? {
+            CacheResolution::Hit(hit) => Ok(hit),
+            CacheResolution::Wait(_) => {
+                bail!("cache entry is currently being written and cannot be opened: {fingerprint}")
+            }
+            CacheResolution::Write(reservation) => {
+                let _ = reservation.target_handle.abort().await;
+                bail!("cache entry does not exist for explicit reference: {fingerprint}")
+            }
+        }
+    }
 }
 
 #[derive(Clone)]

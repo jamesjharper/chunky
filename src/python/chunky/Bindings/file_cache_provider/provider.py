@@ -186,6 +186,46 @@ class FileCacheProvider:
             ),
         )
 
+
+    async def open(
+        self,
+        declaration: ArtifactDeclaration[T],
+        fingerprint: str,
+    ) -> CacheHit[T]:
+        """Open an existing committed cache entry by semantic reference.
+
+        Unlike ``resolve`` this is a strict read path for explicit cached-root
+        references. It validates metadata and acquires a read reservation, but
+        never creates a write reservation for a missing entry.
+        """
+
+        descriptor, cleanup_paths = await asyncio.to_thread(
+            self._metadata_store._open_existing_sync,
+            declaration,
+            fingerprint,
+        )
+        await self._filesystem.remove_paths(cleanup_paths)
+        if isinstance(descriptor, CacheHitDescriptor):
+            await self._emit(
+                FileCacheProviderEvent(
+                    event_type="artifact_cache_hit",
+                    fingerprint=fingerprint,
+                    artifact_id=str(declaration.artifact_id),
+                    reservation_id=descriptor.reservation_id,
+                    owner_task_id=self.owner_task_id,
+                    reason="direct_open",
+                    timestamp=time.time(),
+                )
+            )
+            return CacheHit(FileCacheProviderSourceHandle(self, descriptor))
+        if isinstance(descriptor, CacheWaitDescriptor):
+            raise FileCacheProviderError(
+                f"cache entry is currently being written and cannot be opened: {fingerprint}"
+            )
+        raise FileCacheProviderError(
+            f"cache entry does not exist for explicit reference: {fingerprint}"
+        )
+
     async def invalidate_entry(self, entry_id: str, *, reason: str) -> bool:
         changed = await asyncio.to_thread(
             self._metadata_store._invalidate_entry_sync,

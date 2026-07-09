@@ -258,12 +258,19 @@ target//transcript
 ```
 
 #### IO
-Targets require a target handle to be configured as part of the task configuration.
+Targets normally have one or more caller materialization handles in the task configuration. A requested output may instead have an empty target list when the caller wants durable semantic availability and later cache retrieval. That target-less form is valid only when the artifact is cacheable for the request and is not opted out through `cache_policy.do_not_cache`.
 
 __Example as output:__
 ```
 outputs={
   "render//webvtt_transcript": WebVttTargetArtifact.to_file_path("output.vtt"),
+},
+```
+
+__Example as target-less output:__
+```
+outputs={
+  "render//webvtt_transcript": [],
 },
 ```
 

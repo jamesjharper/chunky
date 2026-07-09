@@ -1,111 +1,183 @@
 # Spec Refactor Notes
 
-These notes track source alignment after reconciling the run-contract specs and applying the cached-root/direct-cache-IO refactor.
+Purpose: summarize source-code changes needed to align the current Python and Rust implementations with the reconciled run-contract specs.
 
-## Completed in this refactor
+This file is intentionally implementation-facing. The normative behavior lives in the specs, especially `00-run-contract-overview.md`, `pipeline-spec.md`, `01-task-planning.md`, and `eventing-and-task-control-model-spec.md`.
 
-### Cached artifact references
+## Current implementation baseline
 
-- Added `CachedArtifactReference` as the concrete cached-instance reference shape:
+Both Python and Rust already have useful pieces of the reconciled model:
 
-```text
-CachedArtifactReference
-  artifact_id: ArtifactKey
-  fingerprint: str
-```
+- `CachedArtifactReference` exists as `artifact_id + fingerprint`.
+- Direct `ArtifactCacheIO.publish/open` exists.
+- Supplied cacheable roots are published during binding unless exact `do_not_cache` opts out.
+- Cached-root references can be rebound through cache before planning.
+- Output fan-out exists as ordered target lists.
+- The runner separates semantic artifact production from caller materialization.
 
-- Python: added the model in `src/python/chunky/Artifacts/artifact_models.py` and exported it from `chunky.__init__`.
-- Rust: added the equivalent model in `src/rust/crates/chunky/src/Artifacts/artifact_models.rs` and re-exported it through the existing artifact module surface.
-- Validation treats the fingerprint as scoped by the artifact ID, not as an untyped global identifier.
+The remaining work is mostly request validation, result/progress shape, and durable-task boundary modeling.
 
-### Cached roots in `RunRequest.inputs`
+## R1. Target-less requested outputs
 
-- Python: updated `RunRequest.inputs` to accept either an `ArtifactSourceHandle` or `CachedArtifactReference`.
-- Python: request normalization now rejects cached references whose embedded `artifact_id` does not match the normalized request key.
-- Python: cached references are opened during supplied-root binding and become normal supplied `ArtifactInstance` roots before planning.
-- Rust: added `ProvidedArtifactRoot::{Source, Cached}` and updated pipeline binding to handle both source roots and cached roots.
+### Intended design
 
-### Direct artifact-cache IO
+A `RunRequest.outputs` entry may have an empty target list. This is an explicit request for semantic availability and later retrieval, not an omitted output.
 
-- Python: added `ArtifactCacheIO` as `pipeline.cache_io` with:
+Validation rules:
 
-```text
-publish(artifact_id, source_handle) -> CachedArtifactReference
-open(CachedArtifactReference) -> ArtifactInstance
-```
+- outputs remain mandatory as a map;
+- an individual requested output may have zero targets;
+- the artifact must be known and cacheable for this request;
+- `cache_policy[artifact_id].do_not_cache=True` for the same artifact is a hard validation error;
+- target-less status must not alter graph shape or producer selection.
 
-- Python: direct cache IO uses `ArtifactBindingsProvider` and `ArtifactCache` rather than exposing backend paths or object keys.
-- Rust: added an equivalent `ArtifactCacheIO` facade on `ChunkyPipeline`.
+### Python changes
 
-### Supplied-root cache publication
+- Change `_collect_flattened_request_outputs(...)` in `src/python/chunky/pipeline.py` so an empty sequence is accepted and normalized to `()`, instead of appending `outputs for ... must contain at least one target`.
+- Add request validation after artifact lookup to reject target-less outputs whose declaration is not cacheable.
+- Add validation that rejects `cache_policy[artifact_id].do_not_cache` when `output_targets[artifact_id] == ()`.
+- Add tests covering:
+  - empty target list accepted for cacheable requested output;
+  - empty target list rejected for non-cacheable output;
+  - empty target list plus `do_not_cache=True` rejected;
+  - graph/planner requested output set is unchanged by target-less delivery.
 
-- Python: `ArtifactBindingsProvider.bind_supplied(...)` now publishes cacheable supplied source/settings/intermediate roots by default.
-- Python: supplied-root publication computes the supplied-artifact fingerprint once and reuses it for both the returned instance and the cache entry.
-- Python: publication goes through cache `resolve`, writer reservation, `prepare`, `commit`, and `abort` rather than writing backend files directly.
-- Python: the current run preserves the caller-provided source handle as the selected graph root after publication.
-- Rust: mirrored the same behavior in `ArtifactBindingsProvider::bind_supplied_any_with_cache_policy(...)` and `publish_supplied_root(...)`.
+### Rust changes
 
-### Cache policy wiring
+- `RunRequest.outputs: BTreeMap<ArtifactKey, Vec<Arc<dyn ArtifactTargetHandle>>>` can already represent empty target lists. Add explicit validation in `ChunkyPipeline::execute` or a new request-validation helper.
+- Reject target-less outputs for non-cacheable declarations.
+- Reject target-less outputs when exact `ArtifactCachePolicy.do_not_cache` is true.
+- Add tests matching the Python cases.
 
-- Python: `_bind_supplied_inputs(...)` now receives normalized `cache_policy`.
-- Python/Rust: `do_not_cache=True` skips supplied-root publication but still lets the current run use the supplied root.
-- Existing produced-output `cache_policy` behavior remains in the runner/stage-output binding path.
+## R2. Requested-output retrieval references
 
-### Cache open-by-reference
+### Intended design
 
-- Python: added `ArtifactCache.open(...)` to the cache protocol.
-- Python: `FileCacheProvider.open(...)` validates metadata, acquires a read reservation, and returns a cache hit without creating a write reservation on miss.
-- Python: explicit cached-root references bind only to committed cache entries.
-- Rust: added an `ArtifactCache::open(...)` trait seam. The Rust default implementation is functional but should still be tightened to avoid acquiring a transient write reservation on a miss.
+When a requested output becomes durably available, result and progress/event payloads must include both:
 
-### Tests and validation
+- the requested semantic artifact ID;
+- the concrete committed `CachedArtifactReference`.
 
-- Added Python tests covering:
-  - supplied cacheable root publication by default;
-  - `do_not_cache` skipping supplied-root publication;
-  - cached-reference open by exact `artifact_id + fingerprint`;
-  - mismatched cached-reference artifact IDs failing validation.
-- Existing Python planner/cache tests still pass.
+The reference is emitted only after durable cache commit. It must not be exposed for merely planned, pending, or in-progress outputs.
 
-## Remaining implementation work
+### Python changes
 
-### Make default settings truly lazy
+- Introduce a compact output-result model instead of only `TaskRunResult.output_fingerprints` and `materialized_targets` counts. Suggested shape:
+  - `OutputResult.artifact_id`
+  - `OutputResult.status`
+  - `OutputResult.fingerprint`
+  - `OutputResult.cached_reference`
+  - `OutputResult.targets`
+  - `OutputResult.error_ids`
+- Add a `TargetMaterializationResult` for ordered fan-out reporting rather than only storing the final successful count.
+- In `ExampleTaskRunner.run(...)`, after resolving each requested output instance:
+  - compute `CachedArtifactReference(instance.handle.declaration.artifact_id, instance.fingerprint)` only if the artifact is durably committed/retrievable;
+  - for target-less outputs, skip materialization and mark the output succeeded once the reference exists;
+  - for target fan-out, still include the reference if semantic production/cache resolution succeeded before materialization.
+- Decide how to prove durability for a cache hit or cacheable produced output. The simple implementation can treat cache-backed instances as durable; non-cacheable in-memory-only instances must not produce a reference.
+- Update `RunResult`/`RunExecutionError` to carry structured output results rather than a generic nested `TaskRunResult` only.
+- Add tests for successful target-less output returning a `CachedArtifactReference`, and for materialization failure preserving the reference when semantic commit succeeded.
 
-The Python and Rust planner seams still retain an eager `resolve_defaults(...)` method. To fully match the spec, replace this with an on-demand method such as:
+### Rust changes
 
-```text
-resolve_default_setting(artifact_id) -> ArtifactInstance | None
-```
+- Mirror the Python result model in `src/rust/crates/chunky/src/Scheduling/task_runner.rs` and `task_control.rs`.
+- Replace or supplement `output_fingerprints` and `materialized_targets` with structured `OutputResult` and per-target materialization outcomes.
+- Ensure target-less outputs skip materialization but still emit the requested output result and cached reference.
+- Add parity tests.
 
-Required follow-up changes:
+## R3. Progress/output availability snapshots
 
-- Update `TaskRunPlanner.plan(...)` so it does not resolve every declared default before graph construction.
-- Update `PlannerRequestSettings` and `PlannerSettingsResolver` so a stage planning context requests only settings relevant to that stage/candidate path.
-- Add tests proving irrelevant default providers are not invoked and relevant defaults are invoked exactly when first needed.
+### Intended design
 
-### Tighten Rust cache open-by-reference
+The public progress surface is still a complete snapshot, not a low-level event stream. It should include committed requested-output availability entries so a web client can store retrieval references before terminal completion if desired.
 
-The Rust `ArtifactCache::open(...)` seam exists, but the default implementation is intentionally conservative and still delegates to `resolve(...)`. The filesystem provider should get a strict `open_existing` metadata path matching the Python implementation:
+### Python changes
 
-```text
-lookup + metadata validation + read reservation
-or wait/missing error
-```
+- Add `OutputAvailabilitySnapshot` to `src/python/chunky/Scheduling/progress_models.py`.
+- Add `available_outputs: tuple[OutputAvailabilitySnapshot, ...]` to `RunProgressSnapshot`.
+- Add a `RunProgressTracker.record_available_output(artifact_id, cached_reference)` method.
+- Call that method only after durable commit/cache-hit validation for a requested output.
+- Ensure late subscribers receive the current snapshot including already available output references.
 
-It should not acquire and abort a write reservation when an explicit cached reference is missing.
+### Rust changes
 
-### Persisted-task eligibility metadata
+- Add the equivalent `OutputAvailabilitySnapshot` and `available_outputs` fields in `src/rust/crates/chunky/src/Scheduling/progress_models.rs`.
+- Add tracker mutation and snapshot rebuild support.
+- Update subscription tests to verify current-snapshot delivery includes already available outputs.
 
-No persisted-task runtime was added. Future saved-task support still needs a small provenance record indicating whether every provided root was durably cached. A saved task should be marked non-restartable when any provided root uses `do_not_cache=True` or otherwise lacks a durable cached root.
+## R4. Direct cache IO as shared upload/retrieval foundation
 
-### More coverage still needed
+### Intended design
 
-Add tests for:
+`ArtifactCacheIO` is the common primitive for upload-first flows, duplicate-upload identity, cached-root rebinding, and later output retrieval. The public identity is always `artifact_id + fingerprint`.
 
-- direct `ArtifactCacheIO.publish/open` equivalence with run-time supplied-root publication;
-- cached settings roots used by settings-dependent planning hooks;
-- missing cached reference;
-- metadata mismatch for cached reference;
-- corrupt cache data during cached-reference read;
-- planning failure closes opened cached-root source handles;
-- materialization failure leaves committed semantic cache entries intact.
+### Python changes
+
+- `ArtifactCacheIO.publish(...)` currently returns a reference even when `cache_policy.do_not_cache=True` without writing the cache entry. That conflicts with the durable-reference meaning. Change one of these approaches:
+  - reject `do_not_cache=True` for direct publish; or
+  - return a non-durable fingerprint-only diagnostic type, not `CachedArtifactReference`.
+- Add an `exists(reference)` or `try_open(reference)` seam only if implementing the reserved future preflight now. Otherwise leave it out but keep identity-compatible tests around `open` failures.
+- Ensure `publish` and provided-root publication share the same helper path so metadata validation/reservation behavior cannot diverge.
+
+### Rust changes
+
+- Add an optional publish policy parameter if direct publish needs to honor policy. If not, document and enforce that direct publish always means durable publish.
+- Keep `open(reference)` as the validation/rebinding primitive.
+
+## R5. Persisted-task orchestration boundary
+
+### Intended design
+
+Durable persisted-task execution is a future orchestration layer over the same `RunRequest` and execution core. It is not a third base run API.
+
+Persisted task records should store:
+
+- stable persisted-task ID;
+- normalized `RunRequest` shape;
+- durable root references;
+- planning-visible pipeline/manifest compatibility identity;
+- attempt history/diagnostics as task-manager metadata.
+
+They must not store live scheduler state, partial stage state, cache reservations, resource leases, or in-flight progress snapshots.
+
+### Python changes
+
+- Do not expand the current live `TaskState` enum for compatibility-waiting. If a persisted task manager is added, keep cannot-start-yet state in that layer.
+- If adding a persisted task manager, start each execution attempt by reconstructing a normal `RunRequest` and calling the same execution core with a fresh live `task_id`.
+- Add optional `persisted_task_id` plumbing to progress snapshots and terminal results only when the persisted layer exists.
+
+### Rust changes
+
+- Same boundary as Python: keep live `RunHandle` and `TaskState` process-local.
+- Model persisted-task identity separately from live run ID if/when persisted orchestration is implemented.
+
+## R6. Graceful shutdown semantics
+
+### Intended design
+
+Graceful global shutdown should stop admitting new live work, preserve restartable persisted-task records for durable tasks, and terminate in-memory-only `run_away(...)` work without a restart guarantee. A shutdown-interrupted durable attempt should not be reported as ordinary caller cancellation or generic failure.
+
+### Python changes
+
+- Add a cancellation/shutdown origin that distinguishes process shutdown from caller cancellation in final reporting.
+- Add a terminal status or outcome reason equivalent to `shutdown_interrupted` for attempts stopped specifically for durable resubmission.
+- Ensure in-memory `run_away(...)` does not imply restartability.
+
+### Rust changes
+
+- Mirror the Python outcome distinction in `RunStatus` or equivalent terminal result model.
+- Keep persisted-task resubmission outside the base run API.
+
+## R7. Tests and parity checks
+
+Add cross-language tests for:
+
+1. target-less output validation success/failure;
+2. target-less output returns committed `CachedArtifactReference`;
+3. `do_not_cache=True` conflicts with target-less output;
+4. fan-out materialization preserves target order and reports per-target outcomes;
+5. materialization failure does not remove the committed reference;
+6. cached-root reference identity is `artifact_id + fingerprint`, not a bare fingerprint;
+7. direct cache publish/open and provided-root publication produce compatible references;
+8. progress snapshots include already available requested outputs for late subscribers;
+9. persisted-task compatibility-waiting is not represented as a live `TaskState`.

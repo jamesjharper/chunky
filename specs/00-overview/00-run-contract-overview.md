@@ -17,8 +17,10 @@ The run contract must:
 - infer required upstream work from requested outputs;
 - support multiple outputs from one shared dependency graph;
 - support ordered materialization fan-out for one artifact;
+- allow target-less requested outputs when durable cache publication can satisfy later retrieval;
 - treat source inputs, settings, intermediates, targets, and diagnostics as artifacts;
 - support explicit cached-root references for upload-first and saved-task workflows;
+- return concrete cached-instance references for durably published requested outputs;
 - resolve default settings lazily, only when planning determines they are relevant;
 - make cache reuse deterministic, explainable, and safe;
 - expose per-artifact cache-use intent without exposing backend-specific knobs;
@@ -38,7 +40,11 @@ The first version does not need to support:
 
 Restart recovery is expected to come from normal semantic cache reuse when the same work is submitted again. It is not a job-resume guarantee.
 
-A future persisted-task layer may store task configuration records for later re-submission. Such records are expected to contain task metadata and configuration, not live scheduler state or persisted run status. Restart-time recovery means reconstructing an equivalent request against a compatible planning-visible pipeline configuration, then rediscovering completed work through the artifact cache. If the saved task configuration no longer matches the available pipeline configuration, the task may remain stored but cannot start until a matching configuration is available.
+A future persisted-task layer may store task configuration records for later re-submission. Such records contain task metadata, the normalized `RunRequest`, the durable root references needed to reconstruct that request, and explicit planning-visible compatibility metadata such as a manifest or pipeline identity. They do not contain live scheduler state, partial stage state, or in-flight progress snapshots.
+
+If a saved task configuration no longer matches an available pipeline configuration, the task remains stored in a non-terminal cannot-start-yet condition owned by the persisted-task layer. That condition is not added to the live `RunHandle` state model. When a saved task is re-entered, it keeps its stable persisted-task ID for client correlation but creates a fresh live `task_id` for that execution attempt. Future persisted-task events and terminal summaries should carry both IDs.
+
+Resumed eventing for such a layer promises stable logical task identity and a coherent current snapshot, not replay of every transient historical event. A future cursor or event-log replay extension is reserved but not required here. Graceful shutdown follows the same boundary: durable tasks preserve restartable task records for later re-submission, while purely in-memory `run_away(...)` work is terminated without a restart guarantee. A shutdown-interrupted live attempt should be distinguishable from ordinary user cancellation or task failure.
 
 ## Pipeline Configuration
 
@@ -209,6 +215,31 @@ result = await pipeline.run(
 
 Target order is preserved. If one target write fails, the run fails and reports which target writes succeeded or failed. Successful target side effects are not rolled back, and a materialization failure does not invalidate a committed semantic cache entry.
 
+### Target-Less Requested Outputs
+
+A requested output may name zero caller materialization targets. This means: make the semantic artifact available for this run, publish it durably, and return enough metadata for later retrieval.
+
+```python
+result = await pipeline.run(
+    RunRequest(
+        inputs={
+            "source//audio": SourceAudioArtifact.from_file_path("input.wav"),
+        },
+        outputs={
+            "render//webvtt_transcript": [],
+        },
+    )
+)
+
+webvtt_ref = result.outputs[ArtifactKey.parse(
+    "render//webvtt_transcript"
+)].cached_reference
+```
+
+Target-less outputs are valid only when the requested artifact is durably retrievable after the run. In practice, the artifact must be cacheable for that request. A target-less output combined with `cache_policy[artifact_id].do_not_cache=True` is a validation error because it asks the run to promise later retrieval while forbidding durable publication.
+
+When a requested output becomes durably available, terminal results and progress/event payloads include both the requested semantic artifact ID and the concrete `CachedArtifactReference` (`artifact_id + fingerprint`). That reference is emitted only after the cache entry has committed, never while the output is merely planned or in progress.
+
 ### Per-Artifact Cache Policy
 
 Cache backend configuration belongs to installed features. Per-run cache behavior is expressed through `RunRequest.cache_policy`.
@@ -234,7 +265,7 @@ result = await pipeline.run(
 )
 ```
 
-Cache policy targets exact semantic artifact IDs. Unknown artifact IDs fail validation. Known but unreachable policy targets are ignored with diagnostics.
+Cache policy targets exact semantic artifact IDs. Unknown artifact IDs fail validation. Known but unreachable policy targets are ignored with diagnostics. `do_not_cache=True` is a validation error for a target-less requested output.
 
 The policy directives are orthogonal:
 
@@ -256,7 +287,7 @@ Chunky also reserves a dedicated artifact-cache IO surface separate from `run(..
 
 The interface is semantic and handle-based: callers use artifact declarations or artifact IDs plus source or target handles. It must not expose backend-native cache paths, object keys, or lock records. Direct cache writes must use the same fingerprinting, metadata validation, reservation, and atomic publish rules as run-time cache publication. A directly published artifact is therefore a normal cache entry, not a weaker side channel.
 
-Direct cache IO returns or accepts a concrete cached-instance reference of the form `artifact_id + fingerprint`. When such a reference is later used as a provided root, planning treats it like the same artifact supplied normally, apart from provenance diagnostics.
+Direct cache IO returns or accepts a concrete cached-instance reference of the form `artifact_id + fingerprint`. When such a reference is later used as a provided root, planning treats it like the same artifact supplied normally, apart from provenance diagnostics. This direct cache IO surface is the common foundation for upload-first web-service flows, duplicate-upload detection, cached-root rebinding, and later output retrieval. A future artifact-existence preflight may check `artifact_id + fingerprint` before a large upload, but that optimization is not required by this version.
 
 #### Publishing an artifact through `ArtifactCacheIO`
 A caller may publish a root before creating a run request. The cache IO surface computes the same supplied-artifact fingerprint that normal root binding would compute, reserves the cache entry, writes through the declaration codec, validates metadata, and returns a typed cache reference.
@@ -305,7 +336,7 @@ A `RunRequest` is the canonical language-neutral request shape.
 ```text
 RunRequest
   inputs: map<SemanticArtifactId, SourceHandle | CachedArtifactReference>
-  outputs: map<SemanticArtifactId, TargetHandle | ordered-list<TargetHandle>>
+  outputs: map<SemanticArtifactId, TargetHandle | ordered-list<TargetHandle> | empty-list>
   run_policy?: PlanningRunPolicy
   cache_policy?: map<SemanticArtifactId, ArtifactCachePolicy>
 ```
@@ -313,7 +344,7 @@ RunRequest
 Required fields:
 
 - `inputs`: caller-supplied source artifacts, settings artifacts, explicitly supplied intermediate artifacts, or explicit cached-root references for those same semantic artifacts;
-- `outputs`: requested semantic artifact IDs and their caller materialization targets.
+- `outputs`: requested semantic artifact IDs and their caller materialization targets. The target list may be empty only for target-less outputs that can be durably retrieved later.
 
 Optional fields:
 
@@ -475,6 +506,8 @@ Pre-plan failures are still surfaced clearly:
 
 If a run fails after producing semantic artifacts or writing some caller targets, the failure surface should include successful partial outcomes where available.
 
+A requested output availability event is emitted only after the semantic artifact has committed durably. The event/result payload carries the requested semantic artifact ID plus the concrete `CachedArtifactReference`; clients should store that reference rather than trying to reconstruct it from graph metadata.
+
 ## Recommended Invariants
 
 1. A configured pipeline owns one baseline immutable `StageManifest`.
@@ -517,3 +550,11 @@ If a run fails after producing semantic artifacts or writing some caller targets
 38. A concrete cached-instance reference is `artifact_id + fingerprint`, not a bare fingerprint.
 39. Plain semantic artifact IDs remain the default public addressing form.
 40. Cached settings roots may be early-bound for planning when explicitly referenced as provided roots.
+41. Requested outputs may have zero caller targets only when durable cache publication satisfies later retrieval.
+42. A target-less output with `cache_policy.do_not_cache=True` is a validation error.
+43. Published requested-output results and events carry both semantic artifact ID and concrete cached-instance reference.
+44. Concrete retrieval references are emitted only after durable cache commit.
+45. Future persisted-task execution is a higher-level orchestration layer over the same `RunRequest` and execution core.
+46. Persisted task records store normalized request/configuration and compatibility metadata, not live scheduler state.
+47. A restarted persisted task keeps its stable persisted-task identity but creates a fresh live `task_id`.
+48. Graceful shutdown preserves restartable durable task records and distinguishes shutdown interruption from ordinary failure or caller cancellation.

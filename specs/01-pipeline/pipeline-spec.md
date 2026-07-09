@@ -16,7 +16,7 @@ The pipeline is not itself a stage, planner, cache, scheduler, or dependency-inj
 
 1. A **pipeline builder** collects explicitly installed pipeline features before the pipeline is frozen.
 2. A **configured pipeline** owns one baseline immutable `StageManifest` and configured runtime services.
-3. A **run request** declares caller-supplied inputs, requested outputs, optional run policy, and optional per-artifact cache policy.
+3. A **run request** declares caller-supplied inputs, requested semantic outputs, optional caller materialization targets, optional run policy, and optional per-artifact cache policy.
 4. A **task execution** normalizes the request, binds supplied artifacts, lets planning resolve relevant defaults, builds a task graph, executes it, and materializes requested targets.
 5. A **run handle** is the in-process asynchronous control surface for detached execution, cancellation, progress inspection, and completion.
 
@@ -182,7 +182,7 @@ class RunRequest:
 The request contains:
 
 - `inputs`: caller-supplied source, settings, explicitly supplied intermediate handles, or cached-root references;
-- `outputs`: caller-requested materialization targets for semantic artifacts;
+- `outputs`: caller-requested semantic artifacts plus zero or more materialization targets for each;
 - `run_policy`: optional planning and execution-strategy policy;
 - `cache_policy`: optional per-artifact cache-use intent.
 
@@ -272,6 +272,15 @@ Fan-out rules:
 
 If one target materialization fails, the run fails as a whole while reporting which targets succeeded and which failed. Successful target writes are left in place; rollback is not promised. If cancellation arrives during materialization, the runner should stop remaining target writes as soon as practical.
 
+A requested output may also have an empty target list. This is not an omitted output; it is an explicit request for semantic availability and later retrieval. Empty target lists are valid only for artifacts that can be durably published for that request. The terminal result and output-availability progress/event payload must include the requested semantic artifact ID and the committed `CachedArtifactReference`.
+
+Target-less output validation is intentionally strict:
+
+- the artifact must be known to the manifest;
+- the output declaration must be cacheable for this request;
+- `cache_policy[artifact_id].do_not_cache=True` is a validation error;
+- retrieval references are emitted only after the cache entry has committed.
+
 ## Cache Policy
 
 `cache_policy` is an explicit per-run, per-artifact policy surface. It expresses semantic cache-use intent, not backend-specific operational knobs.
@@ -299,6 +308,7 @@ Validation rules:
 - unknown artifact IDs are request validation errors;
 - known but unreachable artifacts are ignored for the run and surfaced as diagnostics;
 - policy may target inputs, requested outputs, or intermediates that are known to the manifest;
+- `do_not_cache=True` is invalid when the same artifact is requested with an empty target list;
 - the original TTL of an existing cache entry persists even if a later request names a different desired TTL.
 
 Cache policy also controls provided-root publication. Any caller-provided root whose declaration is cacheable is published to cache by default during binding. If `do_not_cache=True` is set for that exact artifact, the root remains usable for the current run but is not published as a durable cache entry. This rule applies equally to supplied sources, settings, and explicitly supplied intermediates.
@@ -353,7 +363,8 @@ Conceptual lifecycle:
 2. Derive task-scoped runtime collaborators, including cache view, bindings provider, planner, runner, cancellation, and progress surfaces.
 3. Bind caller-supplied and cached-root inputs into supplied artifact instances.
 4. Publish cacheable provided roots to cache unless their exact artifact policy has `do_not_cache=True`.
-5. Provide planning with supplied instances, requested outputs, run policy, cache policy, and an explicit settings-default resolver interface.
+5. Validate target-less requested outputs against cacheability and per-artifact cache policy.
+6. Provide planning with supplied instances, requested outputs, run policy, cache policy, and an explicit settings-default resolver interface.
 6. Let the planner discover relevant settings and request default resolution on demand.
 7. Plan the task graph from the frozen manifest and request-specific context.
 8. Register planned invocations with the progress tracker after planning succeeds.
@@ -457,6 +468,8 @@ class ArtifactCacheIO(Protocol):
 
 `publish(...)` uses the same supplied-artifact fingerprint builder, metadata validation, reservation acquisition, and atomic commit path as run-time provided-root publication. `open(...)` must acquire a normal cache read reservation before returning an instance. The interface must not expose backend paths or object-store keys.
 
+This facade is the common foundation for upload-first workflows, later output retrieval, duplicate-upload detection, and saved-task cached-root rebinding. A future preflight may ask whether a concrete `artifact_id + fingerprint` already exists before uploading bytes, but this version only reserves that extension.
+
 A cached instance opened through this interface behaves like a normal supplied graph root when referenced in a later request. Cached settings roots are the one planned early-binding case: they may be opened and read before graph planning so settings-dependent planning hooks see their values.
 
 ## Planner and Runner Construction
@@ -514,6 +527,8 @@ There is no pre-plan progress reporting in this contract. Request normalization,
 
 For `run_away(...)`, pre-plan failures must still produce an observable terminal failed state with phase-specific diagnostics. For both run surfaces, failures after partial production or materialization should surface successful partial outcomes alongside the error.
 
+When a requested output is durably published, the pipeline-facing result/progress surface records the semantic artifact ID and concrete `CachedArtifactReference`. The reference is not exposed for planned or in-progress outputs.
+
 ## Responsibility Boundaries
 
 ### Pipeline Responsibilities
@@ -530,7 +545,7 @@ The pipeline is responsible for:
 - initiating planning and execution;
 - registering plan progress after planning succeeds;
 - connecting task execution to cancellation and progress surfaces;
-- surfacing structured diagnostics and partial outcomes.
+- surfacing structured diagnostics, partial outcomes, and committed requested-output cache references.
 
 ### Pipeline Non-Responsibilities
 
@@ -593,7 +608,7 @@ A typical demo flow is:
 9. `StageManifest` creation is a strong validation boundary for static topology errors.
 10. Request artifact mappings normalize deterministically into concrete `ArtifactKey` values before planning.
 11. Request structural validation aggregates deterministic shape errors.
-12. A `RunRequest` contains caller-supplied inputs, requested outputs, optional run policy, and optional per-artifact cache policy.
+12. A `RunRequest` contains caller-supplied inputs, requested semantic outputs, optional output targets, optional run policy, and optional per-artifact cache policy.
 13. `run_policy` must not suppress requested outputs.
 14. `cache_policy` targets exact semantic artifact IDs only.
 15. Unknown cache-policy artifact IDs fail validation; known unreachable ones produce diagnostics.
@@ -610,12 +625,17 @@ A typical demo flow is:
 26. Pre-plan failures still surface terminal failure diagnostics for detached runs.
 27. Failed runs should surface successful partial outcomes where available.
 28. Caller output fan-out preserves target list order.
-29. A materialization failure fails the run but does not invalidate a committed semantic artifact.
-30. Successful materialization side effects are reported, not rolled back.
-31. Per-run manifest overrides are out of scope for this public contract.
-32. Cacheable provided roots are published to cache by default unless the exact artifact policy opts out with `do_not_cache`.
-33. Cached-root references pair semantic artifact ID with final artifact fingerprint.
-34. Direct artifact-cache IO uses artifact declarations and source/target handles, not backend paths.
-35. Direct cache writes use the same semantic fingerprinting and atomic publish rules as run-time cache writes.
-36. Cached settings roots may be opened before planning so settings-dependent graph logic sees their values.
-37. A future persisted task with any uncached provided root is not restartable.
+29. An empty target list is a target-less requested output and requires durable cache publication.
+30. A target-less requested output with `do_not_cache=True` is a validation error.
+31. A materialization failure fails the run but does not invalidate a committed semantic artifact.
+32. Successful materialization side effects are reported, not rolled back.
+33. Per-run manifest overrides are out of scope for this public contract.
+34. Cacheable provided roots are published to cache by default unless the exact artifact policy opts out with `do_not_cache`.
+35. Cached-root references pair semantic artifact ID with final artifact fingerprint.
+36. Direct artifact-cache IO uses artifact declarations and source/target handles, not backend paths.
+37. Direct cache writes use the same semantic fingerprinting and atomic publish rules as run-time cache writes.
+38. Cached settings roots may be opened before planning so settings-dependent graph logic sees their values.
+39. A future persisted task with any uncached provided root is not restartable.
+40. Requested-output availability records expose a committed `CachedArtifactReference` only after durable publication.
+41. Future persisted-task orchestration stores normalized request and compatibility metadata, not live scheduler state.
+42. A persisted task restart creates a fresh live run ID while preserving stable persisted-task identity.

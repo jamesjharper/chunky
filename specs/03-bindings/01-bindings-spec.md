@@ -330,6 +330,8 @@ await ArtifactWriter(materialization_handle).write(value)
 
 No cache lookup is needed during materialization because the semantic artifact source has already been resolved.
 
+If a requested output has zero caller targets, no materialization binding is created. The runner instead records the already-available semantic instance and exposes its committed `CachedArtifactReference` once durable publication has completed.
+
 Later, the task runner materializes requested terminal outputs by calling `ArtifactBindingsProvider.materialize` for each selected `ArtifactInstance` and caller target handle. This materialization flow is the same whether the semantic source came from:
 
 - a newly produced in-memory value;
@@ -367,3 +369,4 @@ The focused `ExampleTaskRunner` demonstrates successful execution and cache-hit 
 11. Cacheable provided roots are published to cache during binding unless exact policy opts out.
 12. A cached-root reference is validated and rebound into a reserved cache source before planning or execution consumes it.
 13. Directly published cached roots behave like ordinary supplied roots once selected by request configuration.
+14. Target-less requested outputs create no materialization bindings and require a committed cached-instance reference for result/event reporting.

@@ -134,6 +134,9 @@ A writable destination bound to an artifact handle. Produced outputs may bind on
 ### Materialization
 The act of writing an available semantic artifact to caller-provided output destinations such as files or sinks.
 
+### Target-less Output
+A requested output with zero caller materialization targets. It asks the run to make the semantic artifact durably retrievable and report its committed cached-instance reference.
+
 ### Input Binding
 An artifact handle with a resolved source and usually no targets.
 
@@ -157,6 +160,9 @@ The source-handle contribution that represents semantic content equality for sup
 
 ### Artifact Fingerprint
 The final identity hash for a concrete artifact instance. Supplied inputs derive it from content, while produced artifacts may derive it from pedigree.
+
+### Cached Artifact Reference
+A concrete public reference to a committed cache instance. It pairs the semantic artifact ID with the final artifact fingerprint; a bare fingerprint is not a complete public reference.
 
 ### Bootstrap
 The point where a handle becomes fully assembled with declaration, fingerprint, and resolved source or targets.

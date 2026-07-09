@@ -426,6 +426,8 @@ If the durable cache commit fails:
 
 If the semantic artifact commits successfully but a later caller-provided materialization fails, the semantic cache entry remains valid. A subsequent run may reuse the cached artifact and retry materialization without rerunning the producing stage.
 
+For target-less requested outputs, there are no caller materialization targets to bind. The runner reports success once the semantic artifact has become durably available and exposes the committed `CachedArtifactReference`. Non-cacheable publication-only outputs cannot satisfy target-less requests because there would be no later retrieval path after the task exits.
+
 
 
 ## Recommended Invariants

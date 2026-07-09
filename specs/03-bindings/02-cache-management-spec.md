@@ -67,7 +67,7 @@ class CachedArtifactReference:
     fingerprint: str
 ```
 
-The cache may physically index primarily by fingerprint, but public rebinding must validate both the fingerprint and the expected artifact declaration metadata. Fingerprints are not treated as untyped global object IDs.
+The cache may physically index primarily by fingerprint, but public rebinding must validate both the fingerprint and the expected artifact declaration metadata. Fingerprints are not treated as untyped global object IDs. The same reference shape is used for upload deduplication, saved-task cached roots, and later retrieval of target-less or otherwise durably published requested outputs.
 
 ## Cache Entry Model
 
@@ -193,6 +193,8 @@ class ArtifactCacheIO(Protocol):
 `publish` computes the supplied-artifact fingerprint, writes a committed cache entry under that fingerprint, and returns `artifact_id + fingerprint`. `open` validates the paired artifact ID and fingerprint, acquires a normal cache read reservation, and returns a cache-backed source handle. Neither operation exposes backend paths, object-store keys, reservation IDs, or raw lock records.
 
 A cached root opened by reference changes availability, not graph semantics. Once opened, it behaves like an ordinary supplied root. Cached settings roots may be opened and read before graph planning so settings-dependent planning hooks receive their values.
+
+This direct cache IO surface is also the foundation for later requested-output retrieval. Results and output-availability events should expose a `CachedArtifactReference` only after the cache entry is committed and validated. A future existence preflight may check whether a concrete `artifact_id + fingerprint` already exists before uploading content, but that optimization is outside this version.
 
 ## Cache Resolution Contract
 
@@ -1385,3 +1387,5 @@ It does not change because:
 23. Direct cache writes obey the same correctness and atomicity rules as run-time cache publication.
 24. A cached-instance reference is `artifact_id + fingerprint`; rebinding validates both.
 25. Cached settings roots may be opened before planning when explicitly supplied by reference.
+26. Requested-output retrieval references are exposed only after durable commit.
+27. Upload deduplication and future artifact-existence preflight use the same `artifact_id + fingerprint` identity.

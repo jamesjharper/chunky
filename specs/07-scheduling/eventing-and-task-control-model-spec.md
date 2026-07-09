@@ -25,7 +25,7 @@ Task control is responsible for:
 - exposing synchronous and asynchronous completion;
 - accepting cancellation requests;
 - providing task and progress snapshots;
-- collecting terminal output results and errors;
+- collecting terminal output results, committed retrieval references, target materialization results, and errors;
 - building the public progress snapshot from scheduler state and stage-reported progress;
 - notifying progress subscribers whenever that snapshot changes, without blocking scheduler state transitions.
 
@@ -48,6 +48,8 @@ The initial implementation does not require:
 - per-output await handles;
 - automatic task retry or runtime graph replanning;
 - persistent progress history after the owning process exits.
+
+A future persisted-task layer sits above this live task-control model. It stores normalized request/configuration records and planning-visible compatibility metadata, not live scheduler state, partial stage state, or in-flight progress snapshots. Compatibility-waiting belongs to that persisted layer and must not expand the live `TaskState` enum.
 
 ## Task Model
 
@@ -74,7 +76,7 @@ class TaskRecord:
 
 ### Task Identity
 
-`task_id` is generated when the request is accepted. It must be unique within the configured task manager and stable for the lifetime of the task.
+`task_id` is generated when the request is accepted. It must be unique within the configured task manager and stable for the lifetime of the live execution attempt.
 
 Task IDs are used for:
 
@@ -84,7 +86,7 @@ Task IDs are used for:
 - cancellation routing;
 - associating a `RunResult` with its request.
 
-The format is implementation-defined. It must not be used as part of semantic artifact identity or artifact fingerprints.
+The format is implementation-defined. It must not be used as part of semantic artifact identity or artifact fingerprints. Future durable persisted tasks have a separate stable persisted-task ID; every restart creates a fresh live `task_id`, and persisted-task events/results carry both IDs when both exist.
 
 ## Task State
 
@@ -370,6 +372,7 @@ class RunStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    SHUTDOWN_INTERRUPTED = "shutdown_interrupted"
 
 
 @dataclass(frozen=True)
@@ -380,6 +383,7 @@ class RunResult:
     errors: tuple["RunError", ...]
     manifest: "RunManifestSummary | None" = None
     manifest_location: "ArtifactLocation | None" = None
+    persisted_task_id: str | None = None
 ```
 
 The full execution and artifact manifests remain separate diagnostic data. The result contains only a compact summary or a location from which the full manifest can be loaded when diagnostics are enabled.
@@ -388,7 +392,7 @@ Awaiting a task returns `RunResult` for normal domain failures. Bindings may pro
 
 ### Output Result
 
-`RunResult.outputs` contains one entry for every output target supplied when the task was configured.
+`RunResult.outputs` contains one entry for every requested output artifact. It is keyed by requested semantic artifact ID, not by materialization target. Fan-out materialization details live inside the output result. A target-less requested output still has an `OutputResult`; its materialization list is empty.
 
 ```python
 class OutputStatus(str, Enum):
@@ -399,23 +403,32 @@ class OutputStatus(str, Enum):
 
 
 @dataclass(frozen=True)
+class TargetMaterializationResult:
+    target_index: int
+    status: OutputStatus
+    error_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class OutputResult:
     artifact_id: ArtifactKey
     status: OutputStatus
     fingerprint: str | None
+    cached_reference: CachedArtifactReference | None = None
+    targets: tuple[TargetMaterializationResult, ...] = ()
     error_ids: tuple[str, ...] = ()
 ```
 
-`RunResult.outputs` contains results only for output targets supplied when the task was configured. It does not contain entries for intermediate artifacts, settings, diagnostics that were not requested as targets, or incidental stage outputs.
+`RunResult.outputs` contains results only for artifacts requested in the run output map. It does not contain entries for intermediates, settings, diagnostics that were not requested as outputs, or incidental stage outputs.
 
 The output statuses mean:
 
-- `succeeded`: the semantic output was available and its configured caller target was materialized successfully.
+- `succeeded`: the semantic output was available and every configured caller target, if any, was materialized successfully. For target-less outputs, semantic availability plus durable cached-reference publication is enough.
 - `failed`: this output failed directly while producing, validating, committing, reading, or materializing it. `error_ids` references the errors that describe the failure.
 - `blocked`: this output did not complete because a different task-fatal failure caused fail-fast shutdown before this output could succeed. This is a terminal result, not a waiting-to-materialize state.
 - `cancelled`: this output did not complete because caller, process-shutdown, or internal cancellation won the task's terminal outcome.
 
-`fingerprint` is present when the semantic artifact fingerprint was known. It may therefore be present on a failed output when semantic production succeeded but caller-target materialization failed. In that case the semantic cache entry may remain valid and reusable even though the configured target result is `failed`.
+`fingerprint` is present when the semantic artifact fingerprint was known. `cached_reference` is present only after the artifact is committed and durably retrievable. It may therefore be present on a failed output when semantic production succeeded but caller-target materialization failed. In that case the semantic cache entry remains valid and reusable even though one configured target result is `failed`.
 
 ### Error Model
 
@@ -551,6 +564,12 @@ Only running stages normally contain subtasks.
 
 ```python
 @dataclass(frozen=True)
+class OutputAvailabilitySnapshot:
+    artifact_id: ArtifactKey
+    cached_reference: CachedArtifactReference
+
+
+@dataclass(frozen=True)
 class RunProgressSnapshot:
     task_id: str
     task_state: TaskState
@@ -564,6 +583,7 @@ class RunProgressSnapshot:
     pending_stages: tuple[StageProgressSnapshot, ...]
     running_stages: tuple[StageProgressSnapshot, ...]
     blocked_stages: tuple[StageProgressSnapshot, ...]
+    available_outputs: tuple[OutputAvailabilitySnapshot, ...] = ()
 ```
 
 The count fields describe planned stage invocations, not stage types. Therefore, two invocations of the same stage count as two stages in this snapshot.
@@ -578,7 +598,7 @@ total_stage_count =
   + blocked_stage_count
 ```
 
-The list lengths must match their corresponding active counts.
+The list lengths must match their corresponding active counts. `available_outputs` contains requested outputs that have become durably retrievable. Entries are added only after cache commit and include the same concrete cached-instance reference later returned in `RunResult`.
 
 Before planning has produced an execution plan, `total_stage_count` may be zero. Once the execution plan is fixed, it must not change during normal scheduling.
 
@@ -614,7 +634,7 @@ Delivery rules:
 - detaching the returned `ProgressSubscription` stops future callbacks;
 - callers use `get_progress()` when they need the current snapshot immediately after subscribing.
 
-The initial implementation does not require a public low-level event stream, event replay, event sequence numbers, or an asynchronous event iterator.
+The initial implementation does not require a public low-level event stream, event replay, event sequence numbers, or an asynchronous event iterator. Resubscription promises a current coherent snapshot, including already available requested-output references, but not replay of every prior transient stage-progress change. A future event replay or cursor-resume extension is reserved.
 
 ### Example Progress Snapshot
 
@@ -692,3 +712,7 @@ RunProgressSnapshot(
 8. Progress handlers cannot fail or delay the task.
 9. The execution plan fixes `total_stage_count`; scheduling does not add or remove planned invocations.
 10. `RunResult`, not the progress snapshot, remains the authoritative terminal outcome.
+11. Requested-output availability snapshots and terminal results carry the same committed `CachedArtifactReference`.
+12. A cached-reference availability event is emitted only after durable commit.
+13. Future persisted-task resume uses current snapshot continuity, not historical event replay, unless a later replay extension is added.
+14. Shutdown-interrupted durable attempts are distinguishable from ordinary cancellation or failure.

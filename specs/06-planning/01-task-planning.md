@@ -24,7 +24,7 @@ The main public planning interface is `TaskRunPlanner`.
 
 A caller gives `plan(...)` 
 - the artifacts already supplied or rebound from explicit cached-root references for this request, 
-- the outputs the caller wants to materialize, 
+- the semantic outputs the caller wants to make available, including any caller materialization targets, 
 - and the run policy that should shape planning and execution behavior. 
 
 The planner returns a `TaskRunGraph`: an immutable, request-specific graph of concrete stage invocations and requested output bindings.
@@ -41,7 +41,7 @@ graph = planner.plan(
 
 __`supplied_instances`__ contains the request roots that are already available before planning starts. These may include source artifacts, settings artifacts, or intermediate artifacts supplied by the caller, plus artifacts rebound from explicit `artifact_id + fingerprint` cached-root references. Supplied instances are considered before producer paths, so a supplied or rebound artifact can satisfy a requirement without adding a producing stage invocation to the graph.
 
-__`requested_outputs`__ is the set of terminal artifact IDs the caller wants from this run. Planning starts from these outputs and walks backward through the stage manifest until every required input is satisfied by either a supplied instance or a planned producer invocation.
+__`requested_outputs`__ is the set of terminal artifact IDs the caller wants from this run. Each requested output may have one or more caller materialization targets, or zero targets when the request is target-less and durable cache retrieval is the intended delivery path. Planning starts from these outputs and walks backward through the stage manifest until every required input is satisfied by either a supplied instance or a planned producer invocation.
 
 __`run_policy`__ is the request policy visible to planning and execution. It represents behavior modifiers that can affect how the `TaskRunGraph` is built or run. It covers rules such as whether particular resources should never be cached, how resource limits should be interpreted, and other request-level execution constraints.
 
@@ -71,7 +71,7 @@ __`dependents_by_invocation`__ maps each `invocation_id` to the downstream `invo
 
 These dependency indexes are redundant with artifact input bindings, but they are included explicitly so runners can determine readiness and concurrency without reconstructing the graph.
 
-__`requested_output_bindings`__ maps each caller-requested output to the resolved artifact instance that will satisfy it. A requested output may bind directly to a supplied artifact instance or to an output produced by one of the planned invocations.
+__`requested_output_bindings`__ maps each caller-requested output to the resolved artifact instance that will satisfy it. A requested output may bind directly to a supplied artifact instance or to an output produced by one of the planned invocations. The requested-output binding is created even when the caller supplied zero materialization targets; target-less status affects validation and result reporting, not graph shape.
 
 
 #### Invocation:
@@ -217,7 +217,7 @@ class TaskRequestGraph:
     requested_output_bindings: tuple[RequestedOutputBinding, ...]
 ```
 
-The evaluated request graph contains concrete planned stage invocations and their artifact bindings. 
+The evaluated request graph contains concrete planned stage invocations and their artifact bindings. Target counts and caller sink handles stay outside producer selection; the graph only needs to know which semantic artifacts the request is entitled to receive.
 
 This stop resolves:
 
@@ -306,6 +306,14 @@ The scheduler may update runtime state in an execution manifest, but it must not
 - phase remapping;
 - requested output subset;
 - input bindings.
+
+### Target-less requested outputs
+
+A target-less requested output is an output entry with an empty caller-target list. Planning treats it as the same semantic output requirement as a normal materialized output. It must not create a separate request surface, synthetic target artifact, or special producer path.
+
+Validation before or around planning must reject target-less outputs when the artifact cannot be durably retrieved after the run. The common validation rule is: the requested artifact must be cacheable for this request, and the same exact artifact must not have `cache_policy.do_not_cache=True`.
+
+The planner records the requested output binding normally. Execution is responsible for emitting the committed `CachedArtifactReference` after durable publication and skipping caller materialization because there are no targets to write.
 
 ## 2. Implementation Model
 

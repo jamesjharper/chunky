@@ -25,4 +25,5 @@ target
 .cursor/mcp.json
 .cursor/rules/agent-lsp.mdc
 *.pyc
-.DS_Store
+
+*.DS_Store

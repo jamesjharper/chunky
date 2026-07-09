@@ -1,0 +1,49 @@
+specs/00-overview/00-run-contract-overview-decision-log-implemented.md
+  h_6046a6be1688c0 1-645
+.gitignore
+  h_6046a6be1688c0 28-29
+specs/00-overview/00-run-contract-overview-decision-log.md
+  s_76568e2937304d::t_acdb911232a224 214,216-217,220-222
+  s_76568e2937304d::t_d471c539b37449 164,166-167,170-172
+  s_76568e2937304d::t_ea23f38bfa7d14 184,186-187,190-192
+  s_76568e2937304d::t_4097a4a7be1aa4 114,116-117,120-122
+  s_76568e2937304d::t_874ea09955aabf 94,96-97,100-102
+  s_76568e2937304d::t_62faf6b6c29a73 72,74-75,78-80
+  s_76568e2937304d::t_5948ee76652eb6 174,176-177,180-182
+  s_76568e2937304d::t_930bbff1d13640 104,106-107,110-112
+  s_76568e2937304d::t_5ba3d859714edf 204,206-207,210-212
+  s_76568e2937304d::t_3ad111e22a7487 234,236-237,240-242
+  s_76568e2937304d::t_82d1fa70e76a01 144,146-147,150-152
+  s_76568e2937304d::t_b986ee1ce55d16 22,24-25,28-30
+  s_76568e2937304d::t_8956641f25affd 224,226-227,230-232
+  s_76568e2937304d::t_ec5f9b7ab9d586 82,84-86,88-90,92
+  s_76568e2937304d::t_a92455e4b6de2b 124,126-127,130-132
+  s_76568e2937304d::t_082a0dd188f18d 32,34-35,38-40
+  s_76568e2937304d::t_9c72047020b9d0 134,136-137,140-142
+  s_76568e2937304d::t_f4bcb57a286ae7 52,54-55,58-60
+  s_76568e2937304d::t_6d0cda9f5a36c2 154,156-157,160-162
+  s_76568e2937304d::t_b05e0e9c4ae3d2 42,44-45,48-50
+  s_76568e2937304d::t_d7e675df064560 194,196-197,200-202
+  s_76568e2937304d::t_9352a03d0b85dd 62,64-65,68-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "36fa93975505782c17b60f60a1ed1c920ff17665",
+  "prompts": {},
+  "humans": {
+    "h_6046a6be1688c0": {
+      "author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  },
+  "sessions": {
+    "s_76568e2937304d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f456a-d195-79a0-b764-2eee513ea5dd",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}

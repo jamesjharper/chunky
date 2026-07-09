@@ -24,6 +24,7 @@ class RunStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    SHUTDOWN_INTERRUPTED = "shutdown_interrupted"
 
 
 @dataclass(frozen=True)

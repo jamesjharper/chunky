@@ -22,6 +22,7 @@ pub enum RunStatus {
     Completed,
     Failed,
     Cancelled,
+    ShutdownInterrupted,
 }
 
 impl RunStatus {
@@ -30,6 +31,7 @@ impl RunStatus {
             Self::Completed => "completed",
             Self::Failed => "failed",
             Self::Cancelled => "cancelled",
+            Self::ShutdownInterrupted => "shutdown_interrupted",
         }
     }
 }
@@ -74,6 +76,15 @@ impl<T> RunResult<T> {
             status: RunStatus::Failed,
             output: None,
             errors,
+        }
+    }
+
+    pub fn shutdown_interrupted(task_id: impl Into<String>) -> Self {
+        Self {
+            task_id: task_id.into(),
+            status: RunStatus::ShutdownInterrupted,
+            output: None,
+            errors: Vec::new(),
         }
     }
 

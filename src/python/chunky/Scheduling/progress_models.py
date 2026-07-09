@@ -11,6 +11,8 @@ from threading import RLock
 from typing import Callable, Iterator, TypeAlias
 from uuid import uuid4
 
+from ..Artifacts.artifact_models import ArtifactKey, CachedArtifactReference
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -56,6 +58,12 @@ class StageProgressSnapshot:
 
 
 @dataclass(frozen=True)
+class OutputAvailabilitySnapshot:
+    artifact_id: ArtifactKey
+    cached_reference: CachedArtifactReference
+
+
+@dataclass(frozen=True)
 class RunProgressSnapshot:
     task_id: str
     task_state: TaskState
@@ -67,6 +75,7 @@ class RunProgressSnapshot:
     pending_stages: tuple[StageProgressSnapshot, ...]
     running_stages: tuple[StageProgressSnapshot, ...]
     blocked_stages: tuple[StageProgressSnapshot, ...]
+    available_outputs: tuple[OutputAvailabilitySnapshot, ...] = ()
 
 
 RunProgressHandler: TypeAlias = Callable[[RunProgressSnapshot], None]
@@ -243,6 +252,7 @@ class RunProgressTracker:
         self._dispatcher = dispatcher
         self._task_state = TaskState.CREATED
         self._stages: dict[str, _MutableStageProgress] = {}
+        self._available_outputs: dict[ArtifactKey, OutputAvailabilitySnapshot] = {}
         self._last_snapshot: RunProgressSnapshot | None = None
         self._lock = RLock()
         self._batch_depth = 0
@@ -278,6 +288,23 @@ class RunProgressTracker:
     def set_task_state(self, state: TaskState) -> None:
         with self._lock:
             self._task_state = state
+            self._publish_if_changed()
+
+    def record_available_output(
+        self,
+        artifact_id: ArtifactKey,
+        cached_reference: CachedArtifactReference,
+    ) -> None:
+        if cached_reference.artifact_id != artifact_id:
+            raise ValueError(
+                "cached reference artifact_id must match available output artifact_id: "
+                f"{cached_reference.artifact_id} != {artifact_id}"
+            )
+        with self._lock:
+            self._available_outputs[artifact_id] = OutputAvailabilitySnapshot(
+                artifact_id=artifact_id,
+                cached_reference=cached_reference,
+            )
             self._publish_if_changed()
 
     def mark_pending(self, invocation_id: str) -> None:
@@ -398,6 +425,10 @@ class RunProgressTracker:
             pending_stages=tuple(pending),
             running_stages=tuple(running),
             blocked_stages=tuple(blocked),
+            available_outputs=tuple(
+                self._available_outputs[key]
+                for key in sorted(self._available_outputs, key=str)
+            ),
         )
 
 
@@ -413,6 +444,7 @@ def ensure_progress_tracker(
 __all__ = [
     "ensure_progress_tracker",
     "NullProgressDispatcher",
+    "OutputAvailabilitySnapshot",
     "ProgressDispatcher",
     "ProgressSubscription",
     "RunProgressHandler",

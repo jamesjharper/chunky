@@ -24,7 +24,7 @@ use crate::execution_planner::{DefaultSettingsResolver, TaskRunGraphBuilder, Tas
 use crate::fingerprints::FingerprintProvider;
 use crate::progress_models::{ProgressDispatcher, RunProgressTracker};
 use crate::stage_manifest::{StageManifest, StageManifestBuilder};
-use crate::stage_models::{CancellationSource, PipelineFeature, PlanningRunPolicy};
+use crate::stage_models::{CancellationOrigin, CancellationSource, PipelineFeature, PlanningRunPolicy};
 use crate::task_control::{RunError, RunHandle, RunResult};
 use crate::task_runner::{ExampleTaskRunner, TaskRunGraph, TaskRunResult};
 
@@ -219,7 +219,11 @@ impl ChunkyPipeline {
             {
                 Ok(output) => RunResult::completed(task_id_for_task, output),
                 Err(_) if cancellation_for_result.token().is_cancelled() => {
-                    RunResult::cancelled(task_id_for_task)
+                    if cancellation_for_result.origin() == CancellationOrigin::Shutdown {
+                        RunResult::shutdown_interrupted(task_id_for_task)
+                    } else {
+                        RunResult::cancelled(task_id_for_task)
+                    }
                 }
                 Err(error) => RunResult::failed(
                     task_id_for_task,
@@ -248,6 +252,7 @@ impl ChunkyPipeline {
         }
 
         self.validate_cached_inputs(&request.inputs)?;
+        self.validate_outputs_and_targetless_policy(&request.outputs, &request.cache_policy)?;
         let bindings = ArtifactBindingsProvider::new(self.artifact_cache.clone());
         let (supplied, user_supplied_settings) =
             self.bind_supplied_inputs(&bindings, &request).await?;
@@ -309,6 +314,35 @@ impl ChunkyPipeline {
     fn validate_cache_policy(&self, cache_policy: &BTreeMap<ArtifactKey, ArtifactCachePolicy>) -> Result<()> {
         for artifact_id in cache_policy.keys() {
             self.stage_manifest.find_artifact(artifact_id)?;
+        }
+        Ok(())
+    }
+
+    fn validate_outputs_and_targetless_policy(
+        &self,
+        outputs: &BTreeMap<ArtifactKey, Vec<Arc<dyn ArtifactTargetHandle>>>,
+        cache_policy: &BTreeMap<ArtifactKey, ArtifactCachePolicy>,
+    ) -> Result<()> {
+        for (artifact_id, targets) in outputs {
+            let declaration = self.stage_manifest.find_artifact(artifact_id)?;
+            if targets.is_empty() {
+                if !declaration.cacheable {
+                    bail!(
+                        "target-less output {} must be cacheable for durable retrieval",
+                        artifact_id
+                    );
+                }
+                if cache_policy
+                    .get(artifact_id)
+                    .map(|policy| policy.do_not_cache)
+                    .unwrap_or(false)
+                {
+                    bail!(
+                        "target-less output {} conflicts with cache_policy.do_not_cache",
+                        artifact_id
+                    );
+                }
+            }
         }
         Ok(())
     }

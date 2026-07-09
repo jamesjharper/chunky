@@ -34,7 +34,7 @@ from .Scheduling.task_control import (
 )
 from .Scheduling.task_runner import ExampleTaskRunner, TaskRunResult
 from .Stages.stage_manifest import StageManifest, StageManifestBuilder
-from .Stages.stage_models import CancellationSource, PipelineFeature, PlanningRunPolicy
+from .Stages.stage_models import CancellationOrigin, CancellationSource, PipelineFeature, PlanningRunPolicy
 
 
 @dataclass(frozen=True)
@@ -102,11 +102,10 @@ class ArtifactCacheIO:
             source,
         )
         if cache_policy is not None and cache_policy.do_not_cache:
-            fingerprint = await (
-                self._pipeline._artifact_bindings_provider.fingerprint_provider
-                .build_supplied_artifact_fingerprint(declaration, effective_source)
+            raise ValueError(
+                "ArtifactCacheIO.publish always creates a durable cache entry; "
+                f"do_not_cache is invalid for {declaration.artifact_id}"
             )
-            return CachedArtifactReference(declaration.artifact_id, fingerprint)
         return await self._pipeline._artifact_bindings_provider.publish_supplied_root(
             declaration,
             effective_source,
@@ -221,10 +220,15 @@ class ChunkyPipeline:
                 if isinstance(exc, RunExecutionError):
                     return exc.result
                 if cancellation.is_cancelled:
+                    status = (
+                        RunStatus.SHUTDOWN_INTERRUPTED
+                        if cancellation.origin is CancellationOrigin.SHUTDOWN
+                        else RunStatus.CANCELLED
+                    )
                     return RunResult(
                         task_id=task_id,
-                        status=RunStatus.CANCELLED,
-                        errors=(RunError("cancelled", str(exc)),),
+                        status=status,
+                        errors=(RunError(status.value, str(exc)),),
                     )
                 return RunResult(
                     task_id=task_id,
@@ -309,9 +313,10 @@ class ChunkyPipeline:
         output_targets = _collect_flattened_request_outputs(request.outputs, errors)
         cache_policy = _collect_flattened_cache_policy(request.cache_policy or {}, errors)
 
+        declarations: dict[ArtifactKey, ArtifactDeclaration[Any]] = {}
         for artifact_id in (*input_sources.keys(), *output_targets.keys(), *cache_policy.keys()):
             try:
-                self.stage_manifest.find_artifact(artifact_id)
+                declarations[artifact_id] = self.stage_manifest.find_artifact(artifact_id)
             except Exception:
                 errors.append(f"unknown request artifact: {artifact_id}")
 
@@ -320,6 +325,21 @@ class ChunkyPipeline:
                 errors.append(
                     "inputs: cached artifact reference artifact_id must match its request key: "
                     f"{source_or_reference.artifact_id} != {artifact_id}"
+                )
+
+        for artifact_id, targets in output_targets.items():
+            if targets:
+                continue
+            declaration = declarations.get(artifact_id)
+            if declaration is None:
+                continue
+            if not declaration.cacheable:
+                errors.append(
+                    f"target-less output {artifact_id} must be cacheable for durable retrieval"
+                )
+            if cache_policy.get(artifact_id, ArtifactCachePolicy()).do_not_cache:
+                errors.append(
+                    f"target-less output {artifact_id} conflicts with cache_policy.do_not_cache"
                 )
 
         if not output_targets:
@@ -541,8 +561,6 @@ def _collect_flattened_request_outputs(
     for artifact_id, value in raw.items():
         if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
             targets = tuple(value)
-            if not targets:
-                errors.append(f"outputs for {artifact_id} must contain at least one target")
         else:
             targets = (value,)
         outputs[artifact_id] = targets

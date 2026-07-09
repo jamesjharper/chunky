@@ -11,6 +11,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
@@ -45,12 +46,21 @@ class StageExecutor(Protocol):
 class TaskCancelledError(asyncio.CancelledError):
     """Raised when Chunky's cooperative cancellation token is cancelled."""
 
+
+class CancellationOrigin(str, Enum):
+    CALLER = "caller"
+    SHUTDOWN = "shutdown"
+
+
 class CancellationToken(Protocol):
     @property
     def is_cancelled(self) -> bool: ...
 
     @property
     def reason(self) -> str | None: ...
+
+    @property
+    def origin(self) -> CancellationOrigin: ...
 
     async def wait_cancelled(self) -> None: ...
 
@@ -70,6 +80,7 @@ class CancellationSource:
     def __init__(self) -> None:
         self._event = asyncio.Event()
         self._reason: str | None = None
+        self._origin = CancellationOrigin.CALLER
 
     @property
     def token(self) -> "CancellationSource":
@@ -83,12 +94,25 @@ class CancellationSource:
     def reason(self) -> str | None:
         return self._reason
 
-    def cancel(self, reason: str | None = None) -> bool:
+    @property
+    def origin(self) -> CancellationOrigin:
+        return self._origin
+
+    def cancel(
+        self,
+        reason: str | None = None,
+        *,
+        origin: CancellationOrigin = CancellationOrigin.CALLER,
+    ) -> bool:
         if self._event.is_set():
             return False
         self._reason = reason
+        self._origin = origin
         self._event.set()
         return True
+
+    def shutdown(self, reason: str | None = None) -> bool:
+        return self.cancel(reason or "process shutdown", origin=CancellationOrigin.SHUTDOWN)
 
     async def wait_cancelled(self) -> None:
         await self._event.wait()

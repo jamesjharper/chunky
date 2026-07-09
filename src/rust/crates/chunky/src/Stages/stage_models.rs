@@ -69,6 +69,13 @@ pub trait CancellationToken: Send + Sync {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum CancellationOrigin {
+    #[default]
+    Caller,
+    Shutdown,
+}
+
 #[derive(Clone, Default)]
 pub struct CancellationSource {
     inner: Arc<Mutex<CancellationState>>,
@@ -78,6 +85,7 @@ pub struct CancellationSource {
 struct CancellationState {
     cancelled: bool,
     reason: Option<String>,
+    origin: CancellationOrigin,
 }
 
 impl CancellationSource {
@@ -86,13 +94,36 @@ impl CancellationSource {
     }
 
     pub fn cancel(&self, reason: Option<String>) -> bool {
+        self.cancel_with_origin(reason, CancellationOrigin::Caller)
+    }
+
+    pub fn shutdown(&self, reason: Option<String>) -> bool {
+        self.cancel_with_origin(
+            Some(reason.unwrap_or_else(|| "process shutdown".to_owned())),
+            CancellationOrigin::Shutdown,
+        )
+    }
+
+    pub fn cancel_with_origin(
+        &self,
+        reason: Option<String>,
+        origin: CancellationOrigin,
+    ) -> bool {
         let mut state = self.inner.lock().expect("cancellation mutex poisoned");
         if state.cancelled {
             return false;
         }
         state.cancelled = true;
         state.reason = reason;
+        state.origin = origin;
         true
+    }
+
+    pub fn origin(&self) -> CancellationOrigin {
+        self.inner
+            .lock()
+            .expect("cancellation mutex poisoned")
+            .origin
     }
 
     /// Cancellation-aware local wait helper.

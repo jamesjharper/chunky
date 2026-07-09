@@ -18,7 +18,7 @@ use crate::artifact_binding_models::{
 };
 use crate::artifact_bindings::ArtifactBindingsProvider;
 use crate::artifact_handles::ArtifactTargetHandle;
-use crate::artifact_models::{AnyArtifactDeclaration, ArtifactKey};
+use crate::artifact_models::{AnyArtifactDeclaration, ArtifactKey, CachedArtifactReference};
 use crate::pipeline::ArtifactCachePolicy;
 use crate::stage_manifest::StageManifest;
 use crate::stage_models::{
@@ -42,12 +42,51 @@ pub struct InvocationRunResult {
     pub waited_for_writer: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OutputStatus {
+    Succeeded,
+    Failed,
+}
+
+impl OutputStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TargetMaterializationStatus {
+    Succeeded,
+    Failed,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TargetMaterializationResult {
+    pub index: usize,
+    pub status: TargetMaterializationStatus,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OutputResult {
+    pub artifact_id: ArtifactKey,
+    pub status: OutputStatus,
+    pub fingerprint: String,
+    pub cached_reference: Option<CachedArtifactReference>,
+    pub targets: Vec<TargetMaterializationResult>,
+    pub error_ids: Vec<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct TaskRunResult {
     pub task_id: String,
     pub output_fingerprints: BTreeMap<ArtifactKey, String>,
     pub events: Vec<String>,
     pub materialized_targets: BTreeMap<ArtifactKey, usize>,
+    pub outputs: BTreeMap<ArtifactKey, OutputResult>,
 }
 
 /// Minimal execution-plan seam consumed by the scheduling example.
@@ -60,6 +99,27 @@ pub struct TaskRunGraph<'a> {
     pub dependencies_by_invocation: BTreeMap<String, Vec<String>>,
     pub dependents_by_invocation: BTreeMap<String, Vec<String>>,
     pub requested_output_bindings: Vec<TaskOutputBinding>,
+}
+
+fn durable_cached_reference_for(
+    instance: &AnyArtifactInstance,
+    cache_policy: &BTreeMap<ArtifactKey, ArtifactCachePolicy>,
+) -> Result<Option<CachedArtifactReference>> {
+    let declaration = &instance.handle.declaration;
+    if !declaration.cacheable {
+        return Ok(None);
+    }
+    if cache_policy
+        .get(&declaration.artifact_id)
+        .map(|policy| policy.do_not_cache)
+        .unwrap_or(false)
+    {
+        return Ok(None);
+    }
+    Ok(Some(CachedArtifactReference::new(
+        declaration.artifact_id.clone(),
+        instance.fingerprint().to_owned(),
+    )?))
 }
 
 pub struct ArtifactRunState {
@@ -159,6 +219,7 @@ impl ExampleTaskRunner {
         let mut state = ArtifactRunState::new(supplied_instances);
         let mut events = Vec::new();
         let mut materialized_targets: BTreeMap<ArtifactKey, usize> = BTreeMap::new();
+        let mut output_results: BTreeMap<ArtifactKey, OutputResult> = BTreeMap::new();
 
         let result = async {
             progress_tracker.set_task_state(TaskState::Running);
@@ -227,16 +288,95 @@ impl ExampleTaskRunner {
                             requested.requested_artifact_id
                         )
                     })?;
-                for (index, target) in targets.iter().cloned().enumerate() {
-                    cancellation.raise_if_cancelled()?;
-                    self.artifact_bindings_provider
-                        .materialize(&instance, target)
-                        .await?;
-                    materialized_targets.insert(requested.requested_artifact_id.clone(), index + 1);
-                }
+                let cached_reference = durable_cached_reference_for(&instance, &cache_policy)?;
                 output_fingerprints.insert(
                     requested.requested_artifact_id.clone(),
                     instance.fingerprint().to_owned(),
+                );
+                if let Some(reference) = cached_reference.clone() {
+                    progress_tracker.record_available_output(
+                        requested.requested_artifact_id.clone(),
+                        reference,
+                    )?;
+                }
+
+                if targets.is_empty() {
+                    if cached_reference.is_none() {
+                        bail!(
+                            "target-less output {} is not durably retrievable",
+                            requested.requested_artifact_id
+                        );
+                    }
+                    output_results.insert(
+                        requested.requested_artifact_id.clone(),
+                        OutputResult {
+                            artifact_id: requested.requested_artifact_id.clone(),
+                            status: OutputStatus::Succeeded,
+                            fingerprint: instance.fingerprint().to_owned(),
+                            cached_reference,
+                            targets: Vec::new(),
+                            error_ids: Vec::new(),
+                        },
+                    );
+                    events.push(format!(
+                        "published {} for later retrieval",
+                        requested.requested_artifact_id
+                    ));
+                    continue;
+                }
+
+                let mut target_results = Vec::new();
+                for (index, target) in targets.iter().cloned().enumerate() {
+                    let target_index = index + 1;
+                    cancellation.raise_if_cancelled()?;
+                    match self.artifact_bindings_provider.materialize(&instance, target).await {
+                        Ok(()) => {
+                            materialized_targets.insert(
+                                requested.requested_artifact_id.clone(),
+                                target_index,
+                            );
+                            target_results.push(TargetMaterializationResult {
+                                index: target_index,
+                                status: TargetMaterializationStatus::Succeeded,
+                                error: None,
+                            });
+                        }
+                        Err(error) => {
+                            target_results.push(TargetMaterializationResult {
+                                index: target_index,
+                                status: TargetMaterializationStatus::Failed,
+                                error: Some(error.to_string()),
+                            });
+                            output_results.insert(
+                                requested.requested_artifact_id.clone(),
+                                OutputResult {
+                                    artifact_id: requested.requested_artifact_id.clone(),
+                                    status: OutputStatus::Failed,
+                                    fingerprint: instance.fingerprint().to_owned(),
+                                    cached_reference,
+                                    targets: target_results,
+                                    error_ids: vec!["materialization_failed".to_owned()],
+                                },
+                            );
+                            events.push(format!(
+                                "failed materializing {} to target {}",
+                                requested.requested_artifact_id,
+                                target_index
+                            ));
+                            return Err(error);
+                        }
+                    }
+                }
+                output_results.insert(
+                    requested.requested_artifact_id.clone(),
+                    OutputResult {
+                        artifact_id: requested.requested_artifact_id.clone(),
+                        status: OutputStatus::Succeeded,
+                        fingerprint: instance.fingerprint().to_owned(),
+                        cached_reference,
+                        targets: target_results,
+                        error_ids: Vec::new(),
+                    },
                 );
                 events.push(format!(
                     "materialized {} to {} target(s)",
@@ -251,6 +391,7 @@ impl ExampleTaskRunner {
                 output_fingerprints,
                 events,
                 materialized_targets,
+                outputs: output_results,
             })
         }
         .await;

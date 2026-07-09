@@ -11,6 +11,8 @@ use std::thread::{self, JoinHandle};
 
 use anyhow::{bail, Result};
 
+use crate::artifact_models::{ArtifactKey, CachedArtifactReference};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TaskState {
     Created,
@@ -82,6 +84,12 @@ pub struct StageProgressSnapshot {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct OutputAvailabilitySnapshot {
+    pub artifact_id: ArtifactKey,
+    pub cached_reference: CachedArtifactReference,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct RunProgressSnapshot {
     pub task_id: String,
     pub task_state: TaskState,
@@ -93,6 +101,7 @@ pub struct RunProgressSnapshot {
     pub pending_stages: Vec<StageProgressSnapshot>,
     pub running_stages: Vec<StageProgressSnapshot>,
     pub blocked_stages: Vec<StageProgressSnapshot>,
+    pub available_outputs: Vec<OutputAvailabilitySnapshot>,
 }
 
 pub type RunProgressHandler = Arc<dyn Fn(RunProgressSnapshot) + Send + Sync + 'static>;
@@ -296,6 +305,7 @@ impl MutableStageProgress {
 struct TrackerState {
     task_state: TaskState,
     stages: BTreeMap<String, MutableStageProgress>,
+    available_outputs: BTreeMap<ArtifactKey, OutputAvailabilitySnapshot>,
     last_snapshot: Option<RunProgressSnapshot>,
     batch_depth: usize,
     batch_dirty: bool,
@@ -316,6 +326,7 @@ impl RunProgressTracker {
             state: Arc::new(Mutex::new(TrackerState {
                 task_state: TaskState::Created,
                 stages: BTreeMap::new(),
+                available_outputs: BTreeMap::new(),
                 last_snapshot: None,
                 batch_depth: 0,
                 batch_dirty: false,
@@ -366,6 +377,27 @@ impl RunProgressTracker {
 
     pub fn set_task_state(&self, task_state: TaskState) {
         self.mutate(move |state| state.task_state = task_state);
+    }
+
+    pub fn record_available_output(
+        &self,
+        artifact_id: ArtifactKey,
+        cached_reference: CachedArtifactReference,
+    ) -> Result<()> {
+        if cached_reference.artifact_id != artifact_id {
+            bail!(
+                "cached reference artifact_id must match available output artifact_id: {} != {}",
+                cached_reference.artifact_id,
+                artifact_id
+            );
+        }
+        self.mutate(move |state| {
+            state.available_outputs.insert(
+                artifact_id.clone(),
+                OutputAvailabilitySnapshot { artifact_id, cached_reference },
+            );
+        });
+        Ok(())
     }
 
     pub fn mark_pending(&self, invocation_id: &str) {
@@ -538,6 +570,7 @@ impl RunProgressTracker {
             pending_stages,
             running_stages,
             blocked_stages,
+            available_outputs: state.available_outputs.values().cloned().collect(),
         }
     }
 }

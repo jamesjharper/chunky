@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
@@ -17,9 +18,10 @@ from ..Bindings.binding_models import (
 )
 from ..Bindings.bindings import ArtifactBindingsProvider, abort_writers, close_instances
 from ..Artifacts.artifact_handles import ArtifactTargetHandle
-from ..Artifacts.artifact_models import ArtifactKey
+from ..Artifacts.artifact_models import ArtifactKey, CachedArtifactReference
 from ..Stages.stage_manifest import StageManifest
 from ..Stages.stage_models import (
+    CancellationOrigin,
     CancellationSource,
     InMemoryStageProgressReporter,
     StageExecutionContext,
@@ -42,12 +44,51 @@ class InvocationRunResult:
     waited_for_writer: bool
 
 
+class OutputStatus(str, Enum):
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class TargetMaterializationStatus(str, Enum):
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class TargetMaterializationResult:
+    index: int
+    status: TargetMaterializationStatus
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class OutputResult:
+    artifact_id: ArtifactKey
+    status: OutputStatus
+    fingerprint: str
+    cached_reference: CachedArtifactReference | None
+    targets: tuple[TargetMaterializationResult, ...] = ()
+    error_ids: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True)
 class TaskRunResult:
     task_id: str
     output_fingerprints: dict[ArtifactKey, str]
     events: tuple[str, ...]
     materialized_targets: dict[ArtifactKey, int] | None = None
+    outputs: dict[ArtifactKey, OutputResult] | None = None
+
+
+def _durable_cached_reference_for(
+    instance: ArtifactInstance[Any],
+    cache_policy: dict[ArtifactKey, Any],
+) -> CachedArtifactReference | None:
+    declaration = instance.handle.declaration
+    policy = cache_policy.get(declaration.artifact_id)
+    if not declaration.cacheable or getattr(policy, "do_not_cache", False):
+        return None
+    return CachedArtifactReference(declaration.artifact_id, instance.fingerprint)
 
 
 class ArtifactRunState:
@@ -140,6 +181,7 @@ class ExampleTaskRunner:
         events: list[str] = []
         output_fingerprints: dict[ArtifactKey, str] = {}
         materialized_targets: dict[ArtifactKey, int] = {}
+        output_results: dict[ArtifactKey, OutputResult] = {}
 
         try:
             progress_tracker.set_task_state(TaskState.RUNNING)
@@ -198,11 +240,65 @@ class ExampleTaskRunner:
                     raise KeyError(
                         f"no caller materialization target supplied for {artifact_id}"
                     ) from exc
+
+                cached_reference = _durable_cached_reference_for(instance, cache_policy or {})
+                output_fingerprints[artifact_id] = instance.fingerprint
+                if cached_reference is not None:
+                    progress_tracker.record_available_output(artifact_id, cached_reference)
+
+                if not targets:
+                    if cached_reference is None:
+                        raise RuntimeError(
+                            f"target-less output {artifact_id} is not durably retrievable"
+                        )
+                    output_results[artifact_id] = OutputResult(
+                        artifact_id=artifact_id,
+                        status=OutputStatus.SUCCEEDED,
+                        fingerprint=instance.fingerprint,
+                        cached_reference=cached_reference,
+                    )
+                    events.append(f"published {artifact_id} for later retrieval")
+                    continue
+
+                target_results: list[TargetMaterializationResult] = []
                 for index, target in enumerate(targets, start=1):
                     cancellation.raise_if_cancelled()
-                    await self._artifact_bindings_provider.materialize(instance, target)
+                    try:
+                        await self._artifact_bindings_provider.materialize(instance, target)
+                    except BaseException as exc:
+                        target_results.append(
+                            TargetMaterializationResult(
+                                index=index,
+                                status=TargetMaterializationStatus.FAILED,
+                                error=str(exc),
+                            )
+                        )
+                        output_results[artifact_id] = OutputResult(
+                            artifact_id=artifact_id,
+                            status=OutputStatus.FAILED,
+                            fingerprint=instance.fingerprint,
+                            cached_reference=cached_reference,
+                            targets=tuple(target_results),
+                            error_ids=(type(exc).__name__,),
+                        )
+                        events.append(
+                            f"failed materializing {artifact_id} to target {index}"
+                        )
+                        raise
                     materialized_targets[artifact_id] = index
-                output_fingerprints[artifact_id] = instance.fingerprint
+                    target_results.append(
+                        TargetMaterializationResult(
+                            index=index,
+                            status=TargetMaterializationStatus.SUCCEEDED,
+                        )
+                    )
+                output_results[artifact_id] = OutputResult(
+                    artifact_id=artifact_id,
+                    status=OutputStatus.SUCCEEDED,
+                    fingerprint=instance.fingerprint,
+                    cached_reference=cached_reference,
+                    targets=tuple(target_results),
+                )
                 events.append(f"materialized {artifact_id} to {len(targets)} target(s)")
 
             progress_tracker.set_task_state(TaskState.COMPLETED)
@@ -211,6 +307,7 @@ class ExampleTaskRunner:
                 output_fingerprints=output_fingerprints,
                 events=tuple(events),
                 materialized_targets=materialized_targets,
+                outputs=output_results,
             )
         except BaseException as exc:
             terminal = (
@@ -224,8 +321,12 @@ class ExampleTaskRunner:
                 output_fingerprints=output_fingerprints,
                 events=tuple(events),
                 materialized_targets=materialized_targets,
+                outputs=output_results,
             )
-            status = RunStatus.CANCELLED if cancellation.is_cancelled else RunStatus.FAILED
+            if cancellation.is_cancelled and cancellation.origin is CancellationOrigin.SHUTDOWN:
+                status = RunStatus.SHUTDOWN_INTERRUPTED
+            else:
+                status = RunStatus.CANCELLED if cancellation.is_cancelled else RunStatus.FAILED
             raise RunExecutionError(
                 RunResult(
                     task_id=task_id,

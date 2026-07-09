@@ -208,6 +208,18 @@ full supplied calculation =
 
 The nested `content` field is not always literally `stable_hash({ ... })`; it is whatever stable semantic digest the source handle defines. The examples above show the full enclosing payload shape.
 
+### Cached-instance reference fingerprint shape
+
+A concrete cached-instance reference is the pair:
+
+```text
+CachedArtifactReference = { artifact_id, fingerprint }
+```
+
+The `fingerprint` is the final artifact fingerprint produced by either the supplied-artifact or stage-produced fingerprint builder. It is not recalculated from cache bytes when the reference is used. Rebinding validates that the cache entry metadata matches the paired `artifact_id`, declaration version, role, codec metadata, and fingerprint.
+
+For cacheable provided roots, the reference returned by binding-time publication or direct cache IO uses the supplied-artifact fingerprint. For stage-produced artifacts, it uses the stage-produced artifact fingerprint. The same reference shape works for both because the fingerprint already commits to the correct lineage source.
+
 ### Stage-produced artifact fingerprint builder
 
 __Use:__
@@ -358,36 +370,36 @@ The important recursive property is:
 After the graph shape is known, the planner can derive the expected fingerprint for each artifact edge by walking forward from available inputs.
 
 ```text
-  source::audio ──────────── source_audio_fp
+  source//audio ──────────── source_audio_fp
          │
          ▼
  ┌───────────────┐
- │ prepare_audio │ ───────── audio::settings ── audio_settings_fp
+ │ prepare_audio │ ───────── audio//settings ── audio_settings_fp
  └───────────────┘
          │
          ▼
-  audio::prepared ────────── audio_prepared_fp
+  audio//prepared ────────── audio_prepared_fp
          │
          ▼
    ┌────────────┐
-   │ transcribe │ ────────── asr::settings ─── asr_settings_fp
+   │ transcribe │ ────────── asr//settings ─── asr_settings_fp
    └────────────┘
          │
          ▼
- transcript::token_text ──── transcript_token_text_fp
+ transcript//token_text ──── transcript_token_text_fp
 ```
 
 ```text
 source_audio_fp =
   hash(
-    source::audio identity,
-    source::audio content fingerprint
+    source//audio identity,
+    source//audio content fingerprint
   )
 
 audio_settings_fp =
   hash(
-    audio::settings identity,
-    audio::settings content fingerprint
+    audio//settings identity,
+    audio//settings content fingerprint
   )
 
 prepare_audio_stage_fp =
@@ -399,14 +411,14 @@ prepare_audio_stage_fp =
 prepare_audio_pedigree_fp =
   hash(
     prepare_audio_stage_fp,
-    { "source::audio": source_audio_fp },
+    { "source//audio": source_audio_fp },
     audio_settings_fp
   )
 
 audio_prepared_fp =
   hash(
-    audio::prepared identity,
-    audio::prepared codec identity,
+    audio//prepared identity,
+    audio//prepared codec identity,
     prepare_audio_pedigree_fp
   )
 
@@ -419,14 +431,14 @@ transcribe_stage_fp =
 transcribe_pedigree_fp =
   hash(
     transcribe_stage_fp,
-    { "audio::prepared": audio_prepared_fp },
+    { "audio//prepared": audio_prepared_fp },
     asr_settings_fp
   )
 
 transcript_token_text_fp =
   hash(
-    transcript::token_text identity,
-    transcript::token_text codec identity,
+    transcript//token_text identity,
+    transcript//token_text codec identity,
     transcribe_pedigree_fp
   )
 ```
@@ -450,9 +462,12 @@ __Current behavior:__
 - Intermediate in-memory handles also return `""`; produced identity comes from pedigree.
 - Runtime validates that resolved cache instances and output writers match the `expected_fingerprint` recorded in the execution plan.
 - A sink change alone must not change semantic fingerprint identity for the same requested artifact.
+- Publishing a provided root to cache does not create a new fingerprint; it stores the supplied-artifact fingerprint already assigned to that root.
+- Direct cache IO must use the same final fingerprint builders as run-time binding and execution.
+- A cached-root reference must pair the final fingerprint with the semantic artifact ID; a bare fingerprint is not enough public type information.
 
 ## Scope boundary
 
-This document specifies fingerprint payload composition and runtime expectations.
+This document specifies fingerprint payload composition and runtime expectations, including the final fingerprints carried by cached-instance references.
 
 The planner algorithm that discovers which stages, inputs, and settings participate in a given pedigree is specified in the planning docs. Once that selection is made, this document defines how the selected pieces are hashed.

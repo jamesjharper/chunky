@@ -42,7 +42,7 @@ An `ArtifactSourceHandle` represents one already-selected source for a concrete 
 - a caller-supplied file;
 - a caller-supplied in-memory object;
 - an in-memory value produced earlier in the same task;
-- a cache entry with an active read reservation.
+- a cache entry with an active read reservation, including one opened from a concrete cached-instance reference.
 
 ```python
 class ArtifactSourceHandle(Protocol[T]):
@@ -154,6 +154,21 @@ class CacheFileSourceHandle(Generic[T]):
 ```
 
 A production cache source handle should be created only after the cache coordinator has validated the cache entry and acquired its read reservation, and `close()` should release that reservation. The executable example deliberately mocks this part: it validates cache metadata but only records local closed state and does not implement a durable read reservation.
+
+## Cached Artifact References
+
+A cached artifact reference is not a source handle by itself. It is a durable pointer to one committed cache entry:
+
+```python
+@dataclass(frozen=True)
+class CachedArtifactReference:
+    artifact_id: ArtifactKey
+    fingerprint: str
+```
+
+Before a stage or planner can use it, artifact binding must validate the reference against the manifest declaration and cache metadata, acquire a cache read reservation, and turn it into an `ArtifactInstance` whose source is a cache-backed `ArtifactSourceHandle`.
+
+For settings artifacts, this binding may happen before normal graph planning so settings values can participate in deterministic requirement and output-capability resolution. For other root types, the rebound cache source behaves like any other supplied artifact root.
 
 ## Artifact Target Handle
 
@@ -391,6 +406,8 @@ class ArtifactWriter(Generic[T]):
                 await target.abort()
 ```
 
+Cacheable provided roots use the same target lifecycle when they are published into durable cache during binding. The binding layer first computes the supplied-artifact fingerprint from the source handle, then writes that semantic instance to a reserved cache target unless the exact artifact policy has `do_not_cache=True`. This publication is separate from stage output writing and does not change supplied-root planning semantics.
+
 For a cacheable artifact that must be produced, the runner binds two semantic output targets:
 
 1.  the reserved durable cache target;
@@ -409,3 +426,12 @@ If the durable cache commit fails:
 
 If the semantic artifact commits successfully but a later caller-provided materialization fails, the semantic cache entry remains valid. A subsequent run may reuse the cached artifact and retry materialization without rerunning the producing stage.
 
+
+
+## Recommended Invariants
+
+1. `ArtifactHandle.declaration.artifact_id` is the resolved semantic artifact ID.
+2. Concrete cached-instance references must be rebound into cache source handles before use.
+3. A cache source handle owns an active read reservation from binding until close.
+4. Provided-root cache publication uses the same prepare/commit/abort target lifecycle as stage-produced cache publication.
+5. Settings roots opened from cache may be read before planning; other opened roots behave like supplied graph roots after binding.

@@ -18,6 +18,7 @@ The run contract must:
 - support multiple outputs from one shared dependency graph;
 - support ordered materialization fan-out for one artifact;
 - treat source inputs, settings, intermediates, targets, and diagnostics as artifacts;
+- support explicit cached-root references for upload-first and saved-task workflows;
 - resolve default settings lazily, only when planning determines they are relevant;
 - make cache reuse deterministic, explainable, and safe;
 - expose per-artifact cache-use intent without exposing backend-specific knobs;
@@ -39,6 +40,8 @@ The first version does not need to support:
 - reachability-aware cache garbage collection.
 
 Restart recovery is expected to come from normal semantic cache reuse when the same work is submitted again. It is not a job-resume guarantee.
+
+A future persisted-task layer may store task configuration records for later re-submission. Such records are expected to contain task metadata and configuration, not live scheduler state or persisted run status. Restart-time recovery means reconstructing an equivalent request against a compatible planning-visible pipeline configuration, then rediscovering completed work through the artifact cache. If the saved task configuration no longer matches the available pipeline configuration, the task may remain stored but cannot start until a matching configuration is available.
 
 ## Pipeline Configuration
 
@@ -234,7 +237,7 @@ result = await pipeline.run(
 )
 ```
 
-Cache policy targets exact concrete artifact IDs. Unknown artifact IDs fail validation. Known but unreachable policy targets are ignored with diagnostics.
+Cache policy targets exact semantic artifact IDs. Unknown artifact IDs fail validation. Known but unreachable policy targets are ignored with diagnostics.
 
 The policy directives are orthogonal:
 
@@ -242,21 +245,37 @@ The policy directives are orthogonal:
 - `do_not_cache` affects write/publish-to-cache for the current run;
 - `desired_ttl` applies only when creating a new cache entry and does not mutate an existing entry's TTL.
 
+### Supplied Root Cache Publication
+
+A caller-provided graph root whose declaration is cacheable is published into the artifact cache by default during binding. This applies uniformly to supplied source artifacts, supplied settings artifacts, and explicitly supplied intermediate artifacts.
+
+This publication does not change graph shape or supplied-root precedence. The supplied artifact remains the root selected for the current run; cache publication only makes the same semantic instance durable for later reuse, saved-task re-submission, upload-first workflows, or materialization retry.
+
+`cache_policy[artifact_id].do_not_cache` opts out for that exact root. The root can still be used in the current run, but a future persisted task that depends on an uncached provided root is not restartable because its durable root set is incomplete.
+
+### Direct Artifact Cache IO
+
+Chunky also reserves a dedicated artifact-cache IO surface separate from `run(...)` and `run_away(...)`. It lets callers publish artifact content into cache and retrieve published instances without constructing a run request solely for cache population or inspection.
+
+The interface is semantic and handle-based: callers use artifact declarations or artifact IDs plus source or target handles. It must not expose backend-native cache paths, object keys, or lock records. Direct cache writes must use the same fingerprinting, metadata validation, reservation, and atomic publish rules as run-time cache publication. A directly published artifact is therefore a normal cache entry, not a weaker side channel.
+
+Direct cache IO returns or accepts a concrete cached-instance reference of the form `artifact_id + fingerprint`. When such a reference is later used as a provided root, planning treats it like the same artifact supplied normally, apart from provenance diagnostics.
+
 ## Run Request Model
 
 A `RunRequest` is the canonical language-neutral request shape.
 
 ```text
 RunRequest
-  inputs: map<ArtifactId, SourceHandle>
-  outputs: map<ArtifactId, TargetHandle | ordered-list<TargetHandle>>
+  inputs: map<SemanticArtifactId, SourceHandle | CachedArtifactReference>
+  outputs: map<SemanticArtifactId, TargetHandle | ordered-list<TargetHandle>>
   run_policy?: PlanningRunPolicy
-  cache_policy?: map<ArtifactId, ArtifactCachePolicy>
+  cache_policy?: map<SemanticArtifactId, ArtifactCachePolicy>
 ```
 
 Required fields:
 
-- `inputs`: caller-supplied source artifacts, settings artifacts, or explicitly supplied intermediate artifacts;
+- `inputs`: caller-supplied source artifacts, settings artifacts, explicitly supplied intermediate artifacts, or explicit cached-root references for those same semantic artifacts;
 - `outputs`: requested semantic artifact IDs and their caller materialization targets.
 
 Optional fields:
@@ -266,7 +285,7 @@ Optional fields:
 
 `run_policy` must not suppress requested outputs or weaken materialization obligations.
 
-## Artifact Addressing
+## Artifact Addressing and References
 
 Request fields use `ArtifactKey` values or their string form:
 
@@ -307,6 +326,23 @@ Normalization is deterministic:
 - duplicate artifact IDs are rejected;
 - structural validation errors across `inputs`, `outputs`, and `cache_policy` should be accumulated and reported together.
 
+The public model distinguishes two related address kinds:
+
+- a **semantic artifact ID** says what artifact is needed, produced, cached, or materialized;
+- a **concrete cached-instance reference** says which published artifact instance should be rebound as a provided root.
+
+The concrete reference shape is:
+
+```text
+CachedArtifactReference
+  artifact_id: SemanticArtifactId
+  fingerprint: ArtifactFingerprint
+```
+
+Plain semantic artifact IDs remain the default for normal planning, outputs, and cache policy. Concrete cached-instance references are explicit pinning mechanisms used by saved-task and upload-first workflows. The fingerprint is not an untyped global identifier: it must be paired with the semantic artifact ID and validated against the manifest declaration and cache metadata before binding.
+
+The textual representation should remain compatible with a future URI form, but this overview does not standardize the final URI syntax.
+
 ## Settings and Defaults
 
 Settings are normal artifacts. They are read by stages through normal input bindings and participate in produced-artifact fingerprints like any other effective input.
@@ -314,6 +350,8 @@ Settings are normal artifacts. They are read by stages through normal input bind
 Caller-supplied settings are bound before planning. Declaration defaults are resolved lazily: the planner owns relevance discovery and requests only the defaults needed by the request-specific graph.
 
 A resolved default behaves exactly like a supplied graph root after it is bound. Default-source providers must be deterministic and local to the setting declaration plus optional caller override; they must not inspect broader request shape, planner state, cache state, wall-clock time, or resource availability.
+
+A cached settings root referenced by `artifact_id + fingerprint` may be bound and read before normal graph planning proceeds, so planning hooks see the same settings value they would have seen from an ordinary supplied settings source.
 
 ## Minimal Stage and Artifact Contract
 
@@ -374,7 +412,9 @@ install features
   -> freeze and validate StageManifest
   -> accept RunRequest
   -> normalize and validate inputs, outputs, and cache_policy
-  -> bind caller-supplied graph roots
+  -> bind caller-supplied and cached graph roots
+       -> publish cacheable provided roots unless opted out
+       -> read cached settings roots needed for planning
   -> plan shared artifact dependency DAG
        -> resolve relevant default settings on demand
        -> calculate expected fingerprints
@@ -412,7 +452,7 @@ If a run fails after producing semantic artifacts or writing some caller targets
 10. Request artifact mappings normalize deterministically into concrete `ArtifactKey` values.
 11. Request structural validation aggregates deterministic shape errors.
 12. `run_policy` must not suppress requested outputs.
-13. `cache_policy` targets exact concrete artifact IDs only.
+13. `cache_policy` targets exact semantic artifact IDs only.
 14. Unknown cache-policy artifact IDs fail validation; known unreachable ones produce diagnostics.
 15. Supplied inputs are bound before graph planning begins.
 16. Default settings are resolved lazily for relevant settings only.
@@ -432,3 +472,11 @@ If a run fails after producing semantic artifacts or writing some caller targets
 30. A materialization failure fails the run but does not invalidate a committed semantic artifact.
 31. Successful materialization side effects are reported, not rolled back.
 32. Per-run manifest overrides are out of scope for this public contract.
+33. Cacheable provided roots are published to cache by default during binding.
+34. `cache_policy.do_not_cache` opts out of both produced-artifact cache publication and provided-root cache publication for the exact artifact.
+35. A saved task with any uncached provided root is not restartable because the durable root set is incomplete.
+36. Direct artifact-cache IO is semantic and handle-based, not backend-path-based.
+37. Direct cache writes obey the same fingerprinting, metadata, reservation, and atomic-publish rules as run-time cache publication.
+38. A concrete cached-instance reference is `artifact_id + fingerprint`, not a bare fingerprint.
+39. Plain semantic artifact IDs remain the default public addressing form.
+40. Cached settings roots may be early-bound for planning when explicitly referenced as provided roots.

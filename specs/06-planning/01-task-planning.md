@@ -1,10 +1,11 @@
 # Chunky Run Contract - Graph Creation
 
+WORK IN PROGRESS 
 ## Purpose
 
 This document defines how a `RunRequest` is resolved into a request-specific graph of stage invocations.
 
-Graph creation is responsible for deciding **what work exists**. It starts from a frozen `StageManifest`, applies one request, resolves supplied roots, producer paths, stage requirements, settings propagation, optional paths, and invocation deduplication, then emits a stable request graph that later execution code can fingerprint, cache-check, schedule, and materialize.
+Graph creation is responsible for deciding **what work exists**. It starts from a frozen `StageManifest`, applies one request, resolves supplied roots, cached roots, producer paths, stage requirements, settings propagation, optional paths, and invocation deduplication, then emits a stable request graph that later execution code can fingerprint, cache-check, schedule, and materialize.
 
 Graph creation is not responsible for:
 
@@ -22,7 +23,7 @@ The main public planning interface is `TaskRunPlanner`.
 `TaskRunPlanner` owns the manifest-scoped planning services and exposes a single request-level entry point, `plan(...)`. 
 
 A caller gives `plan(...)` 
-- the artifacts already supplied for this request, 
+- the artifacts already supplied or rebound from explicit cached-root references for this request, 
 - the outputs the caller wants to materialize, 
 - and the run policy that should shape planning and execution behavior. 
 
@@ -38,7 +39,7 @@ graph = planner.plan(
 )
 ```
 
-__`supplied_instances`__ contains the request roots that are already available before planning starts. These may include source artifacts, settings artifacts, or intermediate artifacts supplied by the caller. Supplied instances are considered before producer paths, so a supplied artifact can satisfy a requirement without adding a producing stage invocation to the graph.
+__`supplied_instances`__ contains the request roots that are already available before planning starts. These may include source artifacts, settings artifacts, or intermediate artifacts supplied by the caller, plus artifacts rebound from explicit `artifact_id + fingerprint` cached-root references. Supplied instances are considered before producer paths, so a supplied or rebound artifact can satisfy a requirement without adding a producing stage invocation to the graph.
 
 __`requested_outputs`__ is the set of terminal artifact IDs the caller wants from this run. Planning starts from these outputs and walks backward through the stage manifest until every required input is satisfied by either a supplied instance or a planned producer invocation.
 
@@ -320,10 +321,11 @@ It performs these steps:
 
 1. Validate that at least one requested output exists in the manifest.
 2. Build or reuse the manifest graph.
-3. Read supplied/default settings into `PlannerRequestSettings`.
-4. Build a `TaskRequestContext`.
-5. Build a `TaskRequestGraph`.
-6. Build a task execution graph from the request graph.
+3. Read supplied settings and explicitly referenced cached settings roots into `PlannerRequestSettings`.
+4. Resolve declaration defaults lazily only when relevance is discovered during graph construction.
+5. Build a `TaskRequestContext`.
+6. Build a `TaskRequestGraph`.
+7. Build a task execution graph from the request graph.
 
 It should not directly contain artifact-resolution, producer-selection, settings-propagation, or cache-coordination logic.
 
@@ -336,13 +338,13 @@ It is intentionally separate from `PlannerRequestSettings`, which is only reques
 Settings precedence is:
 
 ```text
-default settings
+declaration default
 < inherited path-specific settings
-< user-configured settings
+< caller-supplied or cached-root settings
 < path-pushed inherited settings
 ```
 
-This means path-pushed inherited settings override user configuration. User configuration overrides defaults.
+Caller-supplied and explicitly cached settings roots always override declaration defaults. Path-pushed inherited settings are graph-edge-specific overlays used when a requirement explicitly pushes settings along that path.
 
 #### `ProducerSelector`
 
@@ -584,6 +586,8 @@ For phased intermediate families, a concrete supplied phase may satisfy a bounde
 
 A supplied artifact becomes an `ArtifactResolution` with no producer invocation key.
 
+A cached-root reference is resolved before this step by the pipeline or binding layer. Once it becomes an `ArtifactInstance`, producer selection treats it exactly like an ordinary supplied root. Cache availability is not searched speculatively during planning; only roots explicitly selected by the request may enter this path.
+
 ### 3.5 Producer Selection
 
 When no inherited or supplied root satisfies a need, the planner selects a producer.
@@ -797,6 +801,10 @@ Their fingerprints are derived from:
 
 Settings artifacts use the same supplied-artifact fingerprinting rule after defaults, user values, and path-pushed inherited overrides have been resolved.
 
+A cached root does not receive a new fingerprint during planning. Its reference already contains the final artifact fingerprint that was validated during binding. For a cached settings root, the planner may read the rebound value before requirement resolution, but the fingerprint remains the paired reference fingerprint.
+
+Provided-root cache publication is not a planning operation. It stores the supplied root under its supplied-artifact fingerprint during binding and does not change graph shape, producer choice, or instance identity.
+
 ### 6.2 Invocation Pedigree Fingerprints
 
 A stage invocation pedigree fingerprint should be calculated from:
@@ -833,6 +841,8 @@ They must not be confused with final semantic artifact fingerprints used for cac
 The evaluated request graph must be built without consulting cache availability.
 
 Runtime cache behavior applies later to the already-planned requested output subset of each invocation.
+
+Explicit cached-root references are the exception only in the sense that they are bound before planning as provided roots. They do not cause the planner to probe cache state or choose a different producer path.
 
 For each planned invocation, cache skipping may occur only when all outputs explicitly requested from that invocation are available as supplied artifacts or cache-reserved hits. Incidental outputs are not part of the skip decision.
 
@@ -925,3 +935,6 @@ Graph creation should preserve these invariants:
 15. Cache skipping considers only the explicit requested output subset, not incidental outputs.
 16. Final invocation IDs and dependency indexes are assigned only after the graph is topologically ordered.
 17. Scheduling and runtime execution must not call stage planning hooks in a way that changes graph shape.
+18. Explicit cached-root references behave like supplied roots after binding.
+19. Cacheable provided-root publication is outside graph creation and must not affect graph shape.
+20. Cached settings roots may be read before planning so deterministic planning hooks can inspect their values.

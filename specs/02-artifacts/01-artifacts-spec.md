@@ -21,7 +21,7 @@ Artifact IDs must not encode:
 - task IDs;
 - incidental output filenames.
 
-Artifact IDs may include a namespace when it improves semantic clarity. Artifact that represent settings that are private to a single stage may include implementation-specific naming, but those details should still describe the setting’s meaning rather than its storage format.
+Artifact IDs may include a namespace when it improves semantic clarity. Artifacts that represent settings private to one stage may include implementation-specific naming, but those details should still describe the setting's meaning rather than its storage format.
 
 ### Identity format
 ```text
@@ -121,6 +121,27 @@ For catalog purposes:
 
 The stage manifest must reject phase usage on a non-intermediate declaration.
 
+## Artifact References
+
+The model distinguishes semantic artifact identity from concrete cached-instance identity.
+
+A semantic artifact ID identifies what a run needs or can produce. It is the normal address used in stage capabilities, requirements, outputs, and cache policy.
+
+A concrete cached-instance reference identifies one previously published artifact instance:
+
+```python
+@dataclass(frozen=True)
+class CachedArtifactReference:
+    artifact_id: ArtifactKey
+    fingerprint: str
+```
+
+The fingerprint is always paired with the semantic artifact ID. A bare fingerprint is not a complete public artifact reference because it does not carry the declaration role, schema, or validation context.
+
+Concrete cached-instance references are explicit pinning inputs for upload-first and saved-task workflows. Once validated and rebound from cache, the instance behaves like an ordinary supplied graph root. Plain semantic artifact IDs remain the default for normal planning and materialization.
+
+The eventual string syntax should be URI-compatible, but this spec only fixes the semantic shape: `artifact_id + fingerprint`.
+
 ## Artifact Roles
 Every artifact has exactly one role:
 
@@ -136,7 +157,7 @@ class ArtifactRole(str, Enum):
 ### Source role 
 Source artifacts are externally supplied inputs.
 
-Source artifacts are always fingerprinted. They are only copied into or retained in durable artifact storage when enabled via the artifacts behavior at task initialization. Source retention supports resume after service restart or loss of access to the original external input, but at the cost of retaining potentially large media files.
+Source artifacts are always fingerprinted. When a cacheable source artifact is supplied as a graph root, it is published into durable artifact cache by default during binding unless the request's exact per-artifact cache policy opts out with `do_not_cache`. Source publication supports saved-task re-submission and later reuse when the original external input is unavailable.
 
 __Example:__
 ```text
@@ -150,25 +171,19 @@ __Example as input file:__
 inputs={
   "source//audio": AudioSource.from_file_path("input.wav"),
 }
-cache_behavior={
-  "source//audio": {
-    is_cached: True/False
-  },
+cache_policy={
+  "source//audio": ArtifactCachePolicy(do_not_cache=True),
 }
 ```
 
 ### Settings role
 Settings artifacts are resolved configuration values.
 
-Settings resolution order is:
+Settings are normal artifacts. A caller-supplied settings artifact takes precedence over the declaration default for that artifact. Declaration defaults are resolved lazily only after planning determines that the setting is relevant. Path-pushed or inherited settings are planner-owned effective-settings overlays, not a separate hidden configuration channel.
 
-```text
-1. declaration defaults
-2. user-configured settings
-3. path-pushed inherited settings
-```
+The fully resolved effective settings value is fingerprinted. A defaulted settings value is treated as a supplied graph-root value after it is resolved, even when the caller did not explicitly provide it. Cacheable supplied or defaulted settings roots are published to cache by default unless the exact artifact policy opts out with `do_not_cache`.
 
-The fully resolved effective settings value is fingerprinted. A defaulted settings value is treated as a supplied graph-root value, even when the caller did not explicitly provide it.
+A cached settings root may be provided as `artifact_id + fingerprint`. The pipeline may bind and read that cached settings value before graph planning so settings-dependent planning hooks see the same value they would see from an ordinary supplied settings source.
 
 __Examples:__
 ```text
@@ -202,7 +217,7 @@ inputs={
 ### Intermediate role
 Intermediate artifacts are produced by one stage and consumed by another.
 
-Intermediate artifacts are cached by default. Their availability controls dependency readiness and downstream data flow. Stage-produced intermediates are not fingerprinted from their content values. Their fingerprint is derived from the operations and artifact fingerprints that produced them. If an intermediate artifact is explicitly supplied as part of a task configuration, it is fingerprinted as a supplied input instead.
+Intermediate artifacts are cached by default when their declaration is cacheable. Their availability controls dependency readiness and downstream data flow. Stage-produced intermediates are not fingerprinted from their content values. Their fingerprint is derived from the operations and artifact fingerprints that produced them. If an intermediate artifact is explicitly supplied as part of a task configuration, it is fingerprinted as a supplied input instead and published to cache by default unless the exact artifact policy opts out.
 
 
 __Examples:__
@@ -504,3 +519,15 @@ class AsrRepairStage:
             )
         ]
 ```
+
+
+## Recommended Invariants
+
+1. Artifact IDs describe semantic meaning, not storage location or producer instance.
+2. Artifact roles are declaration-level properties and do not change when an artifact is requested as an output.
+3. A concrete cached-instance reference is `artifact_id + fingerprint`, not a bare fingerprint.
+4. Plain semantic artifact IDs remain the default request and planning address.
+5. Cacheable provided roots are published to cache by default unless exact artifact policy opts out.
+6. Caller-supplied settings take precedence over declaration defaults.
+7. Defaults are resolved lazily only for settings relevant to the request-specific graph.
+8. Resolved defaults and cached settings roots behave like supplied graph roots after binding.

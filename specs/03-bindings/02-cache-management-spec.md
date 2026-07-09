@@ -24,7 +24,7 @@ Cache management is responsible for:
 - acquiring shared read reservations for valid hits;
 - acquiring exclusive write reservations for missing or deliberately refreshed entries;
 - returning an explicit wait result when another task owns the write reservation;
-- publishing prepared cache values atomically;
+- publishing prepared cache values atomically, including provided roots published during binding;
 - releasing reservations after commit, abort, source close, cancellation, or recovery;
 - preventing garbage collection from racing active readers and writers;
 - detecting and recovering stale reservations and incomplete entries;
@@ -39,7 +39,8 @@ Cache management is not responsible for:
 - deciding when a stage has enough resources to run;
 - waiting internally on behalf of the scheduler;
 - materializing semantic artifacts to caller-provided output paths;
-- calculating the production pedigree from the graph.
+- calculating the production pedigree from the graph;
+- deciding whether a run request should use a source handle or cached-root reference as a graph root.
 
 The cache receives an already-resolved artifact declaration and expected fingerprint. Graph creation owns the calculation of production pedigree. Artifact orchestration combines that pedigree with the resolved artifact declaration to calculate the final artifact fingerprint used by the cache.
 
@@ -56,6 +57,17 @@ The fingerprint is the primary lookup key, but a matching path or database key i
 Task IDs, invocation IDs, file paths, temporary paths, and reservation IDs are operational metadata. They must not be included in semantic cache identity.
 
 A caller-provided materialization path is not part of the cache key. The same semantic target artifact may be reused and materialized to different caller destinations without rerunning its producing stage.
+
+A public cached-instance reference must pair the semantic artifact ID with the final artifact fingerprint:
+
+```python
+@dataclass(frozen=True)
+class CachedArtifactReference:
+    artifact_id: ArtifactKey
+    fingerprint: str
+```
+
+The cache may physically index primarily by fingerprint, but public rebinding must validate both the fingerprint and the expected artifact declaration metadata. Fingerprints are not treated as untyped global object IDs.
 
 ## Cache Entry Model
 
@@ -151,6 +163,36 @@ Only `committed` entries may be returned as hits.
 `preparing` data belongs to an active write reservation and must not be visible through normal lookup. `invalid`, `quarantined`, and `deleting` entries must not be returned as hits.
 
 The file-cache example treats the final metadata file as the completion marker. Data may be staged or even moved into its final data location first, but the entry is not considered complete until the matching metadata is atomically published.
+
+## Provided-Root Publication and Direct Cache IO
+
+Cacheable provided roots are published to durable cache by default during binding unless the request's exact per-artifact policy sets `do_not_cache=True`. This applies to caller-supplied sources, settings, and explicitly supplied intermediates.
+
+Publication uses the supplied-artifact fingerprint already calculated from the artifact declaration and source handle content fingerprint. It must go through the same reservation, preparation, metadata validation, commit, abort, and waiter-notification rules as any other cache write. It must not create a weaker cache-entry class.
+
+If a valid committed entry already exists for the supplied fingerprint, the cache may return or confirm the corresponding `CachedArtifactReference` without rewriting the entry. A request-level `desired_ttl` applies only when a new entry is created and must not mutate the TTL of an existing entry.
+
+The direct artifact-cache IO interface is a public convenience over the same semantics:
+
+```python
+class ArtifactCacheIO(Protocol):
+    async def publish(
+        self,
+        declaration: ArtifactDeclaration[T],
+        source: ArtifactSourceHandle[T],
+        *,
+        policy: PerArtifactCachePolicy | None = None,
+    ) -> CachedArtifactReference: ...
+
+    async def open(
+        self,
+        reference: CachedArtifactReference,
+    ) -> ArtifactInstance[T]: ...
+```
+
+`publish` computes the supplied-artifact fingerprint, writes a committed cache entry under that fingerprint, and returns `artifact_id + fingerprint`. `open` validates the paired artifact ID and fingerprint, acquires a normal cache read reservation, and returns a cache-backed source handle. Neither operation exposes backend paths, object-store keys, reservation IDs, or raw lock records.
+
+A cached root opened by reference changes availability, not graph semantics. Once opened, it behaves like an ordinary supplied root. Cached settings roots may be opened and read before graph planning so settings-dependent planning hooks receive their values.
 
 ## Cache Resolution Contract
 
@@ -1338,3 +1380,8 @@ It does not change because:
 18. Supplied artifacts are fingerprinted from identity plus semantic content.
 19. Stage-produced artifacts are fingerprinted from resolved identity and codec plus production pedigree.
 20. Fingerprint aggregation is deterministic and order-stable.
+21. Cacheable provided roots are published to cache by default unless exact artifact policy opts out.
+22. Direct cache IO uses artifact declarations and handles, not backend paths or raw cache keys.
+23. Direct cache writes obey the same correctness and atomicity rules as run-time cache publication.
+24. A cached-instance reference is `artifact_id + fingerprint`; rebinding validates both.
+25. Cached settings roots may be opened before planning when explicitly supplied by reference.

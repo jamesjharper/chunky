@@ -30,9 +30,10 @@ The runner is also responsible for resolving the set of semantic artifacts actua
 
 This document distinguishes three binding categories:
 
-1. supplied bindings: graph-root artifacts provided by the caller;
-2. intermediate bindings: stage inputs and stage outputs used during task execution;
-3. output materialization bindings: caller-requested terminal outputs written after the semantic artifact instance is already known.
+1. supplied bindings: graph-root artifacts provided by the caller or pinned to a cached instance;
+2. provided-root cache publication: durable publication of cacheable supplied roots;
+3. intermediate bindings: stage inputs and stage outputs used during task execution;
+4. output materialization bindings: caller-requested terminal outputs written after the semantic artifact instance is already known.
 
 ### 1. Supplied bindings
 
@@ -60,9 +61,32 @@ class ArtifactBindingsProvider:
         )
 ```
 
-The result is an `ArtifactInstance` whose source handle is the caller-supplied source. No cache lookup is required because the caller has already supplied the concrete artifact content.
+The result is an `ArtifactInstance` whose source handle is the caller-supplied source. No cache lookup is required to select the root because the caller has already supplied the concrete artifact content.
 
-### 2. Intermediate bindings
+If the declaration is cacheable, binding also publishes the supplied root into cache by default unless the exact artifact policy has `do_not_cache=True`. Publication uses the supplied-artifact fingerprint already calculated for the instance and the same cache reservation and atomic publish lifecycle used by stage-produced artifacts. The cache publication result does not replace the current run's supplied source handle; it only makes the same semantic instance durable.
+
+A supplied root may instead be a `CachedArtifactReference`. That reference must pair the semantic artifact ID with the expected final fingerprint. Binding validates the manifest declaration and cache metadata, acquires a read reservation, and returns an `ArtifactInstance` backed by the reserved cache source. If the reference cannot be validated as a committed cache hit, binding fails before planning treats the root as available.
+
+Cached settings references may be rebound and read before graph planning so the planner's settings view contains the same value it would have received from a normal supplied settings handle.
+
+### 2. Provided-root cache publication
+
+Provided-root publication is a binding-time cache write, not a stage execution. The binding provider should expose a narrow operation such as:
+
+```python
+async def publish_supplied_root(
+    declaration: ArtifactDeclaration[T],
+    instance: ArtifactInstance[T],
+    *,
+    cache_policy: PerArtifactCachePolicy,
+) -> CachedArtifactReference | None: ...
+```
+
+The operation returns `None` when the declaration is not cacheable or the exact policy sets `do_not_cache=True`. Otherwise it atomically publishes the instance under its supplied-artifact fingerprint and returns `CachedArtifactReference(declaration.artifact_id, instance.fingerprint)`.
+
+If the cache already contains a valid committed entry for that fingerprint, the operation may validate and return the reference without rewriting it. `desired_ttl` applies only when a new entry is created and must not mutate an existing entry.
+
+### 3. Intermediate bindings
 
 Intermediate bindings cover both stage inputs and stage outputs. They allow stages to read and write semantic artifacts without knowing whether those artifacts are backed by cache, memory, or another runtime-specific handle.
 
@@ -287,7 +311,7 @@ produced_instances = resolve_produced_instances(writers)
 
 This keeps the stage execution contract independent from the number of outputs a stage chooses to write. `merge_stage_output_instances` merges cache-hit `available` instances with stage-produced instances by `artifact_id`, allowing newly produced values to replace provisional cache-hit entries for the same declared output when needed.
 
-### 3. Output materialization bindings
+### 4. Output materialization bindings
 
 Materialization reuses the semantic artifact source and a caller-provided target handle:
 
@@ -340,3 +364,6 @@ The focused `ExampleTaskRunner` demonstrates successful execution and cache-hit 
 8. Same-process stage-to-stage transfer uses an in-memory source and does not require serialization.
 9. Cache and file boundaries use the declaration codec through their concrete handles.
 10. Stage code sees semantic artifact keys and typed values, not cache paths, locks, or provider-selection logic.
+11. Cacheable provided roots are published to cache during binding unless exact policy opts out.
+12. A cached-root reference is validated and rebound into a reserved cache source before planning or execution consumes it.
+13. Directly published cached roots behave like ordinary supplied roots once selected by request configuration.

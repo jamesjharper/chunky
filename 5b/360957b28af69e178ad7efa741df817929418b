@@ -1,0 +1,22 @@
+specs/01-pipeline/pipeline-spec.md
+  h_6046a6be1688c0 166-167,170,177,184,193,195,197,200-205,207-212,214,233-242,244-254,256,259-261,266-267,276,293,295,302-303,309,400,427,482,486,492,551,562,660
+specs/02-artifacts/99-terminology.md
+  h_6046a6be1688c0 36-37,40,43-66
+specs/07-scheduling/eventing-and-task-control-model-spec.md
+  h_6046a6be1688c0 176,179,415,418,427,432,570-571,717-718
+specs/00-overview/01-run-contract-overview.md
+  h_6046a6be1688c0 47,50-67,91,94,108,111,130-131,135,140,142,156-157,160,163,168,181-182,187-188,190,201-202,206,209,211,228,231,236-238,241-245,247,257,260,263,266,296,302-303,307-309,316,322-323,328,336,344-345,347,352-353,364-378,381,384,410,412-417,420,422-424,426,436,523,564-565,569
+src/rust/crates/chunky/tests/support/mod.rs
+  h_6046a6be1688c0 207-223,228,234,238,240,278
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "5b360957b28af69e178ad7efa741df817929418b",
+  "prompts": {},
+  "humans": {
+    "h_6046a6be1688c0": {
+      "author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}

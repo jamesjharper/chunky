@@ -7,6 +7,7 @@
 //! outside this example crate.
 
 use anyhow::{bail, Result};
+use async_trait::async_trait;
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::pin::Pin;
@@ -19,7 +20,7 @@ use crate::artifact_bindings::ArtifactBindingsProvider;
 use crate::artifact_handles::{ArtifactSourceHandle, ArtifactTargetHandle};
 use crate::artifact_models::{AnyArtifactDeclaration, ArtifactKey, ArtifactRole};
 use crate::cache_models::ArtifactCache;
-use crate::execution_planner::{TaskRunGraphBuilder, TaskRunPlanner};
+use crate::execution_planner::{DefaultSettingsResolver, TaskRunGraphBuilder, TaskRunPlanner};
 use crate::fingerprints::FingerprintProvider;
 use crate::progress_models::{ProgressDispatcher, RunProgressTracker};
 use crate::stage_manifest::{StageManifest, StageManifestBuilder};
@@ -27,11 +28,19 @@ use crate::stage_models::{CancellationSource, PipelineFeature, PlanningRunPolicy
 use crate::task_control::{RunError, RunHandle, RunResult};
 use crate::task_runner::{ExampleTaskRunner, TaskRunGraph, TaskRunResult};
 
+#[derive(Clone, Debug, Default)]
+pub struct ArtifactCachePolicy {
+    pub ignore_existing_cache: bool,
+    pub do_not_cache: bool,
+    pub desired_ttl_seconds: Option<u64>,
+}
+
 #[derive(Clone, Default)]
 pub struct RunRequest {
     pub inputs: BTreeMap<ArtifactKey, Arc<dyn ArtifactSourceHandle>>,
-    pub outputs: BTreeMap<ArtifactKey, Arc<dyn ArtifactTargetHandle>>,
+    pub outputs: BTreeMap<ArtifactKey, Vec<Arc<dyn ArtifactTargetHandle>>>,
     pub run_policy: Option<PlanningRunPolicy>,
+    pub cache_policy: BTreeMap<ArtifactKey, ArtifactCachePolicy>,
 }
 
 impl RunRequest {
@@ -41,8 +50,21 @@ impl RunRequest {
     ) -> Self {
         Self {
             inputs,
+            outputs: outputs.into_iter().map(|(key, target)| (key, vec![target])).collect(),
+            run_policy: None,
+            cache_policy: BTreeMap::new(),
+        }
+    }
+
+    pub fn new_with_output_fanout(
+        inputs: BTreeMap<ArtifactKey, Arc<dyn ArtifactSourceHandle>>,
+        outputs: BTreeMap<ArtifactKey, Vec<Arc<dyn ArtifactTargetHandle>>>,
+    ) -> Self {
+        Self {
+            inputs,
             outputs,
             run_policy: None,
+            cache_policy: BTreeMap::new(),
         }
     }
 
@@ -50,11 +72,17 @@ impl RunRequest {
         self.run_policy = Some(policy);
         self
     }
+
+    pub fn with_cache_policy(mut self, cache_policy: BTreeMap<ArtifactKey, ArtifactCachePolicy>) -> Self {
+        self.cache_policy = cache_policy;
+        self
+    }
 }
 
 pub struct ChunkyPipelineBuilder {
     artifact_cache: Arc<dyn ArtifactCache>,
     manifest_builder: StageManifestBuilder,
+    built: bool,
 }
 
 impl ChunkyPipelineBuilder {
@@ -62,19 +90,31 @@ impl ChunkyPipelineBuilder {
         Self {
             artifact_cache,
             manifest_builder: StageManifestBuilder::new(),
+            built: false,
         }
     }
 
     pub fn install(mut self, feature: &dyn PipelineFeature) -> Result<Self> {
+        self.assert_not_built()?;
         self.manifest_builder.install_feature(feature)?;
         Ok(self)
     }
 
     pub fn build(mut self) -> Result<ChunkyPipeline> {
+        self.assert_not_built()?;
+        let stage_manifest = self.manifest_builder.freeze()?;
+        self.built = true;
         Ok(ChunkyPipeline {
-            stage_manifest: self.manifest_builder.freeze()?,
+            stage_manifest,
             artifact_cache: self.artifact_cache,
         })
+    }
+
+    fn assert_not_built(&self) -> Result<()> {
+        if self.built {
+            bail!("pipeline builder is single-use and has already built");
+        }
+        Ok(())
     }
 }
 
@@ -152,7 +192,7 @@ impl ChunkyPipeline {
         let bindings = ArtifactBindingsProvider::new(self.artifact_cache.clone());
         let (supplied, user_supplied_settings) =
             self.bind_supplied_inputs(&bindings, &request).await?;
-        let supplied = self.bind_default_settings(&bindings, supplied).await?;
+        self.validate_cache_policy(&request.cache_policy)?;
         let requested_outputs = request.outputs.keys().cloned().collect::<BTreeSet<_>>();
 
         let execution_graph_builder = ExampleTaskRunGraphBuilder {
@@ -169,6 +209,10 @@ impl ChunkyPipeline {
                 requested_outputs,
                 request.run_policy,
                 user_supplied_settings,
+                Some(Arc::new(PipelineDefaultSettingsResolver {
+                    manifest: self.stage_manifest.clone(),
+                    bindings: bindings.clone(),
+                })),
             )
             .await?;
 
@@ -179,11 +223,19 @@ impl ChunkyPipeline {
                 &plan,
                 supplied,
                 request.outputs,
+                request.cache_policy,
                 Some(cancellation),
                 progress_tracker,
                 Some(task_id),
             )
             .await
+    }
+
+    fn validate_cache_policy(&self, cache_policy: &BTreeMap<ArtifactKey, ArtifactCachePolicy>) -> Result<()> {
+        for artifact_id in cache_policy.keys() {
+            self.stage_manifest.find_artifact(artifact_id)?;
+        }
+        Ok(())
     }
 
     async fn bind_supplied_inputs(
@@ -210,24 +262,6 @@ impl ChunkyPipeline {
         }
 
         Ok((supplied, user_supplied_settings))
-    }
-
-    async fn bind_default_settings(
-        &self,
-        bindings: &ArtifactBindingsProvider,
-        mut supplied: BTreeMap<ArtifactKey, AnyArtifactInstance>,
-    ) -> Result<BTreeMap<ArtifactKey, AnyArtifactInstance>> {
-        for (artifact_id, declaration) in &self.stage_manifest.artifacts {
-            if declaration.role == ArtifactRole::Settings
-                && declaration.default_value_source_provider.is_some()
-                && !supplied.contains_key(artifact_id)
-            {
-                let source = self.resolve_settings_source(declaration, None).await?;
-                let instance = bindings.bind_supplied_any(declaration, source).await?;
-                supplied.insert(artifact_id.clone(), instance);
-            }
-        }
-        Ok(supplied)
     }
 
     async fn resolve_settings_source(
@@ -269,6 +303,35 @@ impl ChunkyPipeline {
                 );
             }
         });
+    }
+}
+
+struct PipelineDefaultSettingsResolver {
+    manifest: StageManifest,
+    bindings: ArtifactBindingsProvider,
+}
+
+#[async_trait]
+impl DefaultSettingsResolver for PipelineDefaultSettingsResolver {
+    async fn resolve_defaults(
+        &self,
+        supplied_instances: &BTreeMap<ArtifactKey, AnyArtifactInstance>,
+    ) -> Result<BTreeMap<ArtifactKey, AnyArtifactInstance>> {
+        let mut resolved = BTreeMap::new();
+        for (artifact_id, declaration) in &self.manifest.artifacts {
+            if declaration.role == ArtifactRole::Settings
+                && declaration.default_value_source_provider.is_some()
+                && !supplied_instances.contains_key(artifact_id)
+            {
+                let source = match &declaration.default_value_source_provider {
+                    Some(provider) => provider.resolve_source_any(None, declaration).await?,
+                    None => continue,
+                };
+                let instance = self.bindings.bind_supplied_any(declaration, source).await?;
+                resolved.insert(artifact_id.clone(), instance);
+            }
+        }
+        Ok(resolved)
     }
 }
 

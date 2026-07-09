@@ -27,6 +27,7 @@ from ..Stages.stage_models import (
 )
 from ..Planning.task_run_graph import TaskRunGraph
 from ..Planning.TaskRequestGraph.invocation_models import RunnableInvocation
+from .task_control import RunError, RunExecutionError, RunResult, RunStatus
 from .progress_models import (
     RunProgressTracker,
     StageBlockedReason,
@@ -46,6 +47,7 @@ class TaskRunResult:
     task_id: str
     output_fingerprints: dict[ArtifactKey, str]
     events: tuple[str, ...]
+    materialized_targets: dict[ArtifactKey, int] | None = None
 
 
 class ArtifactRunState:
@@ -123,7 +125,8 @@ class ExampleTaskRunner:
         *,
         plan: TaskRunGraph,
         supplied_instances: dict[ArtifactKey, ArtifactInstance[Any]],
-        output_targets: dict[ArtifactKey, ArtifactTargetHandle[Any]],
+        output_targets: dict[ArtifactKey, tuple[ArtifactTargetHandle[Any], ...]],
+        cache_policy: dict[ArtifactKey, Any] | None = None,
         cancellation: CancellationSource | None = None,
         progress_tracker: RunProgressTracker,
         task_id: str | None = None,
@@ -135,6 +138,8 @@ class ExampleTaskRunner:
         task_id = task_id or f"task-{uuid4().hex[:12]}"
         state = ArtifactRunState(supplied_instances)
         events: list[str] = []
+        output_fingerprints: dict[ArtifactKey, str] = {}
+        materialized_targets: dict[ArtifactKey, int] = {}
 
         try:
             progress_tracker.set_task_state(TaskState.RUNNING)
@@ -146,6 +151,7 @@ class ExampleTaskRunner:
                     invocation=invocation,
                     cancellation=cancellation,
                     progress_tracker=progress_tracker,
+                    cache_policy=cache_policy,
                 )
 
                 # pull out all the output artifacts from this stage invocation
@@ -182,35 +188,52 @@ class ExampleTaskRunner:
                             f"{binding.declared_artifact_id} -> {binding.resolved_artifact_id}"
                         )
 
-            output_fingerprints: dict[ArtifactKey, str] = {}
             for requested in plan.requested_output_bindings:
                 artifact_id = requested.requested_artifact_id
                 cancellation.raise_if_cancelled()
                 instance = state.require(requested.instance_id)
                 try:
-                    target = output_targets[artifact_id]
+                    targets = output_targets[artifact_id]
                 except KeyError as exc:
                     raise KeyError(
                         f"no caller materialization target supplied for {artifact_id}"
                     ) from exc
-                await self._artifact_bindings_provider.materialize(instance, target)
+                for index, target in enumerate(targets, start=1):
+                    cancellation.raise_if_cancelled()
+                    await self._artifact_bindings_provider.materialize(instance, target)
+                    materialized_targets[artifact_id] = index
                 output_fingerprints[artifact_id] = instance.fingerprint
-                events.append(f"materialized {artifact_id}")
+                events.append(f"materialized {artifact_id} to {len(targets)} target(s)")
 
             progress_tracker.set_task_state(TaskState.COMPLETED)
             return TaskRunResult(
                 task_id=task_id,
                 output_fingerprints=output_fingerprints,
                 events=tuple(events),
+                materialized_targets=materialized_targets,
             )
-        except BaseException:
+        except BaseException as exc:
             terminal = (
                 TaskState.CANCELLED
                 if cancellation.is_cancelled
                 else TaskState.FAILED
             )
             progress_tracker.set_task_state(terminal)
-            raise
+            partial = TaskRunResult(
+                task_id=task_id,
+                output_fingerprints=output_fingerprints,
+                events=tuple(events),
+                materialized_targets=materialized_targets,
+            )
+            status = RunStatus.CANCELLED if cancellation.is_cancelled else RunStatus.FAILED
+            raise RunExecutionError(
+                RunResult(
+                    task_id=task_id,
+                    status=status,
+                    output=partial,
+                    errors=(RunError(type(exc).__name__, str(exc)),),
+                )
+            ) from exc
         finally:
             await close_instances(state.all_instances())
 
@@ -222,6 +245,7 @@ class ExampleTaskRunner:
         invocation: RunnableInvocation,
         cancellation: CancellationSource,
         progress_tracker: RunProgressTracker,
+        cache_policy: dict[ArtifactKey, Any] | None = None,
     ) -> InvocationRunResult:
         progress_tracker.mark_running(invocation.invocation_id)
         input_instances, input_aliases = state.resolve_inputs(invocation)
@@ -245,6 +269,7 @@ class ExampleTaskRunner:
             resolution = await self._artifact_bindings_provider.bind_stage_outputs(
                 output_declarations,
                 pedigree_fingerprint,
+                cache_policy=cache_policy,
             )
             if isinstance(resolution, StageCacheWait):
                 waited_for_writer = True

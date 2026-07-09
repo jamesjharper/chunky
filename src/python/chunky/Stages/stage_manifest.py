@@ -181,11 +181,7 @@ class StageManifestBuilder:
         )
         existing = self._features.get(feature_id)
         if existing is not None:
-            if existing.configuration_fingerprint != configuration_fingerprint:
-                raise StageManifestError(
-                    f"feature {feature_id!r} was installed with conflicting configuration"
-                )
-            return self
+            raise StageManifestError(f"duplicate feature installation: {feature_id!r}")
         if feature_id in self._installing:
             raise StageManifestError(f"recursive feature dependency: {feature_id}")
 

@@ -206,11 +206,8 @@ impl StageManifestBuilder {
             &format!("feature {feature_id} configuration_fingerprint"),
         )?;
 
-        if let Some(existing) = self.features.get(&feature_id) {
-            if existing.configuration_fingerprint != configuration_fingerprint {
-                bail!("feature {feature_id:?} was installed with conflicting configuration");
-            }
-            return Ok(self);
+        if self.features.contains_key(&feature_id) {
+            bail!("duplicate feature installation: {feature_id:?}");
         }
         if self.installing.contains(&feature_id) {
             bail!("recursive feature dependency: {feature_id}");

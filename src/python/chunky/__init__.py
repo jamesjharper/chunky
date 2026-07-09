@@ -24,13 +24,15 @@ from .Bindings.file_cache_provider import (
     FileCacheProviderGarbageCollectionPolicy,
 )
 from .pipeline import (
+    ArtifactCachePolicy,
     ChunkyPipeline,
     ChunkyPipelineBuilder,
+    RequestValidationError,
     RunRequest,
     chunky_run,
     chunky_run_away,
 )
-from .Scheduling.task_control import RunHandle, RunResult, RunStatus
+from .Scheduling.task_control import RunExecutionError, RunHandle, RunResult, RunStatus
 from .Stages.stage_manifest import StageManifest, StageManifestBuilder
 from .Stages.stage_models import (
     ManifestStageRegistration,
@@ -54,6 +56,7 @@ from .Planning.TaskRequestGraph import TaskRequestGraph
 EvaluatedPlan = TaskRequestGraph
 
 __all__ = [
+    "ArtifactCachePolicy",
     "ArtifactCapability",
     "ArtifactDeclaration",
     "ArtifactHandle",
@@ -78,8 +81,10 @@ __all__ = [
     "PlannedInvocation",
     "RequestedOutputBinding",
     "RunnableInvocation",
+    "RequestValidationError",
     "ResourcePolicy",
     "ResolvedStageRequirements",
+    "RunExecutionError",
     "RunHandle",
     "RunRequest",
     "RunResult",

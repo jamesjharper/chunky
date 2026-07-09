@@ -14,8 +14,8 @@ Runtime cache lookup, write reservations, waits, and materialization remain in
 the runner/artifact-binding seam.
 """
 
-from collections.abc import Iterable
-from typing import Any
+from collections.abc import Iterable, Mapping
+from typing import Any, Protocol
 
 from ..Bindings.binding_models import ArtifactInstance
 from ..Artifacts.artifact_models import ArtifactKey
@@ -38,6 +38,13 @@ from .task_run_graph import TaskRunGraph
 from .manifest_graph import StageManifestGraphBuilder
 from ..Stages.stage_manifest import StageManifest
 from ..Stages.stage_models import PlanningRunPolicy, StagePlanningError
+
+
+class DefaultSettingsResolver(Protocol):
+    async def resolve_defaults(
+        self,
+        supplied: Mapping[ArtifactKey, ArtifactInstance[Any]],
+    ) -> dict[ArtifactKey, ArtifactInstance[Any]]: ...
 
 class TaskRunPlanner:
     def __init__(
@@ -68,20 +75,27 @@ class TaskRunPlanner:
         requested_outputs: set[ArtifactKey],
         run_policy: PlanningRunPolicy | None = None,
         user_supplied_settings: Iterable[ArtifactKey] = frozenset(),
+        default_settings_resolver: DefaultSettingsResolver | None = None,
     ) -> TaskRunGraph:
         
         self._validate_requested_outputs(requested_outputs)
 
+        planning_roots = dict(supplied_instances)
+        if default_settings_resolver is not None:
+            planning_roots.update(
+                await default_settings_resolver.resolve_defaults(planning_roots)
+            )
+
         request_settings = await PlannerRequestSettings.read_from(
             self._manifest,
-            supplied_instances,
+            planning_roots,
             user_supplied_settings=user_supplied_settings,
         )
         context = TaskRequestContext(
             manifest=self._manifest,
             manifest_graph=self._manifest_graph,
             requested_output_ids=tuple(sorted(requested_outputs, key=str)),
-            supplied_instances=supplied_instances,
+            supplied_instances=planning_roots,
             policy=run_policy or PlanningRunPolicy(),
             request_settings=request_settings,
         )
@@ -90,7 +104,7 @@ class TaskRunPlanner:
         )
         return await self._task_execution_graph_builder.build(
             task_request_graph=task_request_graph,
-            supplied_instances=supplied_instances,
+            supplied_instances=planning_roots,
         )
 
     def _validate_requested_outputs(self, requested_outputs: set[ArtifactKey]) -> None:

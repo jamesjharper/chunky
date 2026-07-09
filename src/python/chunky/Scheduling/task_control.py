@@ -41,6 +41,13 @@ class RunResult(Generic[T]):
     errors: tuple[RunError, ...] = ()
 
 
+class RunExecutionError(RuntimeError, Generic[T]):
+    def __init__(self, result: RunResult[T]) -> None:
+        self.result = result
+        message = "; ".join(error.message for error in result.errors) or result.status.value
+        super().__init__(message)
+
+
 class RunHandle(Generic[T]):
     def __init__(
         self,

@@ -21,7 +21,12 @@ from src.python.chunky.ExampleFeatures.stage_examples import (
     WEBVTT_TRANSCRIPT,
     SummaryExampleFeature,
 )
-from src.python.chunky.pipeline import ChunkyPipeline, RunRequest, _flatten_request_artifacts
+from src.python.chunky.pipeline import (
+    ChunkyPipeline,
+    RunRequest,
+    _PlannerDefaultSettingsResolver,
+    _flatten_request_artifacts,
+)
 
 
 class FixedAudioSettingsDefaultValueSourceProvider:
@@ -104,11 +109,14 @@ class PlannerRefactorTests(unittest.IsolatedAsyncioTestCase):
                 provider,
                 input_sources,
             )
-            supplied = await self.pipeline._bind_default_settings(provider, supplied)
             return await planner.plan(
                 supplied_instances=supplied,
                 requested_outputs={WEBVTT_TRANSCRIPT.artifact_id},
                 user_supplied_settings=frozenset(user_settings),
+                default_settings_resolver=_PlannerDefaultSettingsResolver(
+                    self.pipeline.stage_manifest,
+                    provider,
+                ),
             )
         finally:
             await close_instances(tuple(supplied.values()))

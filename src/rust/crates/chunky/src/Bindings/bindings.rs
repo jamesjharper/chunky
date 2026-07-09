@@ -4,18 +4,19 @@
 //! calculate pedigree, schedule stages, or choose caller output targets.
 
 use crate::{
+    pipeline::ArtifactCachePolicy,
     artifact_binding_models::{
         AnyArtifactInstance, AnyArtifactReader, AnyArtifactWriter, ArtifactHandle,
         ArtifactInstance, ProvidedStageOutput, ResolvedStageOutputBindings, StageCacheWait,
         StageOutputBindings, StageOutputResolution,
     },
     artifact_handles::{ArtifactSourceHandle, ArtifactTargetHandle, IntermediateArtifactHandle},
-    artifact_models::{AnyArtifactDeclaration, ArtifactDeclaration},
+    artifact_models::{AnyArtifactDeclaration, ArtifactDeclaration, ArtifactKey},
     cache_models::{ArtifactCache, CacheResolution, CacheWait, CacheableOutputBootstrap},
     fingerprints::FingerprintProvider,
 };
 use anyhow::{bail, Result};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::{BTreeMap, HashMap}, sync::Arc};
 
 /// Cache-backed artifact bootstrap and materialization runtime.
 ///
@@ -191,9 +192,27 @@ impl ArtifactBindingsProvider {
         output_declarations: &[AnyArtifactDeclaration],
         pedigree_fingerprint: &str,
     ) -> Result<StageOutputResolution> {
+        self.bind_stage_outputs_with_cache_policy(
+            output_declarations,
+            pedigree_fingerprint,
+            None,
+        ).await
+    }
+
+    pub async fn bind_stage_outputs_with_cache_policy(
+        &self,
+        output_declarations: &[AnyArtifactDeclaration],
+        pedigree_fingerprint: &str,
+        cache_policy: Option<&BTreeMap<ArtifactKey, ArtifactCachePolicy>>,
+    ) -> Result<StageOutputResolution> {
         let (cacheable_outputs, non_cacheable_outputs) =
-            partition_output_declarations(output_declarations);
-        let mut force_cache_overwrite = false;
+            partition_output_declarations(output_declarations, cache_policy);
+        let mut force_cache_overwrite = cacheable_outputs.iter().any(|declaration| {
+            cache_policy
+                .and_then(|policy| policy.get(&declaration.artifact_id))
+                .map(|policy| policy.ignore_existing_cache)
+                .unwrap_or(false)
+        });
 
         loop {
             let bindings = self
@@ -323,11 +342,18 @@ impl ArtifactBindingsProvider {
 
 fn partition_output_declarations(
     output_declarations: &[AnyArtifactDeclaration],
+    cache_policy: Option<&BTreeMap<ArtifactKey, ArtifactCachePolicy>>,
 ) -> (Vec<AnyArtifactDeclaration>, Vec<AnyArtifactDeclaration>) {
     output_declarations
         .iter()
         .cloned()
-        .partition(|declaration| declaration.cacheable)
+        .partition(|declaration| {
+            let do_not_cache = cache_policy
+                .and_then(|policy| policy.get(&declaration.artifact_id))
+                .map(|policy| policy.do_not_cache)
+                .unwrap_or(false);
+            declaration.cacheable && !do_not_cache
+        })
 }
 
 async fn abort_writers(writers: &[AnyArtifactWriter]) {

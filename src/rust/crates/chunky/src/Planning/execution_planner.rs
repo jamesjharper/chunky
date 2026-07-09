@@ -5,7 +5,9 @@
 //! task-execution graph builder.
 
 use anyhow::{bail, Result};
+use async_trait::async_trait;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use crate::artifact_binding_models::AnyArtifactInstance;
 use crate::artifact_models::ArtifactKey;
@@ -19,6 +21,15 @@ use super::task_request_graph::{
     PlannerSettingsResolver, ProducerSelector, RequestedOutputBinding, RunnableInvocation,
     TaskOutputBinding, TaskRequestContext, TaskRequestGraph, TaskRequestGraphBuilder,
 };
+
+
+#[async_trait]
+pub trait DefaultSettingsResolver: Send + Sync {
+    async fn resolve_defaults(
+        &self,
+        supplied_instances: &BTreeMap<ArtifactKey, AnyArtifactInstance>,
+    ) -> Result<BTreeMap<ArtifactKey, AnyArtifactInstance>>;
+}
 
 /// External seam for producing the execution graph from a request graph.
 pub trait TaskRunGraphBuilder<'a, G>: Clone {
@@ -57,13 +68,20 @@ where
         requested_outputs: BTreeSet<ArtifactKey>,
         run_policy: Option<PlanningRunPolicy>,
         user_supplied_settings: BTreeSet<ArtifactKey>,
+        default_settings_resolver: Option<Arc<dyn DefaultSettingsResolver>>,
     ) -> Result<G> {
         let manifest = self.manifest;
         self.validate_requested_outputs(&requested_outputs)?;
 
+        let mut planning_roots = supplied_instances.clone();
+        if let Some(resolver) = default_settings_resolver {
+            let defaults = resolver.resolve_defaults(&planning_roots).await?;
+            planning_roots.extend(defaults);
+        }
+
         let request_settings = PlannerRequestSettings::read_from(
             manifest,
-            &supplied_instances,
+            &planning_roots,
             user_supplied_settings,
         )
         .await?;
@@ -73,7 +91,7 @@ where
             manifest,
             manifest_graph,
             requested_output_ids: requested_outputs.into_iter().collect(),
-            supplied_instances: supplied_instances.clone(),
+            supplied_instances: planning_roots.clone(),
             policy: run_policy.unwrap_or_default(),
             request_settings,
         };
@@ -86,7 +104,7 @@ where
 
         self.task_execution_graph_builder
             .clone()
-            .build(task_request_graph, supplied_instances)
+            .build(task_request_graph, planning_roots)
             .await
     }
 

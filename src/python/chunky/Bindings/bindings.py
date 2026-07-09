@@ -83,7 +83,7 @@ class ArtifactBindingsProvider:
             force_write=force_cache_overwrite,
         )
 
-        if isinstance(resolution, CacheHit):
+        if isinstance(resolution, CacheHit) or hasattr(resolution, "source_handle"):
             return CacheableOutputAvailable(
                 ArtifactInstance(
                     ArtifactHandle(
@@ -94,7 +94,7 @@ class ArtifactBindingsProvider:
                 )
             )
 
-        if isinstance(resolution, CacheWriteReservation):
+        if isinstance(resolution, CacheWriteReservation) or hasattr(resolution, "target_handle"):
             handle = ArtifactHandle(
                 declaration=declaration,
                 fingerprint=fingerprint,
@@ -108,7 +108,7 @@ class ArtifactBindingsProvider:
             )
             return CacheableOutputProduce(ArtifactWriter(handle))
 
-        if isinstance(resolution, CacheWait):
+        if isinstance(resolution, CacheWait) or hasattr(resolution, "wait_handle"):
             # The wait handle is only a notification; it owns no source or writer.
             return CacheableOutputWaiting(resolution)
 
@@ -200,11 +200,17 @@ class ArtifactBindingsProvider:
         self,
         output_declarations: list[ArtifactDeclaration[Any]],
         pedigree_fingerprint: str,
+        *,
+        cache_policy: dict[Any, Any] | None = None,
     ) -> ResolvedStageOutputBindings | StageCacheWait:
         cacheable_outputs, non_cacheable_outputs = _partition_output_declarations(
-            output_declarations
+            output_declarations,
+            cache_policy or {},
         )
-        force_cache_overwrite = False
+        force_cache_overwrite = any(
+            getattr(cache_policy.get(declaration.artifact_id), "ignore_existing_cache", False)
+            for declaration in cacheable_outputs
+        ) if cache_policy else False
 
         while True:
             bindings = await self._bind_cacheable_stage_outputs(
@@ -285,12 +291,15 @@ class ArtifactBindingsProvider:
 
 def _partition_output_declarations(
     output_declarations: list[ArtifactDeclaration[Any]],
+    cache_policy: dict[Any, Any] | None = None,
 ) -> tuple[list[ArtifactDeclaration[Any]], list[ArtifactDeclaration[Any]]]:
     cacheable: list[ArtifactDeclaration[Any]] = []
     non_cacheable: list[ArtifactDeclaration[Any]] = []
+    cache_policy = cache_policy or {}
 
     for declaration in output_declarations:
-        if declaration.cacheable:
+        policy = cache_policy.get(declaration.artifact_id)
+        if declaration.cacheable and not getattr(policy, "do_not_cache", False):
             cacheable.append(declaration)
         else:
             non_cacheable.append(declaration)

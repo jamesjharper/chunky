@@ -3,8 +3,9 @@ from __future__ import annotations
 """Pipeline bootstrap facade that emits and owns one frozen stage manifest."""
 
 import asyncio
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -21,6 +22,7 @@ from .Scheduling.progress_models import (
 )
 from .Scheduling.task_control import (
     RunError,
+    RunExecutionError,
     RunHandle,
     RunResult,
     RunStatus,
@@ -31,6 +33,21 @@ from .Stages.stage_models import CancellationSource, PipelineFeature, PlanningRu
 
 
 @dataclass(frozen=True)
+class ArtifactCachePolicy:
+    ignore_existing_cache: bool = False
+    do_not_cache: bool = False
+    desired_ttl: timedelta | int | float | None = None
+
+
+@dataclass(frozen=True)
+class RequestValidationError(ValueError):
+    errors: tuple[str, ...]
+
+    def __str__(self) -> str:
+        return "; ".join(self.errors)
+
+
+@dataclass(frozen=True)
 class RunRequest:
     inputs: Mapping[
         ArtifactKey | str,
@@ -38,9 +55,15 @@ class RunRequest:
     ]
     outputs: Mapping[
         ArtifactKey | str,
-        ArtifactTargetHandle[Any] | Mapping[str, ArtifactTargetHandle[Any]],
+        ArtifactTargetHandle[Any]
+        | Sequence[ArtifactTargetHandle[Any]]
+        | Mapping[str, ArtifactTargetHandle[Any]],
     ]
     run_policy: PlanningRunPolicy | None = None
+    cache_policy: Mapping[
+        ArtifactKey | str,
+        ArtifactCachePolicy | Mapping[str, ArtifactCachePolicy],
+    ] | None = None
 
 
 ArtifactBindingsProviderFactory = Callable[[ArtifactCache], ArtifactBindingsProvider]
@@ -52,17 +75,25 @@ class ChunkyPipelineBuilder:
     def __init__(self, *, artifact_cache: ArtifactCache) -> None:
         self._artifact_cache = artifact_cache
         self._manifest_builder = StageManifestBuilder()
+        self._built = False
 
     def install(self, feature: PipelineFeature) -> "ChunkyPipelineBuilder":
+        self._assert_not_built()
         self._manifest_builder.install_feature(feature)
         return self
 
     def build(self) -> "ChunkyPipeline":
+        self._assert_not_built()
         manifest = self._manifest_builder.freeze()
+        self._built = True
         return ChunkyPipeline(
             stage_manifest=manifest,
             artifact_cache=self._artifact_cache,
         )
+
+    def _assert_not_built(self) -> None:
+        if self._built:
+            raise RuntimeError("pipeline builder is single-use and has already built")
 
 
 class ChunkyPipeline:
@@ -131,6 +162,8 @@ class ChunkyPipeline:
                     output=output,
                 )
             except BaseException as exc:
+                if isinstance(exc, RunExecutionError):
+                    return exc.result
                 if cancellation.is_cancelled:
                     return RunResult(
                         task_id=task_id,
@@ -160,8 +193,7 @@ class ChunkyPipeline:
         cancellation: CancellationSource,
         progress_tracker: RunProgressTracker,
     ) -> TaskRunResult:
-        input_sources = _flatten_request_artifacts(request.inputs)
-        output_targets = _flatten_request_artifacts(request.outputs)
+        input_sources, output_targets, cache_policy = self._normalize_request(request)
 
         task_cache = self._cache_for_task(task_id)
         artifact_bindings_provider = self._build_artifact_bindings_provider(task_cache)
@@ -174,17 +206,18 @@ class ChunkyPipeline:
                 artifact_bindings_provider,
                 input_sources,
             )
-            supplied = await self._bind_default_settings(
-                artifact_bindings_provider,
-                supplied,
-            )
 
             plan = await planner.plan(
                 supplied_instances=supplied,
                 requested_outputs=set(output_targets),
                 run_policy=request.run_policy,
                 user_supplied_settings=user_supplied_settings,
+                default_settings_resolver=_PlannerDefaultSettingsResolver(
+                    self.stage_manifest,
+                    artifact_bindings_provider,
+                ),
             )
+            self._validate_cache_policy_reachability(cache_policy, plan)
             self._register_plan_progress(progress_tracker, plan)
         except BaseException:
             await close_instances(tuple(supplied.values()))
@@ -194,6 +227,7 @@ class ChunkyPipeline:
             plan=plan,
             supplied_instances=supplied,
             output_targets=output_targets,
+            cache_policy=cache_policy,
             cancellation=cancellation,
             progress_tracker=progress_tracker,
             task_id=task_id,
@@ -204,6 +238,53 @@ class ChunkyPipeline:
         if callable(for_task):
             return for_task(task_id)
         return self._artifact_cache
+
+    def _normalize_request(
+        self,
+        request: RunRequest,
+    ) -> tuple[
+        dict[ArtifactKey, ArtifactSourceHandle[Any]],
+        dict[ArtifactKey, tuple[ArtifactTargetHandle[Any], ...]],
+        dict[ArtifactKey, ArtifactCachePolicy],
+    ]:
+        errors: list[str] = []
+        input_sources = _collect_flattened_request_artifacts(request.inputs, errors, "inputs")
+        output_targets = _collect_flattened_request_outputs(request.outputs, errors)
+        cache_policy = _collect_flattened_cache_policy(request.cache_policy or {}, errors)
+
+        for artifact_id in (*input_sources.keys(), *output_targets.keys(), *cache_policy.keys()):
+            try:
+                self.stage_manifest.find_artifact(artifact_id)
+            except Exception:
+                errors.append(f"unknown request artifact: {artifact_id}")
+
+        if not output_targets:
+            errors.append("run request must contain at least one output")
+
+        if errors:
+            raise RequestValidationError(tuple(errors))
+        return input_sources, output_targets, cache_policy
+
+    def _validate_cache_policy_reachability(
+        self,
+        cache_policy: Mapping[ArtifactKey, ArtifactCachePolicy],
+        plan: Any,
+    ) -> None:
+        if not cache_policy:
+            return
+        planned: set[ArtifactKey] = set()
+        for invocation in plan.invocations:
+            for binding in invocation.input_bindings:
+                planned.add(binding.resolved_artifact_id)
+            for binding in invocation.requested_output_bindings:
+                planned.add(binding.resolved_artifact_id)
+        for binding in plan.requested_output_bindings:
+            planned.add(binding.requested_artifact_id)
+        unreachable = sorted((artifact_id for artifact_id in cache_policy if artifact_id not in planned), key=str)
+        if unreachable:
+            # Accepted policy: known but unreachable policy entries are diagnostic-only.
+            # The executable example has no diagnostics sink yet, so this is intentionally non-fatal.
+            return
 
     def _build_artifact_bindings_provider(
         self,
@@ -272,32 +353,6 @@ class ChunkyPipeline:
             )
         return supplied, user_supplied_settings
 
-    async def _bind_default_settings(
-        self,
-        artifact_bindings_provider: ArtifactBindingsProvider,
-        supplied: dict[ArtifactKey, ArtifactInstance[Any]],
-    ) -> dict[ArtifactKey, ArtifactInstance[Any]]:
-        with_defaults = dict(supplied)
-
-        # Default settings are graph roots, exactly like caller-supplied
-        # settings. The focused example binds all declared defaults before
-        # planning; a fuller planner might resolve only relevant defaults.
-        for artifact_id, declaration in self.stage_manifest.artifacts.items():
-            if (
-                declaration.role is ArtifactRole.SETTINGS
-                and declaration.default_value_source_provider is not None
-                and artifact_id not in with_defaults
-            ):
-                effective_source = await self._resolve_settings_source(
-                    declaration,
-                    None,
-                )
-                with_defaults[artifact_id] = await artifact_bindings_provider.bind_supplied(
-                    declaration,
-                    effective_source,
-                )
-        return with_defaults
-
     async def _resolve_settings_source(
         self,
         declaration: ArtifactDeclaration[Any],
@@ -331,6 +386,37 @@ class ChunkyPipeline:
                 )
 
 
+class _PlannerDefaultSettingsResolver:
+    def __init__(
+        self,
+        manifest: StageManifest,
+        artifact_bindings_provider: ArtifactBindingsProvider,
+    ) -> None:
+        self._manifest = manifest
+        self._artifact_bindings_provider = artifact_bindings_provider
+
+    async def resolve_defaults(
+        self,
+        supplied: Mapping[ArtifactKey, ArtifactInstance[Any]],
+    ) -> dict[ArtifactKey, ArtifactInstance[Any]]:
+        resolved: dict[ArtifactKey, ArtifactInstance[Any]] = {}
+        for artifact_id, declaration in self._manifest.artifacts.items():
+            if (
+                declaration.role is ArtifactRole.SETTINGS
+                and declaration.default_value_source_provider is not None
+                and artifact_id not in supplied
+            ):
+                source = await declaration.default_value_source_provider.resolve_source(
+                    None,
+                    declaration=declaration,
+                )
+                resolved[artifact_id] = await self._artifact_bindings_provider.bind_supplied(
+                    declaration,
+                    source,
+                )
+        return resolved
+
+
 def chunky_run_away(
     request: RunRequest,
     *,
@@ -354,10 +440,53 @@ def _artifact_key(value: ArtifactKey | str) -> ArtifactKey:
 def _flatten_request_artifacts(
     artifacts: Mapping[ArtifactKey | str, Any],
 ) -> dict[ArtifactKey, Any]:
+    errors: list[str] = []
+    flattened = _collect_flattened_request_artifacts(artifacts, errors, "artifacts")
+    if errors:
+        raise RequestValidationError(tuple(errors))
+    return flattened
+
+
+def _collect_flattened_request_artifacts(
+    artifacts: Mapping[ArtifactKey | str, Any],
+    errors: list[str],
+    label: str,
+) -> dict[ArtifactKey, Any]:
     flattened: dict[ArtifactKey, Any] = {}
     for domain_or_key, value in artifacts.items():
-        _flatten_request_value(flattened, (), domain_or_key, value)
+        _flatten_request_value(flattened, (), domain_or_key, value, errors, label)
     return flattened
+
+
+def _collect_flattened_request_outputs(
+    artifacts: Mapping[ArtifactKey | str, Any],
+    errors: list[str],
+) -> dict[ArtifactKey, tuple[ArtifactTargetHandle[Any], ...]]:
+    raw = _collect_flattened_request_artifacts(artifacts, errors, "outputs")
+    outputs: dict[ArtifactKey, tuple[ArtifactTargetHandle[Any], ...]] = {}
+    for artifact_id, value in raw.items():
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            targets = tuple(value)
+            if not targets:
+                errors.append(f"outputs for {artifact_id} must contain at least one target")
+        else:
+            targets = (value,)
+        outputs[artifact_id] = targets
+    return outputs
+
+
+def _collect_flattened_cache_policy(
+    cache_policy: Mapping[ArtifactKey | str, Any],
+    errors: list[str],
+) -> dict[ArtifactKey, ArtifactCachePolicy]:
+    raw = _collect_flattened_request_artifacts(cache_policy, errors, "cache_policy")
+    normalized: dict[ArtifactKey, ArtifactCachePolicy] = {}
+    for artifact_id, value in raw.items():
+        if isinstance(value, ArtifactCachePolicy):
+            normalized[artifact_id] = value
+        else:
+            errors.append(f"cache_policy for {artifact_id} must be an ArtifactCachePolicy")
+    return normalized
 
 
 def _flatten_request_value(
@@ -365,40 +494,50 @@ def _flatten_request_value(
     path: tuple[str, ...],
     domain_or_key: ArtifactKey | str,
     value: Any,
+    errors: list[str],
+    label: str,
 ) -> None:
     if isinstance(domain_or_key, ArtifactKey):
         if path:
-            raise ValueError("nested request mappings must use string path components")
+            errors.append(f"{label}: nested request mappings must use string path components")
+            return
         if isinstance(value, Mapping):
-            raise ValueError("artifact-key request entries must map directly to a handle")
-        _add_request_artifact(flattened, domain_or_key, value)
+            errors.append(f"{label}: artifact-key entries must map directly to a handle")
+            return
+        _add_request_artifact(flattened, domain_or_key, value, errors, label)
         return
 
     next_path = (*path, domain_or_key)
     if isinstance(value, Mapping):
         for child_key, child_value in value.items():
             if not isinstance(child_key, str):
-                raise ValueError("nested request mapping keys must be strings")
-            _flatten_request_value(flattened, next_path, child_key, child_value)
+                errors.append(f"{label}: nested request mapping keys must be strings")
+                continue
+            _flatten_request_value(flattened, next_path, child_key, child_value, errors, label)
         return
 
     if len(next_path) not in (2, 3):
-        raise ValueError(
-            "request artifact mappings must resolve to DOMAIN//KIND or "
+        errors.append(
+            f"{label}: request artifact mappings must resolve to DOMAIN//KIND or "
             "OVERRIDE_DOMAIN//DOMAIN//KIND paths"
         )
-    _add_request_artifact(
-        flattened,
-        ArtifactKey.parse("//".join(next_path)),
-        value,
-    )
+        return
+    try:
+        artifact_id = ArtifactKey.parse("//".join(next_path))
+    except ValueError as exc:
+        errors.append(f"{label}: {exc}")
+        return
+    _add_request_artifact(flattened, artifact_id, value, errors, label)
 
 
 def _add_request_artifact(
     artifacts: dict[ArtifactKey, Any],
     artifact_id: ArtifactKey,
     handle: Any,
+    errors: list[str],
+    label: str,
 ) -> None:
     if artifact_id in artifacts:
-        raise ValueError(f"duplicate request artifact: {artifact_id}")
+        errors.append(f"{label}: duplicate request artifact: {artifact_id}")
+        return
     artifacts[artifact_id] = handle

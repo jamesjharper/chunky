@@ -19,6 +19,7 @@ use crate::artifact_binding_models::{
 use crate::artifact_bindings::ArtifactBindingsProvider;
 use crate::artifact_handles::ArtifactTargetHandle;
 use crate::artifact_models::{AnyArtifactDeclaration, ArtifactKey};
+use crate::pipeline::ArtifactCachePolicy;
 use crate::stage_manifest::StageManifest;
 use crate::stage_models::{
     build_stage_logger, CancellationSource, CancellationToken, InMemoryStageProgressReporter,
@@ -46,6 +47,7 @@ pub struct TaskRunResult {
     pub task_id: String,
     pub output_fingerprints: BTreeMap<ArtifactKey, String>,
     pub events: Vec<String>,
+    pub materialized_targets: BTreeMap<ArtifactKey, usize>,
 }
 
 /// Minimal execution-plan seam consumed by the scheduling example.
@@ -141,7 +143,8 @@ impl ExampleTaskRunner {
         &self,
         plan: &TaskRunGraph<'_>,
         supplied_instances: BTreeMap<ArtifactKey, AnyArtifactInstance>,
-        output_targets: BTreeMap<ArtifactKey, Arc<dyn ArtifactTargetHandle>>,
+        output_targets: BTreeMap<ArtifactKey, Vec<Arc<dyn ArtifactTargetHandle>>>,
+        cache_policy: BTreeMap<ArtifactKey, ArtifactCachePolicy>,
         cancellation: Option<CancellationSource>,
         progress_tracker: RunProgressTracker,
         task_id: Option<String>,
@@ -155,6 +158,7 @@ impl ExampleTaskRunner {
             .unwrap_or_else(|| format!("task-{}", &Uuid::new_v4().simple().to_string()[..12]));
         let mut state = ArtifactRunState::new(supplied_instances);
         let mut events = Vec::new();
+        let mut materialized_targets: BTreeMap<ArtifactKey, usize> = BTreeMap::new();
 
         let result = async {
             progress_tracker.set_task_state(TaskState::Running);
@@ -167,6 +171,7 @@ impl ExampleTaskRunner {
                         invocation,
                         &cancellation,
                         &progress_tracker,
+                        &cache_policy,
                     )
                     .await?;
 
@@ -213,7 +218,7 @@ impl ExampleTaskRunner {
             for requested in &plan.requested_output_bindings {
                 cancellation.raise_if_cancelled()?;
                 let instance = state.require(&requested.instance_id)?;
-                let target = output_targets
+                let targets = output_targets
                     .get(&requested.requested_artifact_id)
                     .cloned()
                     .ok_or_else(|| {
@@ -222,14 +227,22 @@ impl ExampleTaskRunner {
                             requested.requested_artifact_id
                         )
                     })?;
-                self.artifact_bindings_provider
-                    .materialize(&instance, target)
-                    .await?;
+                for (index, target) in targets.iter().cloned().enumerate() {
+                    cancellation.raise_if_cancelled()?;
+                    self.artifact_bindings_provider
+                        .materialize(&instance, target)
+                        .await?;
+                    materialized_targets.insert(requested.requested_artifact_id.clone(), index + 1);
+                }
                 output_fingerprints.insert(
                     requested.requested_artifact_id.clone(),
                     instance.fingerprint().to_owned(),
                 );
-                events.push(format!("materialized {}", requested.requested_artifact_id));
+                events.push(format!(
+                    "materialized {} to {} target(s)",
+                    requested.requested_artifact_id,
+                    targets.len()
+                ));
             }
 
             progress_tracker.set_task_state(TaskState::Completed);
@@ -237,6 +250,7 @@ impl ExampleTaskRunner {
                 task_id: task_id.clone(),
                 output_fingerprints,
                 events,
+                materialized_targets,
             })
         }
         .await;
@@ -261,6 +275,7 @@ impl ExampleTaskRunner {
         invocation: &RunnableInvocation<'_>,
         cancellation: &CancellationSource,
         progress_tracker: &RunProgressTracker,
+        cache_policy: &BTreeMap<ArtifactKey, ArtifactCachePolicy>,
     ) -> Result<InvocationRunResult> {
         progress_tracker.mark_running(&invocation.invocation_id);
         let (input_instances, input_aliases) = state.resolve_inputs(invocation)?;
@@ -282,7 +297,11 @@ impl ExampleTaskRunner {
             cancellation.raise_if_cancelled()?;
             match self
                 .artifact_bindings_provider
-                .bind_stage_outputs(&output_declarations, pedigree_fingerprint)
+                .bind_stage_outputs_with_cache_policy(
+                    &output_declarations,
+                    pedigree_fingerprint,
+                    Some(cache_policy),
+                )
                 .await?
             {
                 StageOutputResolution::Wait(wait) => {

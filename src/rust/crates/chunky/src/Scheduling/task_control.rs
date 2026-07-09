@@ -76,6 +76,19 @@ impl<T> RunResult<T> {
             errors,
         }
     }
+
+    pub fn failed_with_output(
+        task_id: impl Into<String>,
+        output: T,
+        errors: Vec<RunError>,
+    ) -> Self {
+        Self {
+            task_id: task_id.into(),
+            status: RunStatus::Failed,
+            output: Some(output),
+            errors,
+        }
+    }
 }
 
 pub struct RunHandle<T> {

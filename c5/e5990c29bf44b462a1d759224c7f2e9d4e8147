@@ -1,0 +1,16 @@
+specs/00-overview/00-run-contract-overview.md
+  h_6046a6be1688c0 261-300
+.gitignore
+  h_6046a6be1688c0 28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "c5e5990c29bf44b462a1d759224c7f2e9d4e8147",
+  "prompts": {},
+  "humans": {
+    "h_6046a6be1688c0": {
+      "author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}

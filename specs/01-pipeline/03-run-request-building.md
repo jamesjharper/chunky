@@ -27,12 +27,10 @@ RunRequest
 ```
 
 Required fields:
-
 - `inputs`: caller-supplied source artifacts, settings artifacts, explicitly supplied intermediate artifacts, or explicit `a-instance` cached-root locators for those same semantic artifacts;
 - `outputs`: requested semantic artifact references and their caller materialization targets. The target list may be empty only for target-less outputs that can be durably retrieved later.
 
 Optional fields:
-
 - `run_policy`: planning or execution-strategy policy;
 - `cache_policy`: exact per-artifact cache-use intent.
 

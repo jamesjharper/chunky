@@ -101,6 +101,8 @@ pub use pipeline::{
     ChunkyPipelineBuilder, ProvidedArtifactRoot, RunRequest,
 };
 pub use runtime::{
-    PipelineRuntimeServices, PipelineRuntimeServicesBuilder, PipelineRuntimeSettings,
-    PipelineRuntimeSettingsBuilder, RuntimeSettingSpec, RuntimeStageSetting,
+    EnvironmentVariableRuntimeSettingSource, EnvironmentVariableRuntimeSettingSourceFeature,
+    MappingRuntimeSettingSource, PipelineRuntimeServices, PipelineRuntimeServicesBuilder,
+    PipelineRuntimeSettings, PipelineRuntimeSettingsBuilder, RuntimeSettingSource,
+    RuntimeSettingSourceFeature, RuntimeSettingSpec, RuntimeStageSetting,
 };

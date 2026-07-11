@@ -673,7 +673,7 @@ fn stage_description(registration: &StageRegistration) -> Value {
             json!({
                 "key": setting.spec.normalized_key(),
                 "required": setting.required,
-                "suggested_env_var": setting.spec.suggested_env_var.clone(),
+                "env_var": setting.spec.env_var.clone(),
                 "has_default": setting.spec.has_default(),
             })
         }).collect::<Vec<_>>(),

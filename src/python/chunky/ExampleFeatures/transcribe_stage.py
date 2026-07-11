@@ -29,16 +29,16 @@ ASR_CONCURRENCY_LIMIT_SETTING = "example.asr.concurrency_limit"
 ASR_PROVIDER_NAME_SPEC = RuntimeSettingSpec.string(
     ASR_PROVIDER_NAME_SETTING,
     default="example-asr",
-    suggested_env_var="EXAMPLE_ASR_PROVIDER_NAME",
+    env_var="EXAMPLE_ASR_PROVIDER_NAME",
 )
 ASR_API_KEY_SPEC = RuntimeSettingSpec.string(
     ASR_API_KEY_SETTING,
-    suggested_env_var="EXAMPLE_ASR_API_KEY",
+    env_var="EXAMPLE_ASR_API_KEY",
 )
 ASR_CONCURRENCY_LIMIT_SPEC = RuntimeSettingSpec.integer(
     ASR_CONCURRENCY_LIMIT_SETTING,
     default=4,
-    suggested_env_var="EXAMPLE_ASR_CONCURRENCY_LIMIT",
+    env_var="EXAMPLE_ASR_CONCURRENCY_LIMIT",
 )
 TRANSCRIBE_RUNTIME_SETTINGS = (
     RuntimeStageSetting(ASR_PROVIDER_NAME_SPEC),

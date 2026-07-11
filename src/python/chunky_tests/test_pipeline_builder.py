@@ -108,7 +108,7 @@ class PipelineBuilderTests(unittest.IsolatedAsyncioTestCase):
         builder.require(
             RuntimeSettingSpec.string(
                 "example.required",
-                suggested_env_var="EXAMPLE_REQUIRED",
+                env_var="EXAMPLE_REQUIRED",
             ),
             stage_ids=("stage.a",),
         )
@@ -127,6 +127,31 @@ class PipelineBuilderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("resolved-from-env", for_stage_a.get_string("example.required"))
         self.assertFalse(for_stage_b.has("example.required"))
         self.assertEqual("fallback", for_stage_b.get_string("example.optional"))
+
+    def test_environment_runtime_setting_source_can_load_dotenv_files(self) -> None:
+        dotenv_path = self.work_dir / ".env"
+        dotenv_path.write_text(
+            "EXAMPLE_REQUIRED=resolved-from-dotenv\n",
+            encoding="utf-8",
+        )
+        builder = PipelineRuntimeSettingsBuilder()
+        builder.install_source(
+            EnvironmentVariableRuntimeSettingSource(
+                environ={},
+                dotenv_files=(dotenv_path,),
+            )
+        )
+        builder.require(
+            RuntimeSettingSpec.string(
+                "example.required",
+                env_var="EXAMPLE_REQUIRED",
+            ),
+            stage_ids=("stage.a",),
+        )
+
+        resolved = builder.freeze().resolve_for_stages(("stage.a",))
+
+        self.assertEqual("resolved-from-dotenv", resolved.get_string("example.required"))
 
     def test_feature_missing_env_setting_does_not_fail_at_build(self) -> None:
         pipeline = (
@@ -212,6 +237,41 @@ class PipelineBuilderTests(unittest.IsolatedAsyncioTestCase):
                     outputs={TOKEN_TEXT.artifact_id: []},
                 )
             )
+        locator = result.outputs[TOKEN_TEXT.artifact_id].instance_locator
+        assert locator is not None
+        instance = await pipeline.cache_io.open(locator)
+        assert instance.handle.source is not None
+        try:
+            payload = await instance.handle.source.get_value(TOKEN_TEXT.codec)
+        finally:
+            await close_instances((instance,))
+
+        self.assertTrue(payload["api_key_configured"])
+
+    async def test_feature_can_load_required_env_setting_from_dotenv_file(self) -> None:
+        dotenv_path = self.work_dir / ".env"
+        dotenv_path.write_text(
+            "EXAMPLE_ASR_API_KEY=dotenv-source-key\n",
+            encoding="utf-8",
+        )
+        pipeline = (
+            ChunkyPipeline.builder()
+            .install(
+                EnvironmentVariableRuntimeSettingSourceFeature(
+                    environ={},
+                    dotenv_files=(dotenv_path,),
+                )
+            )
+            .install(FileCacheFeature(self.cache_root))
+            .install(SummaryExampleFeature(api_key=None))
+            .build()
+        )
+        result = await pipeline.run(
+            RunRequest(
+                inputs=build_inputs(self.audio_path),
+                outputs={TOKEN_TEXT.artifact_id: []},
+            )
+        )
         locator = result.outputs[TOKEN_TEXT.artifact_id].instance_locator
         assert locator is not None
         instance = await pipeline.cache_io.open(locator)

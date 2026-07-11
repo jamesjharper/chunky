@@ -526,7 +526,7 @@ def _build_description(
                     {
                         "key": setting.spec.normalized_key(),
                         "required": setting.required,
-                        "suggested_env_var": setting.spec.suggested_env_var,
+                        "env_var": setting.spec.env_var,
                         "has_default": setting.spec.has_default(),
                     }
                     for setting in registration.runtime_settings

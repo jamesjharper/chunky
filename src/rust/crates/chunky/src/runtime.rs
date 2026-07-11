@@ -1,9 +1,12 @@
 use anyhow::{anyhow, bail, Result};
 use serde_json::{Number, Value};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::cache_models::ArtifactCache;
+use crate::stage_models::{PipelineFeature, StageManifestBuilderAccess};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum RuntimeSettingKind {
@@ -18,7 +21,7 @@ pub struct RuntimeSettingSpec {
     key: String,
     kind: RuntimeSettingKind,
     default: Option<Value>,
-    pub suggested_env_var: Option<String>,
+    pub env_var: Option<String>,
     pub description: String,
 }
 
@@ -26,13 +29,13 @@ impl RuntimeSettingSpec {
     pub fn string(
         key: impl Into<String>,
         default: Option<impl Into<Value>>,
-        suggested_env_var: Option<impl Into<String>>,
+        env_var: Option<impl Into<String>>,
     ) -> Self {
         Self {
             key: normalize_runtime_setting_key(&key.into()),
             kind: RuntimeSettingKind::String,
             default: default.map(Into::into),
-            suggested_env_var: suggested_env_var.map(Into::into),
+            env_var: env_var.map(Into::into),
             description: String::new(),
         }
     }
@@ -40,13 +43,13 @@ impl RuntimeSettingSpec {
     pub fn integer(
         key: impl Into<String>,
         default: Option<impl Into<Value>>,
-        suggested_env_var: Option<impl Into<String>>,
+        env_var: Option<impl Into<String>>,
     ) -> Self {
         Self {
             key: normalize_runtime_setting_key(&key.into()),
             kind: RuntimeSettingKind::Integer,
             default: default.map(Into::into),
-            suggested_env_var: suggested_env_var.map(Into::into),
+            env_var: env_var.map(Into::into),
             description: String::new(),
         }
     }
@@ -54,13 +57,13 @@ impl RuntimeSettingSpec {
     pub fn floating(
         key: impl Into<String>,
         default: Option<impl Into<Value>>,
-        suggested_env_var: Option<impl Into<String>>,
+        env_var: Option<impl Into<String>>,
     ) -> Self {
         Self {
             key: normalize_runtime_setting_key(&key.into()),
             kind: RuntimeSettingKind::Float,
             default: default.map(Into::into),
-            suggested_env_var: suggested_env_var.map(Into::into),
+            env_var: env_var.map(Into::into),
             description: String::new(),
         }
     }
@@ -68,13 +71,13 @@ impl RuntimeSettingSpec {
     pub fn boolean(
         key: impl Into<String>,
         default: Option<impl Into<Value>>,
-        suggested_env_var: Option<impl Into<String>>,
+        env_var: Option<impl Into<String>>,
     ) -> Self {
         Self {
             key: normalize_runtime_setting_key(&key.into()),
             kind: RuntimeSettingKind::Boolean,
             default: default.map(Into::into),
-            suggested_env_var: suggested_env_var.map(Into::into),
+            env_var: env_var.map(Into::into),
             description: String::new(),
         }
     }
@@ -144,13 +147,87 @@ impl RuntimeSettingScope {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+pub trait RuntimeSettingSource: Send + Sync {
+    fn resolve(&self, spec: &RuntimeSettingSpec) -> Option<Value>;
+
+    fn env_name_for(&self, _spec: &RuntimeSettingSpec) -> Option<String> {
+        None
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct MappingRuntimeSettingSource {
+    values: BTreeMap<String, Value>,
+}
+
+impl MappingRuntimeSettingSource {
+    pub fn new(values: BTreeMap<String, Value>) -> Self {
+        Self {
+            values: values
+                .into_iter()
+                .map(|(key, value)| (normalize_runtime_setting_key(&key), value))
+                .collect(),
+        }
+    }
+}
+
+impl RuntimeSettingSource for MappingRuntimeSettingSource {
+    fn resolve(&self, spec: &RuntimeSettingSpec) -> Option<Value> {
+        self.values.get(&spec.normalized_key()).cloned()
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct EnvironmentVariableRuntimeSettingSource {
+    environ: BTreeMap<String, String>,
+    env_name_overrides: BTreeMap<String, String>,
+}
+
+impl EnvironmentVariableRuntimeSettingSource {
+    pub fn new(
+        environ: Option<BTreeMap<String, String>>,
+        env_name_overrides: Option<BTreeMap<String, String>>,
+        dotenv_files: Option<Vec<PathBuf>>,
+    ) -> Result<Self> {
+        let normalized_dotenv_files = dotenv_files.unwrap_or_default();
+        let mut combined = load_dotenv_files(&normalized_dotenv_files)?;
+        combined.extend(environ.unwrap_or_else(|| std::env::vars().collect()));
+        Ok(Self {
+            environ: combined,
+            env_name_overrides: env_name_overrides
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(key, value)| (normalize_runtime_setting_key(&key), value))
+                .collect(),
+        })
+    }
+}
+
+impl RuntimeSettingSource for EnvironmentVariableRuntimeSettingSource {
+    fn resolve(&self, spec: &RuntimeSettingSpec) -> Option<Value> {
+        self.environ
+            .get(&self.env_name_for(spec)?)
+            .cloned()
+            .map(Value::String)
+    }
+
+    fn env_name_for(&self, spec: &RuntimeSettingSpec) -> Option<String> {
+        let normalized = spec.normalized_key();
+        if let Some(value) = self.env_name_overrides.get(&normalized) {
+            return Some(value.clone());
+        }
+        Some(env_var(spec))
+    }
+}
+
+#[derive(Clone)]
 pub struct PipelineRuntimeSettings {
     values: BTreeMap<String, Value>,
     declared_values: BTreeMap<String, Value>,
     specs: BTreeMap<String, RuntimeSettingSpec>,
     active_scopes: BTreeMap<String, Vec<RuntimeSettingScope>>,
     required_scopes: BTreeMap<String, Vec<RuntimeSettingScope>>,
+    sources: Vec<Arc<dyn RuntimeSettingSource>>,
 }
 
 impl PipelineRuntimeSettings {
@@ -204,9 +281,13 @@ impl PipelineRuntimeSettings {
     }
 
     pub fn describe_env_var(&self, key: &str) -> Option<String> {
-        self.specs
-            .get(&normalize_runtime_setting_key(key))
-            .map(|spec| suggested_env_var(spec))
+        let spec = self.specs.get(&normalize_runtime_setting_key(key))?;
+        for source in &self.sources {
+            if let Some(env_name) = source.env_name_for(spec) {
+                return Some(env_name);
+            }
+        }
+        Some(env_var(spec))
     }
 
     pub fn resolve_for_stages<I, S>(&self, stage_ids: I) -> Result<Self>
@@ -226,8 +307,11 @@ impl PipelineRuntimeSettings {
                 values.insert(key.clone(), spec.parse_value(default)?);
                 continue;
             }
-            if let Ok(raw) = std::env::var(suggested_env_var(spec)) {
-                values.insert(key.clone(), spec.parse_value(Value::String(raw))?);
+            for source in &self.sources {
+                if let Some(raw) = source.resolve(spec) {
+                    values.insert(key.clone(), spec.parse_value(raw)?);
+                    break;
+                }
             }
         }
 
@@ -256,6 +340,7 @@ impl PipelineRuntimeSettings {
             specs: self.specs.clone(),
             active_scopes: self.active_scopes.clone(),
             required_scopes: self.required_scopes.clone(),
+            sources: self.sources.clone(),
         })
     }
 
@@ -296,6 +381,7 @@ pub struct PipelineRuntimeSettingsBuilder {
     specs: BTreeMap<String, RuntimeSettingSpec>,
     active_scopes: BTreeMap<String, Vec<RuntimeSettingScope>>,
     required_scopes: BTreeMap<String, Vec<RuntimeSettingScope>>,
+    sources: Vec<Arc<dyn RuntimeSettingSource>>,
     sealed: bool,
 }
 
@@ -311,6 +397,15 @@ impl PipelineRuntimeSettingsBuilder {
             bail!("duplicate runtime setting value: {normalized}");
         }
         self.values.insert(normalized, value.into());
+        Ok(self)
+    }
+
+    pub fn install_source(
+        &mut self,
+        source: Arc<dyn RuntimeSettingSource>,
+    ) -> Result<&mut Self> {
+        self.assert_not_sealed()?;
+        self.sources.push(source);
         Ok(self)
     }
 
@@ -394,6 +489,7 @@ impl PipelineRuntimeSettingsBuilder {
             specs: self.specs.clone(),
             active_scopes: self.active_scopes.clone(),
             required_scopes: self.required_scopes.clone(),
+            sources: self.sources.clone(),
         })
     }
 
@@ -466,10 +562,174 @@ where
         .collect()
 }
 
-fn suggested_env_var(spec: &RuntimeSettingSpec) -> String {
-    spec.suggested_env_var
+fn env_var(spec: &RuntimeSettingSpec) -> String {
+    spec.env_var
         .clone()
         .unwrap_or_else(|| spec.normalized_key().to_ascii_uppercase().replace('.', "_"))
+}
+
+pub struct RuntimeSettingSourceFeature {
+    feature_id: String,
+    configuration_fingerprint: String,
+    source: Arc<dyn RuntimeSettingSource>,
+}
+
+impl RuntimeSettingSourceFeature {
+    pub fn new(
+        source: Arc<dyn RuntimeSettingSource>,
+        feature_id: Option<String>,
+        configuration_fingerprint: Option<String>,
+    ) -> Self {
+        Self {
+            feature_id: feature_id.unwrap_or_else(|| "chunky.runtime.setting-source".to_owned()),
+            configuration_fingerprint: configuration_fingerprint
+                .unwrap_or_else(|| "runtime-setting-source".to_owned()),
+            source,
+        }
+    }
+}
+
+impl PipelineFeature for RuntimeSettingSourceFeature {
+    fn feature_id(&self) -> &str {
+        &self.feature_id
+    }
+
+    fn configuration_fingerprint(&self) -> &str {
+        &self.configuration_fingerprint
+    }
+
+    fn install(
+        &self,
+        manifest_builder: &mut dyn StageManifestBuilderAccess,
+        service_locator: &mut PipelineRuntimeServicesBuilder,
+        env_settings: &mut PipelineRuntimeSettingsBuilder,
+    ) -> Result<()> {
+        let _ = manifest_builder;
+        let _ = service_locator;
+        env_settings.install_source(self.source.clone())?;
+        Ok(())
+    }
+}
+
+pub struct EnvironmentVariableRuntimeSettingSourceFeature {
+    inner: RuntimeSettingSourceFeature,
+}
+
+impl EnvironmentVariableRuntimeSettingSourceFeature {
+    pub fn new(
+        environ: Option<BTreeMap<String, String>>,
+        env_name_overrides: Option<BTreeMap<String, String>>,
+        dotenv_files: Option<Vec<PathBuf>>,
+    ) -> Result<Self> {
+        let normalized_dotenv_files = dotenv_files.unwrap_or_default();
+        let mut fingerprint_parts = vec!["runtime-setting-source:environment-variable".to_owned()];
+        if let Some(overrides) = &env_name_overrides {
+            if !overrides.is_empty() {
+                fingerprint_parts.push(format!(
+                    "overrides:{}",
+                    overrides
+                        .iter()
+                        .map(|(key, value)| format!("{}={value}", normalize_runtime_setting_key(key)))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                ));
+            }
+        }
+        if !normalized_dotenv_files.is_empty() {
+            fingerprint_parts.push(format!(
+                "dotenv:{}",
+                normalized_dotenv_files
+                    .iter()
+                    .map(|path| path.expanduser_for_fingerprint())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ));
+        }
+        let source = Arc::new(EnvironmentVariableRuntimeSettingSource::new(
+            environ,
+            env_name_overrides,
+            Some(normalized_dotenv_files),
+        )?);
+        Ok(Self {
+            inner: RuntimeSettingSourceFeature::new(
+                source,
+                Some("chunky.runtime.environment-variable-setting-source".to_owned()),
+                Some(fingerprint_parts.join("|")),
+            ),
+        })
+    }
+}
+
+impl PipelineFeature for EnvironmentVariableRuntimeSettingSourceFeature {
+    fn feature_id(&self) -> &str {
+        self.inner.feature_id()
+    }
+
+    fn configuration_fingerprint(&self) -> &str {
+        self.inner.configuration_fingerprint()
+    }
+
+    fn install(
+        &self,
+        manifest_builder: &mut dyn StageManifestBuilderAccess,
+        service_locator: &mut PipelineRuntimeServicesBuilder,
+        env_settings: &mut PipelineRuntimeSettingsBuilder,
+    ) -> Result<()> {
+        self.inner
+            .install(manifest_builder, service_locator, env_settings)
+    }
+}
+
+trait PathFingerprintExt {
+    fn expanduser_for_fingerprint(&self) -> String;
+}
+
+impl PathFingerprintExt for PathBuf {
+    fn expanduser_for_fingerprint(&self) -> String {
+        self.to_string_lossy().into_owned()
+    }
+}
+
+fn load_dotenv_files(dotenv_files: &[PathBuf]) -> Result<BTreeMap<String, String>> {
+    let mut values = BTreeMap::new();
+    for dotenv_file in dotenv_files {
+        let path = dotenv_file.as_path();
+        let contents = fs::read_to_string(path)
+            .map_err(|error| anyhow!("failed to read dotenv file {}: {error}", path.display()))?;
+        for raw_line in contents.lines() {
+            let mut line = raw_line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some(stripped) = line.strip_prefix("export ") {
+                line = stripped.trim();
+            }
+            let Some((key, value)) = line.split_once('=') else {
+                bail!("invalid dotenv line in {}: {}", path.display(), raw_line);
+            };
+            let normalized_key = key.trim();
+            if normalized_key.is_empty() {
+                bail!("invalid dotenv key in {}: {}", path.display(), raw_line);
+            }
+            values.insert(
+                normalized_key.to_owned(),
+                strip_optional_quotes(value.trim()).to_owned(),
+            );
+        }
+    }
+    Ok(values)
+}
+
+fn strip_optional_quotes(value: &str) -> &str {
+    if value.len() >= 2 {
+        let bytes = value.as_bytes();
+        if (bytes[0] == b'"' && bytes[value.len() - 1] == b'"')
+            || (bytes[0] == b'\'' && bytes[value.len() - 1] == b'\'')
+        {
+            return &value[1..value.len() - 1];
+        }
+    }
+    value
 }
 
 fn coerce_runtime_setting_string(value: Value, key: &str) -> Result<String> {
@@ -514,5 +774,99 @@ fn coerce_runtime_setting_bool(value: Value, key: &str) -> Result<bool> {
             _ => bail!("runtime setting {key} must be boolean-like"),
         },
         other => bail!("runtime setting {key} must be boolean-like, got {other}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn runtime_settings_resolve_from_environment_source() -> Result<()> {
+        let mut builder = PipelineRuntimeSettingsBuilder::new();
+        builder.install_source(Arc::new(EnvironmentVariableRuntimeSettingSource::new(
+            Some(BTreeMap::from([(
+                "EXAMPLE_REQUIRED".to_owned(),
+                "resolved-from-env".to_owned(),
+            )])),
+            None,
+            None,
+        )?))?;
+        builder.require(
+            RuntimeSettingSpec::string(
+                "example.required",
+                Option::<Value>::None,
+                Some("EXAMPLE_REQUIRED"),
+            ),
+            ["stage.a"],
+        )?;
+        builder.declare(
+            RuntimeSettingSpec::string("example.optional", Some("fallback"), None::<String>),
+            ["stage.b"],
+        )?;
+
+        let frozen = builder.freeze()?;
+        let for_stage_a = frozen.resolve_for_stages(["stage.a"])?;
+        let for_stage_b = frozen.resolve_for_stages(["stage.b"])?;
+
+        assert_eq!("resolved-from-env", for_stage_a.get_string("example.required")?);
+        assert!(!for_stage_b.has("example.required"));
+        assert_eq!("fallback", for_stage_b.get_string("example.optional")?);
+        Ok(())
+    }
+
+    #[test]
+    fn environment_runtime_setting_source_can_load_dotenv_files() -> Result<()> {
+        let temp_dir = tempdir()?;
+        let dotenv_path = temp_dir.path().join(".env");
+        fs::write(&dotenv_path, "EXAMPLE_REQUIRED=resolved-from-dotenv\n")?;
+
+        let mut builder = PipelineRuntimeSettingsBuilder::new();
+        builder.install_source(Arc::new(EnvironmentVariableRuntimeSettingSource::new(
+            Some(BTreeMap::new()),
+            None,
+            Some(vec![dotenv_path]),
+        )?))?;
+        builder.require(
+            RuntimeSettingSpec::string(
+                "example.required",
+                Option::<Value>::None,
+                Some("EXAMPLE_REQUIRED"),
+            ),
+            ["stage.a"],
+        )?;
+
+        let resolved = builder.freeze()?.resolve_for_stages(["stage.a"])?;
+        assert_eq!("resolved-from-dotenv", resolved.get_string("example.required")?);
+        Ok(())
+    }
+
+    #[test]
+    fn explicit_environment_overrides_dotenv_values() -> Result<()> {
+        let temp_dir = tempdir()?;
+        let dotenv_path = temp_dir.path().join(".env");
+        fs::write(&dotenv_path, "EXAMPLE_REQUIRED=resolved-from-dotenv\n")?;
+
+        let source = EnvironmentVariableRuntimeSettingSource::new(
+            Some(BTreeMap::from([(
+                "EXAMPLE_REQUIRED".to_owned(),
+                "resolved-from-env".to_owned(),
+            )])),
+            None,
+            Some(vec![dotenv_path]),
+        )?;
+        let spec = RuntimeSettingSpec::string(
+            "example.required",
+            Option::<Value>::None,
+            Some("EXAMPLE_REQUIRED"),
+        );
+
+        assert_eq!(
+            Some(Value::String("resolved-from-env".to_owned())),
+            source.resolve(&spec)
+        );
+        Ok(())
     }
 }

@@ -1,6 +1,8 @@
 # AGENTS.md
 
-This repository is a work-in-progress codebase.
+1. When implementing, or contributing to specs, first read `specs/SPECS_RULE.md.md`
+
+2. This repository is a work-in-progress codebase.
 
 Refactoring policy:
 - Do not preserve backwards compatibility unless the current task explicitly requires it.

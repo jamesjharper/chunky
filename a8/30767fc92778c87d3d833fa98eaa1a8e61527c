@@ -1,0 +1,70 @@
+src/python/chunky/ExampleFeatures/transcribe_stage.py
+  h_6046a6be1688c0 32,36,41
+specs/01-pipeline/03-run-request-building.md
+  h_6046a6be1688c0 1-269
+src/rust/crates/chunky/src/Stages/stage_manifest.rs
+  h_6046a6be1688c0 676
+src/python/chunky/Pipeline/env_settings_features.py
+  s_420d377aa478c9::t_e35d6fb4b56f67 297-299,479,487,489,496
+  s_420d377aa478c9::t_5e89df73e8f5fa 6,295,449-455,457-459,472-478,480-486,488,490-495,497-499,560-587
+  h_6046a6be1688c0 101,181,202,209,219,229,239,249,259,266,316-317,366
+  s_420d377aa478c9::t_2634d3363a4969 588-589
+specs/01-pipeline/01-pipeline-builder.md
+  s_2a0983e55e85f7::t_97429d936b6c71 5,7,41,139,224,232-233,240-243,248-251,253,255-274,276,302
+  s_2a0983e55e85f7::t_6acb5a45ed5a72 142
+  s_b5b1f066b79d83::t_117e0c0fffc79e 281
+  h_6046a6be1688c0 10-25,27,32,35,50,67,69-74,76,78-89,91-94,96,98,100-102,105,107-111,113-115,118-119,129-135,137-138,141,144,149-168,170-173,176-183,186-187,189-190,192,195-223,225-231,234-239,244-247,252,254,277-280,282-293
+src/rust/crates/chunky/src/lib.rs
+  s_420d377aa478c9::t_a6fe890a3292cb 104-107
+src/python/chunky/Stages/stage_manifest.py
+  h_6046a6be1688c0 529
+src/rust/crates/chunky/src/runtime.rs
+  h_6046a6be1688c0 24,32,38,46,52,60,66,74,80,565-566
+  s_420d377aa478c9::t_8f6d8cdbac2577 5,9
+  s_420d377aa478c9::t_9a23cead6bf849 4,150-223,230,284-290,310-314,343,384,403-411,492,571-734,779-872
+specs/01-pipeline/02-pipeline-builder-inbuilts.md
+  s_420d377aa478c9::t_8a077425ca292b 2-89
+  s_420d377aa478c9::t_6efb7b6ed0c9f6 1
+src/python/chunky_tests/test_pipeline_builder.py
+  s_420d377aa478c9::t_da114778fe605e 131-155,251-274
+  h_6046a6be1688c0 111
+  s_420d377aa478c9::t_efc978d57481b0 275-277
+  s_420d377aa478c9::t_4ddaa760defee9 278-285
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "a830767fc92778c87d3d833fa98eaa1a8e61527c",
+  "prompts": {},
+  "humans": {
+    "h_6046a6be1688c0": {
+      "author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  },
+  "sessions": {
+    "s_2a0983e55e85f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5055-2dde-72c2-b3a6-e7d3a3ba9c17",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_420d377aa478c9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5175-4bb5-7722-bdad-6751a5a89e94",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_b5b1f066b79d83": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5172-922b-7921-9eda-0d2cf2943d38",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}

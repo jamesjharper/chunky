@@ -1,0 +1,326 @@
+src/python/chunky/Pipeline/service_features.py
+  s_85f38accc1f5a2::t_e2edda161e45d3 5,12,41,59,67-68,70-81
+  s_85f38accc1f5a2::t_37df3d2c57534f 42-50
+  s_85f38accc1f5a2::t_08777d33f3fd5e 18
+  s_85f38accc1f5a2::t_61bd511b12014c 1-4,6-11,13-17,19-40,51-58,60-66,69,82-206
+src/python/chunky/Pipeline/runtime.py
+  s_fe01ec82f5c680::t_e038909b915adb 1-2
+  s_85f38accc1f5a2::t_220ec3bc507455 3-16,18-28,30-41
+  s_85f38accc1f5a2::t_e2edda161e45d3 17,29
+src/python/chunky/ExampleFeatures/render_vtt_stage.py
+  s_61427bdfc6a022::t_a1721d22ead7a7 5,29,31
+src/python/chunky/Stages/stage_models.py
+  s_61427bdfc6a022::t_09a61e7d513cd3 33-37,49
+  s_fe01ec82f5c680::t_567c28d49090a9 613-614,618
+  s_61427bdfc6a022::t_b0f7de91e1e8c1 501
+  s_61427bdfc6a022::t_28787082acd7bc 32
+  s_fe01ec82f5c680::t_0ef1058dc5a167 615-617
+src/python/chunky/ExampleFeatures/transcribe_stage.py
+  s_61427bdfc6a022::t_c9e7c7cca5beb8 7,56,68-70
+  s_fe01ec82f5c680::t_7015479f164611 4,92-96,98-117,119-122
+  s_61427bdfc6a022::t_fe3cc3b6f99da1 97
+  s_61427bdfc6a022::t_3be7820106a46e 25,48
+  s_61427bdfc6a022::t_54d64f857077ed 3,26-47,66-67,118
+src/rust/crates/chunky/src/Artifacts/fingerprints.rs
+  s_7fd61a0c6989a1::t_91e1d773027461 70
+src/python/chunky/Pipeline/pipeline_builder.py
+  s_85f38accc1f5a2::t_61bd511b12014c 1-59
+src/python/chunky/ExampleFeatures/diarize_stage.py
+  s_61427bdfc6a022::t_05146cdd0e45d6 5,29,31
+src/rust/crates/chunky/src/example_features.rs
+  s_7fd61a0c6989a1::t_429b0de1129beb 20-23,27,90,312,328-330,346,375,400,431
+  s_7fd61a0c6989a1::t_0c91cd2572109e 251-275,283,507,512,522,554,559-562,600,633,676,724,730-748,759-761,763-772,778,790-795
+src/rust/crates/chunky/src/Planning/task_request_graph/graph_walker.rs
+  s_7fd61a0c6989a1::t_91e1d773027461 779-784
+src/rust/crates/chunky/src/Bindings/bindings.rs
+  s_7fd61a0c6989a1::t_91e1d773027461 13-15,18,21-24,224-228,239-243,280-281
+src/python/chunky_demo/demo_support.py
+  s_61427bdfc6a022::t_ec62287858d65c 103-105
+  s_85f38accc1f5a2::t_2b3b3257947016 110
+  s_85f38accc1f5a2::t_6d4df13ee8cfe2 100
+  s_fe01ec82f5c680::t_a4fc827a1144bf 12-15,98-99,101-102,106-109
+  s_85f38accc1f5a2::t_dec14a859d484f 16-17,115
+src/rust/crates/chunky/tests/execution_cache_contract.rs
+  s_7fd61a0c6989a1::t_e0b6d94e7b0323 12
+specs/01-pipeline/02-run-request-building.md
+  s_581d8b6611f117::t_c33986219290b8 1,3,5,7,9-13,15,17,19,21-26,29,31-32,34,36-37,39,41,43,45,47,49-52,54,56,58,62,64-65,68,70-71,74,76-78,80,82-84,90,92,95-106,108-110,113,116,118,121,124-126,128,130,137-138,151,153-168,170,172,177-180,190,198-199,210,212,214,216,218,220,222,224-225,227,229,233-235,238,243,246-260,263,265,267,269,271
+  s_3d526a929c376d::t_1476c7a4fdf1c3 60,86,88,120
+  s_581d8b6611f117::t_764d9498c58f72 232
+  s_581d8b6611f117::t_d5979dd054442f 237
+  s_3d526a929c376d::t_4def3da63bd1a7 241
+src/python/chunky_tests/test_planner_refactor.py
+  s_85f38accc1f5a2::t_2b3b3257947016 105
+  s_85f38accc1f5a2::t_6d4df13ee8cfe2 57
+  s_85f38accc1f5a2::t_cfb3df8eb5699c 28,108,119
+  s_fe01ec82f5c680::t_0f86400302bd9c 55-56,59-60
+  s_fe01ec82f5c680::t_25107f5fd78227 7,23
+  s_85f38accc1f5a2::t_589501a21c2d57 25,54,61
+  s_85f38accc1f5a2::t_3b6f7eb28e0387 58
+src/python/chunky/ExampleFeatures/prepare_audio_stage.py
+  s_61427bdfc6a022::t_4363509e06e6f5 5,28,30
+src/rust/crates/chunky/tests/planner_refactor.rs
+  s_7fd61a0c6989a1::t_91e1d773027461 193,202,206
+src/python/chunky_bench/benchmark_support.py
+  s_85f38accc1f5a2::t_2b3b3257947016 279
+  s_8f5a54687313ad::t_f99bb4a768d332 26,209-212,270
+  s_85f38accc1f5a2::t_6d4df13ee8cfe2 266
+  s_85f38accc1f5a2::t_dec14a859d484f 35,265,267,284
+  s_8f5a54687313ad::t_8da6ac926fd513 40,47,54,61,68
+  s_8f5a54687313ad::t_7ae07aa28476f0 33,131,133
+  s_fe01ec82f5c680::t_0ae20536168056 269,274-275
+  s_8f5a54687313ad::t_bf7971e4f57555 208
+  s_8f5a54687313ad::t_a5231322679008 213-215
+  s_85f38accc1f5a2::t_b38b58b96880ab 216-223,271-273
+src/rust/crates/chunky/src/Scheduling/progress_models.rs
+  s_7fd61a0c6989a1::t_91e1d773027461 397-400
+src/python/chunky/Pipeline/pipeline.py
+  s_85f38accc1f5a2::t_6ea41ed8e59aec 6,24,38,40-41,47,49-50
+  s_fe01ec82f5c680::t_4c5c8bbd80c7c8 42-43,46,202,276,278,280,282-284,286,288-289,291,303-310
+  s_61427bdfc6a022::t_515ee7988fbe58 102-103,146-147,302
+  s_fe01ec82f5c680::t_6c51004100a98b 231
+  s_e4452888492dcf::t_6599acb9943bb2 275
+  s_85f38accc1f5a2::t_461c9dd308c00b 345,355,414,420-422,442
+  h_6046a6be1688c0 1-5,7-14,23,25-37,51-87,89,97,230,268-274,277,281,285,287,290,292-294,297-301,311-344,346-354,356-413,415-418,423-441,443-447,449-458,460-470,482-571,577-609
+  s_85f38accc1f5a2::t_173068ec5894ed 15-22,45
+  s_85f38accc1f5a2::t_e2edda161e45d3 48,295-296,419,471-481
+  s_abaa714f8fb443::t_ce8566184a4d40 279,575
+  s_61427bdfc6a022::t_386133e353ff7b 459
+  s_61427bdfc6a022::t_69de83312d3097 44,448,572-574,576
+  s_85f38accc1f5a2::t_aadd167919c667 88,90-96,98-101,104-145,148-201,203-229,232-267
+  s_61427bdfc6a022::t_721950853ffebf 39
+src/rust/crates/chunky/src/Scheduling/task_runner.rs
+  s_7fd61a0c6989a1::t_91e1d773027461 21-23,340-344,346-347,367,374,387,599-601
+  s_7fd61a0c6989a1::t_f186f77354f9da 25,211,238,428,523-526
+src/python/chunky_tests/test_pipeline_builder.py
+  s_8f5a54687313ad::t_c5437365e502af 3,15,265,269,271-273,276-277
+  s_abaa714f8fb443::t_b009d0ad103ff6 27-31,94-129
+  s_61427bdfc6a022::t_ee463c756d59b5 154-156,164-167
+  s_85f38accc1f5a2::t_589501a21c2d57 24,69
+  s_61427bdfc6a022::t_a97fd377222999 20-23,25-26,142-147,157-162,204
+  s_8f5a54687313ad::t_f99bb4a768d332 16-19,133,150-151,227,256-260,262-264,266-268,274-275,278-280
+  s_fe01ec82f5c680::t_2412900d2ce4a6 34
+  s_61427bdfc6a022::t_a3b595f2ac26bc 7,10-14,33,131-132,135-138,149,153,168-170,172-187,189-203,206-224
+  s_8f5a54687313ad::t_9ad1d40b45ff0a 270
+  s_fe01ec82f5c680::t_5cbe3b0383b4fc 1-2,4-6,8,32,35
+  s_fe01ec82f5c680::t_4311cb750ad93e 9,36-40,44-53,57-68,70-77,79-86,89-91,139,141,228,235-255,281
+  s_85f38accc1f5a2::t_6d4df13ee8cfe2 78,87,134,148,163,171,188,205,229,261
+  s_fe01ec82f5c680::t_0106e29d231e31 41-43
+  s_fe01ec82f5c680::t_a2ddacc22359cf 54-56
+  s_fe01ec82f5c680::t_22e2d4d1956886 140
+  s_85f38accc1f5a2::t_e2027fab09213a 88,92-93,130,152,225-226,230-234
+src/python/chunky/Planning/settings.py
+  s_85f38accc1f5a2::t_61bd511b12014c 1-40
+src/python/chunky_tests/test_targetless_outputs.py
+  s_fe01ec82f5c680::t_4ad55fe22dfdcf 15
+  s_fe01ec82f5c680::t_41b7dbd26dbe0d 45-46,49-50
+  s_85f38accc1f5a2::t_6d4df13ee8cfe2 47
+  s_85f38accc1f5a2::t_589501a21c2d57 18
+  s_85f38accc1f5a2::t_0261d57f096ac1 48
+src/python/chunky/Stages/stage_manifest.py
+  s_fe01ec82f5c680::t_dc61fa07cff8c3 174-179,181-184,186,188-189,191-194
+  s_61427bdfc6a022::t_e3f42398799951 525-533
+src/python/chunky/ExampleFeatures/align_stage.py
+  s_61427bdfc6a022::t_29396409ddc0b9 5,29,31
+specs/00-overview/01-run-contract-overview.md
+  h_6046a6be1688c0 286,288,290,301-302,304-306,319-320,327,332
+specs/01-pipeline/01-pipeline-builder.md
+  s_581d8b6611f117::t_c33986219290b8 1-4,6,8-10,14-20,22-23,25,27-28,30,32-35,37,41-45,54-63,69,71,74-81,84,86,91,93-96,106,108-111,113-118,140-141,143,152,159,186-187,191,198-203,205-215,217
+  s_3d526a929c376d::t_da7fc618ee8540 21,46-51,65,112,120-139,142,144-145,178,189-190,192
+  h_6046a6be1688c0 7,11,107,147-149,151,160-163,168-177,179-185
+  s_8ef860894dea98::t_4fd51b1e817777 73,193-195,197
+  s_581d8b6611f117::t_770305c0e93d90 5
+  s_581d8b6611f117::t_5bd3e7b77ad5be 24
+  s_581d8b6611f117::t_534d0cddc4ec66 26
+  s_581d8b6611f117::t_19aef573cfd6a2 29
+  s_581d8b6611f117::t_1d2b3ec623cee3 31
+  s_581d8b6611f117::t_4cb9610d93d8f7 36
+  s_581d8b6611f117::t_a0b8f8df4f3ce1 38-40
+  s_581d8b6611f117::t_5479506c060360 70
+  s_581d8b6611f117::t_195b55076a2afb 82-83
+  s_581d8b6611f117::t_5fb51153f4088d 85
+  s_581d8b6611f117::t_f2800ff82902a3 87-90
+  s_581d8b6611f117::t_64761ae7e0d58c 92
+  s_581d8b6611f117::t_d14fd26f8e2a0d 97-99,103-105
+  s_581d8b6611f117::t_ced5d3846a963e 153-158
+  s_8ef860894dea98::t_7bfc19f1d5a314 196
+  s_581d8b6611f117::t_4901877737d297 204
+  s_581d8b6611f117::t_d662649281d5a9 216
+  s_3d526a929c376d::t_dc9b239a5651c8 12-13,52-53,64,66-68,72,100-102,119,146,150,164-167,188
+src/rust/crates/chunky/src/Planning/execution_planner.rs
+  s_7fd61a0c6989a1::t_91e1d773027461 83-85
+src/rust/crates/chunky/src/benchmark_support.rs
+  s_7fd61a0c6989a1::t_aca3f548e27618 22,106,176
+  s_7fd61a0c6989a1::t_ee75aa4f0b7bf1 261-262,264
+specs/05-stages/stages-spec.md
+  s_a1b040607a78ff::t_c557511e1f100c 140,184,203-205,214-215,217-224,228-233,238
+  s_a1b040607a78ff::t_d02db9f645fd5d 139
+  s_a1b040607a78ff::t_f67174e992fc33 202
+  s_a1b040607a78ff::t_d97388ae6caa2c 206-208,211-213
+  s_a1b040607a78ff::t_e61e46ca8c113b 216
+  s_a1b040607a78ff::t_e0236a54ab0fed 225-227
+  s_a1b040607a78ff::t_ad0de5b6a8ca98 239
+src/python/chunky/ExampleFeatures/detect_music_stage.py
+  s_61427bdfc6a022::t_aed854dee3d275 5,28,30
+src/rust/crates/chunky/src/pipeline.rs
+  s_7fd61a0c6989a1::t_8c28459cb2db14 28-31,156-158,164-167,170-172,179-190,195-197,204-209,213-214,229-230
+  s_7fd61a0c6989a1::t_a8a1cac7b2c4a7 310,338,346,454-459
+  s_7fd61a0c6989a1::t_91e1d773027461 21-23,33-35,82-85,111-114,132-133,138-140,143-149,191-194,239-241,355-358,374-377,443-445,557-558,639-648
+  s_7fd61a0c6989a1::t_73cfc489441fb4 460-461
+AGENTS.md
+  s_61427bdfc6a022::t_19724079aa59c1 1-14
+src/python/chunky/Pipeline/env_settings_features.py
+  s_85f38accc1f5a2::t_08777d33f3fd5e 7,10-12
+  s_85f38accc1f5a2::t_61bd511b12014c 1-6,8-9,13-545
+src/rust/crates/chunky/src/Stages/stage_models.rs
+  s_7fd61a0c6989a1::t_91e1d773027461 12,112
+  s_7fd61a0c6989a1::t_9a8f4d3e4fc545 14-17,41
+  s_7fd61a0c6989a1::t_a86198b8b4e89a 586,712-717
+src/rust/crates/chunky/src/Stages/stage_manifest.rs
+  s_7fd61a0c6989a1::t_91e1d773027461 12-13
+  s_7fd61a0c6989a1::t_774b3633752d3a 200-204,206,208
+  s_7fd61a0c6989a1::t_53505ee5771a1a 672-679
+src/rust/crates/chunky/src/lib.rs
+  s_7fd61a0c6989a1::t_11ded699a41c5d 103-105
+  s_7fd61a0c6989a1::t_91e1d773027461 43
+  s_7fd61a0c6989a1::t_65d6f8037c9d0a 106
+src/rust/crates/chunky/src/Artifacts/artifact_models.rs
+  s_7fd61a0c6989a1::t_91e1d773027461 74-76,80-82,259-262,331-335,426-430,449-454,888-892,989-998,1004-1007,1009-1016
+src/rust/crates/chunky/src/Planning/task_request_graph/request_models.rs
+  s_7fd61a0c6989a1::t_91e1d773027461 59,68
+src/rust/crates/chunky/tests/support/mod.rs
+  s_7fd61a0c6989a1::t_9cab16087343d6 278
+  s_7fd61a0c6989a1::t_c8f8f6a71f4e26 15,199,361
+  s_7fd61a0c6989a1::t_df7f5832b07bc0 209,216,218,227,233,237-238,240
+src/python/chunky_tests/test_execution_cache_contract.py
+  h_6046a6be1688c0 20
+src/python/chunky/ExampleFeatures/stage_examples.py
+  s_fe01ec82f5c680::t_92d247ac8d2c82 34,39-40,51-53,57,61,63
+  s_61427bdfc6a022::t_7675159f2adb2d 35-37,43,54-56,69-74
+  s_fe01ec82f5c680::t_f91072f65a52d4 62
+  s_61427bdfc6a022::t_7f721eb97eb887 81
+  s_8f5a54687313ad::t_f99bb4a768d332 38
+  s_fe01ec82f5c680::t_c5a3adb0d3faad 58-60
+  s_61427bdfc6a022::t_69556d1383f61a 75-80
+  s_61427bdfc6a022::t_a051dc71e4fd5a 82-84
+  s_8f5a54687313ad::t_ccc4b41219fb44 64-68,85,93-95
+src/rust/crates/chunky/src/Planning/task_request_graph/settings.rs
+  s_7fd61a0c6989a1::t_91e1d773027461 54-56
+src/rust/crates/chunky/tests/planner_evaluation.rs
+  s_7fd61a0c6989a1::t_91e1d773027461 203,205,239,424,547
+  s_7fd61a0c6989a1::t_26406092dd7b1b 237-238,240
+src/rust/crates/chunky/src/runtime.rs
+  s_7fd61a0c6989a1::t_dff346fb28eb2d 1-92,94-103,107-157,160-518
+  s_7fd61a0c6989a1::t_91e1d773027461 93,104-106,158-159
+src/python/chunky/Artifacts/artifact_models.py
+  h_6046a6be1688c0 290
+src/python/chunky/__init__.py
+  s_fe01ec82f5c680::t_cea4315b9a34c3 40-45,95-98
+  h_6046a6be1688c0 29
+  s_85f38accc1f5a2::t_5702e098e8bbce 34,87
+src/python/chunky/Scheduling/task_runner.py
+  s_61427bdfc6a022::t_9013b9da0fef86 9,39-41,174,199,356,465-470
+specs/01-pipeline/03-run-surface.md
+  s_581d8b6611f117::t_c33986219290b8 1-67,69-235
+  s_581d8b6611f117::t_57a88f8359c7e2 68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "05f22610e02cfcc459f8f45dc5bda23a398c3ad0",
+  "prompts": {},
+  "humans": {
+    "h_6046a6be1688c0": {
+      "author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  },
+  "sessions": {
+    "s_3d526a929c376d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f500a-eeb4-7e92-a6e1-95c926fafce9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_581d8b6611f117": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f469a-a907-7ba0-a48a-f0e2d80cc4c5",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_61427bdfc6a022": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4f27-2a4e-75c3-93df-6a0109338ff2",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_7fd61a0c6989a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4ff4-4fbc-7261-be98-62df668db58b",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_85f38accc1f5a2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4fd6-825a-7c03-bae5-4202368ce280",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_8ef860894dea98": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a8-502a-7c81-82a9-ff0436f7adb7",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_8f5a54687313ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4fbf-4364-76f3-9e0f-873b06e50dea",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_a1b040607a78ff": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f467f-a477-75e3-b40e-9926764c927f",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_abaa714f8fb443": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4f86-6e38-7f83-a781-250520e479b4",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_e4452888492dcf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4fbe-098b-7ba2-9af5-abf4178edc4c",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_fe01ec82f5c680": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46af-b40b-7de3-92fe-3b6a9b61d7d2",
+        "model": "gpt-5.4"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}

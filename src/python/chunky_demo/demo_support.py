@@ -4,14 +4,17 @@ from dataclasses import dataclass
 from pathlib import Path
 import shutil
 
-from ..chunky.Bindings.file_cache_provider import FileCacheProvider
 from ..chunky.ExampleFeatures.artifact_handles_examples import (
     AtomicFileTargetHandle,
     FileSource,
     InMemorySource,
 )
-from ..chunky.ExampleFeatures.stage_examples import AudioSettings, SummaryExampleFeature
-from ..chunky.pipeline import ChunkyPipeline, RunRequest
+from ..chunky.ExampleFeatures.stage_examples import (
+    AudioSettings,
+    SummaryExampleFeature,
+)
+from ..chunky.Bindings.file_cache_provider import FileCacheProvider
+from ..chunky.Pipeline.pipeline import ChunkyPipeline, FileCacheFeature, RunRequest
 
 
 DEFAULT_WORK_DIR = Path("/tmp/chunky-complete-example-python")
@@ -77,7 +80,6 @@ def build_request(audio_path: Path, output_path: Path) -> RunRequest:
         },
     )
 
-
 async def create_demo_fixture(
     work_dir: Path,
     *,
@@ -93,16 +95,24 @@ async def create_demo_fixture(
     manifest_path = work_dir / "stage-manifest.json"
     audio_path.write_bytes(bytes(range(256)) * 16)
 
-    cache = FileCacheProvider(work_dir / "cache", owner_task_id=owner_task_id)
-    await cache.recover()
-
-    pipeline = ChunkyPipeline.builder(artifact_cache=cache).install(
-        SummaryExampleFeature()
-    ).build()
+    pipeline = (
+        ChunkyPipeline.builder()
+        .install(FileCacheFeature(work_dir / "cache"))
+        .install(
+            SummaryExampleFeature(
+                provider_name="demo-asr",
+                api_key="demo-api-key",
+                concurrency_limit=8,
+            )
+        )
+        .build()
+    )
+    await pipeline._ensure_runtime_services_ready()
     manifest_path.write_text(
         pipeline.stage_manifest.describe_json() + "\n",
         encoding="utf-8",
     )
+    cache = pipeline.runtime_services.artifact_cache
 
     return DemoFixture(
         work_dir=work_dir,

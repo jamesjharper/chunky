@@ -67,10 +67,7 @@ impl FingerprintProvider {
         }))
     }
 
-    pub fn build_settings_fingerprint(
-        &self,
-        fingerprints: &[String],
-    ) -> Result<String> {
+    pub fn build_settings_fingerprint(&self, fingerprints: &[String]) -> Result<String> {
         if fingerprints.is_empty() {
             return Ok(String::new());
         }

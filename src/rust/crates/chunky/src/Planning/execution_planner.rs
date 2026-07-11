@@ -22,7 +22,6 @@ use super::task_request_graph::{
     TaskOutputBinding, TaskRequestContext, TaskRequestGraph, TaskRequestGraphBuilder,
 };
 
-
 #[async_trait]
 pub trait DefaultSettingsResolver: Send + Sync {
     async fn resolve_defaults(
@@ -81,12 +80,9 @@ where
             planning_roots.extend(defaults);
         }
 
-        let request_settings = PlannerRequestSettings::read_from(
-            manifest,
-            &planning_roots,
-            user_supplied_settings,
-        )
-        .await?;
+        let request_settings =
+            PlannerRequestSettings::read_from(manifest, &planning_roots, user_supplied_settings)
+                .await?;
 
         let manifest_graph = StageManifestGraphBuilder::new(manifest).build();
         let context = TaskRequestContext {

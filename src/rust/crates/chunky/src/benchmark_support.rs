@@ -19,11 +19,11 @@ use crate::example_features::{
     SummaryExampleFeature,
 };
 use crate::pipeline::{ChunkyPipeline, RunRequest};
+use crate::runtime::PipelineRuntimeSettings;
 use crate::stage_models::{
     BoxFuture, PipelineFeature, ResolvedStageRequirements, ResourcePolicy, StageExecutionContext,
     StageExecutor, StagePlanningContext, StageRegistration,
 };
-
 
 fn legacy_key(value: &str) -> ArtifactKey {
     let (path, phase) = match value.rsplit_once('#') {
@@ -103,6 +103,7 @@ impl StageExecutor for SnapshotValueExecutor {
         inputs: &'a InputArtifacts,
         outputs: &'a OutputArtifacts,
         context: &'a StageExecutionContext,
+        _runtime_settings: &'a PipelineRuntimeSettings,
     ) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
             let value = inputs.get_artifact(&self.input)?.read().await?;
@@ -172,6 +173,7 @@ fn snapshot_stage(
         }),
         resolve_output_capabilities: fixed_outputs(vec![output]),
         resolve_resource_policy: unbound_resources(),
+        runtime_settings: vec![],
         concurrency_policy: None,
     }
 }
@@ -256,7 +258,10 @@ impl PipelineFeature for BenchmarkMaterializationFeature {
     fn install(
         &self,
         builder: &mut dyn crate::stage_models::StageManifestBuilderAccess,
+        service_locator: &mut crate::runtime::PipelineRuntimeServicesBuilder,
+        env_settings: &mut crate::runtime::PipelineRuntimeSettingsBuilder,
     ) -> Result<()> {
+        let _ = (service_locator, env_settings);
         builder.add_artifact_boxed(prepared_audio_target().erase())?;
         builder.add_artifact_boxed(token_text_target().erase())?;
         builder.add_artifact_boxed(speaker_segments_target().erase())?;

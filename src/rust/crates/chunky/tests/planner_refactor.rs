@@ -190,10 +190,7 @@ impl AudioSettingsHarness {
     fn new(include_user_base_audio_settings: bool) -> Self {
         Self {
             include_user_base_audio_settings,
-            base_audio_settings_key: legacy_key(
-                "settings//audio_settings",
-            )
-            .unwrap(),
+            base_audio_settings_key: legacy_key("settings//audio_settings").unwrap(),
         }
     }
 
@@ -202,15 +199,11 @@ impl AudioSettingsHarness {
         let base_audio_settings =
             decl(self.base_audio_settings_key.clone(), ArtifactRole::Settings);
         let speech_audio_settings = decl(
-            legacy_key(
-                "speech_processing//settings//audio_settings",
-            )?,
+            legacy_key("speech_processing//settings//audio_settings")?,
             ArtifactRole::Settings,
         );
         let music_audio_settings = decl(
-            legacy_key(
-                "music_processing//settings//audio_settings",
-            )?,
+            legacy_key("music_processing//settings//audio_settings")?,
             ArtifactRole::Settings,
         );
         let prepared_audio = decl("prepared_audio", ArtifactRole::Intermediate);

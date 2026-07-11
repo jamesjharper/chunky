@@ -394,7 +394,10 @@ impl RunProgressTracker {
         self.mutate(move |state| {
             state.available_outputs.insert(
                 artifact_id.clone(),
-                OutputAvailabilitySnapshot { artifact_id, instance_locator },
+                OutputAvailabilitySnapshot {
+                    artifact_id,
+                    instance_locator,
+                },
             );
         });
         Ok(())

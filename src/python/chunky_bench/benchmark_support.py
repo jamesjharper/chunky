@@ -23,50 +23,49 @@ from ..chunky.ExampleFeatures.common import (
     fixed_outputs,
     unbound_resources,
 )
-from ..chunky.ExampleFeatures.stage_examples import SummaryExampleFeature
-from ..chunky.Stages.stage_manifest import StageManifestBuilder
+from ..chunky.ExampleFeatures.stage_examples import WebVttTopologyExampleFeature
 from ..chunky.Stages.stage_models import (
     ResolvedStageRequirements,
     StageExecutionContext,
     StagePlanningContext,
     StageRegistration,
 )
+from ..chunky.Pipeline.runtime import PipelineRuntimeSettings
 from ..chunky_demo.demo_support import DemoFixture, build_inputs
-from ..chunky.pipeline import ChunkyPipeline, RunRequest
-from ..chunky.Bindings.file_cache_provider import FileCacheProvider
+from ..chunky.Pipeline.pipeline import ChunkyPipeline, FileCacheFeature, RunRequest
 
 JsonObject = dict[str, Any]
 
 PREPARED_AUDIO_TARGET = ArtifactDeclaration[JsonObject](
-    artifact_id=ArtifactKey.parse("benchmark//prepared_audio_snapshot"),
+    artifact_id=ArtifactKey.parse("benchmark/prepared_audio_snapshot"),
     role=ArtifactRole.TARGET,
     version=1,
     codec=JsonCodec[JsonObject](),
     cacheable=False,
 )
 TOKEN_TEXT_TARGET = ArtifactDeclaration[JsonObject](
-    artifact_id=ArtifactKey.parse("benchmark//token_text_snapshot"),
+    artifact_id=ArtifactKey.parse("benchmark/token_text_snapshot"),
     role=ArtifactRole.TARGET,
     version=1,
     codec=JsonCodec[JsonObject](),
     cacheable=False,
 )
 SPEAKER_SEGMENTS_TARGET = ArtifactDeclaration[JsonObject](
-    artifact_id=ArtifactKey.parse("benchmark//speaker_segments_snapshot"),
+    artifact_id=ArtifactKey.parse("benchmark/speaker_segments_snapshot"),
     role=ArtifactRole.TARGET,
     version=1,
     codec=JsonCodec[JsonObject](),
     cacheable=False,
 )
 MUSIC_SPANS_TARGET = ArtifactDeclaration[JsonObject](
-    artifact_id=ArtifactKey.parse("benchmark//music_spans_snapshot"),
+    artifact_id=ArtifactKey.parse("benchmark/music_spans_snapshot"),
     role=ArtifactRole.TARGET,
     version=1,
     codec=JsonCodec[JsonObject](),
     cacheable=False,
 )
 TIMED_WORDS_TARGET = ArtifactDeclaration[JsonObject](
-    artifact_id=ArtifactKey.parse("benchmark//timed_words_snapshot"),
+    artifact_id=ArtifactKey.parse("benchmark/timed_words_snapshot"),
     role=ArtifactRole.TARGET,
     version=1,
     codec=JsonCodec[JsonObject](),
@@ -129,7 +128,9 @@ class ArtifactSnapshotExecutor:
         inputs,
         outputs,
         context: StageExecutionContext,
+        runtime_settings: PipelineRuntimeSettings,
     ) -> None:
+        del runtime_settings
         value = await inputs.get_artifact(self._source_declaration).read()
         context.cancellation.raise_if_cancelled()
         await outputs.get_artifact(self._target_declaration).write(value)
@@ -204,18 +205,22 @@ class BenchmarkMaterializationFeature:
     feature_id = "example.webvtt-benchmark-materialization"
     configuration_fingerprint = "webvtt-benchmark-materialization-v1"
 
-    def install(self, builder: StageManifestBuilder) -> None:
-        SummaryExampleFeature().install(builder)
-        builder.add_artifact(PREPARED_AUDIO_TARGET)
-        builder.add_artifact(TOKEN_TEXT_TARGET)
-        builder.add_artifact(SPEAKER_SEGMENTS_TARGET)
-        builder.add_artifact(MUSIC_SPANS_TARGET)
-        builder.add_artifact(TIMED_WORDS_TARGET)
-        builder.add_stage(PREPARED_AUDIO_SNAPSHOT_STAGE)
-        builder.add_stage(TOKEN_TEXT_SNAPSHOT_STAGE)
-        builder.add_stage(SPEAKER_SEGMENTS_SNAPSHOT_STAGE)
-        builder.add_stage(MUSIC_SPANS_SNAPSHOT_STAGE)
-        builder.add_stage(TIMED_WORDS_SNAPSHOT_STAGE)
+    def install(self, manifest_builder, service_locator, env_settings) -> None:
+        WebVttTopologyExampleFeature(
+            provider_name="benchmark-asr",
+            api_key="benchmark-api-key",
+            concurrency_limit=16,
+        ).install(manifest_builder, service_locator, env_settings)
+        manifest_builder.add_artifact(PREPARED_AUDIO_TARGET)
+        manifest_builder.add_artifact(TOKEN_TEXT_TARGET)
+        manifest_builder.add_artifact(SPEAKER_SEGMENTS_TARGET)
+        manifest_builder.add_artifact(MUSIC_SPANS_TARGET)
+        manifest_builder.add_artifact(TIMED_WORDS_TARGET)
+        manifest_builder.add_stage(PREPARED_AUDIO_SNAPSHOT_STAGE)
+        manifest_builder.add_stage(TOKEN_TEXT_SNAPSHOT_STAGE)
+        manifest_builder.add_stage(SPEAKER_SEGMENTS_SNAPSHOT_STAGE)
+        manifest_builder.add_stage(MUSIC_SPANS_SNAPSHOT_STAGE)
+        manifest_builder.add_stage(TIMED_WORDS_SNAPSHOT_STAGE)
 
 
 def scenario_names() -> tuple[str, ...]:
@@ -245,7 +250,6 @@ async def create_benchmark_fixture(
     scenario: str,
     clean: bool = True,
 ) -> DemoFixture:
-    from ..chunky_demo.demo_support import DEFAULT_WORK_DIR
     import shutil
 
     if clean and work_dir.exists():
@@ -258,19 +262,26 @@ async def create_benchmark_fixture(
     manifest_path = work_dir / "stage-manifest.json"
     audio_path.write_bytes(bytes(range(256)) * 16)
 
-    cache = FileCacheProvider(work_dir / "cache", owner_task_id=owner_task_id)
-    await cache.recover()
-
-    builder = ChunkyPipeline.builder(artifact_cache=cache)
+    builder = ChunkyPipeline.builder().install(
+        FileCacheFeature(work_dir / "cache")
+    )
     if scenario == "full_pipeline":
-        builder.install(SummaryExampleFeature())
+        builder.install(
+            WebVttTopologyExampleFeature(
+                provider_name="benchmark-asr",
+                api_key="benchmark-api-key",
+                concurrency_limit=16,
+            )
+        )
     else:
         builder.install(BenchmarkMaterializationFeature())
     pipeline = builder.build()
+    await pipeline._ensure_runtime_services_ready()
     manifest_path.write_text(
         pipeline.stage_manifest.describe_json() + "\n",
         encoding="utf-8",
     )
+    cache = pipeline.runtime_services.artifact_cache
     return DemoFixture(
         work_dir=work_dir,
         audio_path=audio_path,

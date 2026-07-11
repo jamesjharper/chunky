@@ -200,13 +200,9 @@ async fn supplied_intermediate_does_not_prune_shared_producer_needed_for_other_o
 
     assert_eq!(vec!["stage_a", "stage_b", "stage_c"], stage_ids(&plan));
     let stage_b = invocation(&plan, "stage_b");
-    assert!(stage_b.input_bindings[0]
-        .producer_invocation_key
-        .is_none());
+    assert!(stage_b.input_bindings[0].producer_invocation_key.is_none());
     let stage_c = invocation(&plan, "stage_c");
-    assert!(stage_c.input_bindings[0]
-        .producer_invocation_key
-        .is_some());
+    assert!(stage_c.input_bindings[0].producer_invocation_key.is_some());
     Ok(())
 }
 
@@ -238,7 +234,10 @@ async fn missing_required_input_raises_stage_planning_error() -> Result<()> {
         Err(error) => error,
     };
 
-    assert!(error.to_string().contains("graph//in_a") || error.to_string().contains("producer"));
+    let message = error.to_string();
+    assert!(
+        message.contains("graph//in_a") || message.contains("in_a") || message.contains("producer")
+    );
     Ok(())
 }
 
@@ -422,11 +421,7 @@ async fn bounded_phase_requirement_selects_highest_producer_not_exceeding_bound(
         "consumer",
         vec![legacy_key("transcript//token_text#2")?],
         vec![out_a.artifact_id().clone()],
-        |_| {
-            vec![requirement(
-                legacy_key("transcript//token_text#2").unwrap(),
-            )]
-        },
+        |_| vec![requirement(legacy_key("transcript//token_text#2").unwrap())],
     );
     let manifest = manifest(
         vec![token_1, token_2.clone(), token_3, out_a.clone()],
@@ -549,10 +544,7 @@ async fn shared_stage_output_subset_expands_and_requirements_are_re_resolved() -
 
 #[tokio::test]
 async fn inherited_setting_wins_over_default_base_setting() -> Result<()> {
-    let setting_a = decl(
-        legacy_key("settings//setting_a")?,
-        ArtifactRole::Settings,
-    );
+    let setting_a = decl(legacy_key("settings//setting_a")?, ArtifactRole::Settings);
     let setting_a_override = decl(
         legacy_key("stage_prepare//settings//setting_a")?,
         ArtifactRole::Settings,

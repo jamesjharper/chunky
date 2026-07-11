@@ -56,8 +56,7 @@ impl PlannerRequestSettings {
                 user_fingerprints.insert(artifact_id.clone(), instance.fingerprint().to_owned());
             } else {
                 defaults.insert(artifact_id.clone(), value);
-                default_fingerprints
-                    .insert(artifact_id.clone(), instance.fingerprint().to_owned());
+                default_fingerprints.insert(artifact_id.clone(), instance.fingerprint().to_owned());
             }
         }
 
@@ -66,10 +65,7 @@ impl PlannerRequestSettings {
                 defaults,
                 default_fingerprints,
             ),
-            user_settings: ResolvedSettingsView::new_with_fingerprints(
-                user,
-                user_fingerprints,
-            ),
+            user_settings: ResolvedSettingsView::new_with_fingerprints(user, user_fingerprints),
         })
     }
 

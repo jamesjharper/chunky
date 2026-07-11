@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ..Bindings.binding_models import InputArtifacts, OutputArtifacts
 from ..Artifacts.artifact_models import ArtifactCapability, ArtifactRequirement
+from ..Pipeline.runtime import PipelineRuntimeSettings
 from ..Stages.stage_models import (
     ResolvedStageRequirements,
     StageExecutionContext,
@@ -24,7 +25,9 @@ class PrepareAudioExecutor:
         inputs: InputArtifacts,
         outputs: OutputArtifacts,
         context: StageExecutionContext,
+        runtime_settings: PipelineRuntimeSettings,
     ) -> None:
+        del runtime_settings
         raw = await inputs.get_artifact(SOURCE_AUDIO).read()
         audio_settings = context.settings.require(AUDIO_SETTINGS.artifact_id)
         payload = topology_payload(

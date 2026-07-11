@@ -18,13 +18,21 @@ use uuid::Uuid;
 use crate::artifact_binding_models::AnyArtifactInstance;
 use crate::artifact_bindings::ArtifactBindingsProvider;
 use crate::artifact_handles::{ArtifactSourceHandle, ArtifactTargetHandle};
-use crate::artifact_models::{AnyArtifactDeclaration, ArtifactInstanceLocator, ArtifactKey, ArtifactRole, TaskArtifactLocator};
+use crate::artifact_models::{
+    AnyArtifactDeclaration, ArtifactInstanceLocator, ArtifactKey, ArtifactRole, TaskArtifactLocator,
+};
 use crate::cache_models::ArtifactCache;
 use crate::execution_planner::{DefaultSettingsResolver, TaskRunGraphBuilder, TaskRunPlanner};
 use crate::fingerprints::FingerprintProvider;
 use crate::progress_models::{ProgressDispatcher, RunProgressTracker};
+use crate::runtime::{
+    PipelineRuntimeServices, PipelineRuntimeServicesBuilder, PipelineRuntimeSettings,
+    PipelineRuntimeSettingsBuilder,
+};
 use crate::stage_manifest::{StageManifest, StageManifestBuilder};
-use crate::stage_models::{CancellationOrigin, CancellationSource, PipelineFeature, PlanningRunPolicy};
+use crate::stage_models::{
+    CancellationOrigin, CancellationSource, PipelineFeature, PlanningRunPolicy,
+};
 use crate::task_control::{RunError, RunHandle, RunResult};
 use crate::task_runner::{ExampleTaskRunner, TaskRunGraph, TaskRunResult};
 
@@ -71,7 +79,10 @@ impl RunRequest {
                 .into_iter()
                 .map(|(key, source)| (key, ProvidedArtifactRoot::Source(source)))
                 .collect(),
-            outputs: outputs.into_iter().map(|(key, target)| (key, vec![target])).collect(),
+            outputs: outputs
+                .into_iter()
+                .map(|(key, target)| (key, vec![target]))
+                .collect(),
             run_policy: None,
             cache_policy: BTreeMap::new(),
         }
@@ -97,7 +108,10 @@ impl RunRequest {
         self
     }
 
-    pub fn with_cache_policy(mut self, cache_policy: BTreeMap<ArtifactKey, ArtifactCachePolicy>) -> Self {
+    pub fn with_cache_policy(
+        mut self,
+        cache_policy: BTreeMap<ArtifactKey, ArtifactCachePolicy>,
+    ) -> Self {
         self.cache_policy = cache_policy;
         self
     }
@@ -115,52 +129,89 @@ impl ArtifactCacheIO {
         source: Arc<dyn ArtifactSourceHandle>,
     ) -> Result<ArtifactInstanceLocator> {
         let declaration = self.pipeline.stage_manifest.find_artifact(artifact_id)?;
-        let bindings = ArtifactBindingsProvider::new(self.pipeline.artifact_cache.clone());
+        let bindings =
+            ArtifactBindingsProvider::new(self.pipeline.runtime_services.artifact_cache.clone());
         let source = self
             .pipeline
             .resolve_settings_source(&declaration, Some(source))
             .await?;
-        bindings.publish_supplied_root(&declaration, source, None).await
+        bindings
+            .publish_supplied_root(&declaration, source, None)
+            .await
     }
 
-    pub async fn open(
-        &self,
-        locator: &ArtifactInstanceLocator,
-    ) -> Result<AnyArtifactInstance> {
-        let declaration = self.pipeline.stage_manifest.find_artifact(locator.artifact_id())?;
-        let bindings = ArtifactBindingsProvider::new(self.pipeline.artifact_cache.clone());
+    pub async fn open(&self, locator: &ArtifactInstanceLocator) -> Result<AnyArtifactInstance> {
+        let declaration = self
+            .pipeline
+            .stage_manifest
+            .find_artifact(locator.artifact_id())?;
+        let bindings =
+            ArtifactBindingsProvider::new(self.pipeline.runtime_services.artifact_cache.clone());
         bindings.open_instance_locator(&declaration, locator).await
     }
 }
 
 pub struct ChunkyPipelineBuilder {
-    artifact_cache: Arc<dyn ArtifactCache>,
     manifest_builder: StageManifestBuilder,
+    runtime_services: PipelineRuntimeServicesBuilder,
+    env_settings: PipelineRuntimeSettingsBuilder,
+    installed_feature_ids: BTreeSet<String>,
     built: bool,
 }
 
 impl ChunkyPipelineBuilder {
     pub fn new(artifact_cache: Arc<dyn ArtifactCache>) -> Self {
+        let mut runtime_services = PipelineRuntimeServicesBuilder::new();
+        runtime_services
+            .set_artifact_cache(artifact_cache)
+            .expect("artifact cache can be set once");
         Self {
-            artifact_cache,
             manifest_builder: StageManifestBuilder::new(),
+            runtime_services,
+            env_settings: PipelineRuntimeSettingsBuilder::new(),
+            installed_feature_ids: BTreeSet::new(),
             built: false,
         }
     }
 
     pub fn install(mut self, feature: &dyn PipelineFeature) -> Result<Self> {
         self.assert_not_built()?;
-        self.manifest_builder.install_feature(feature)?;
+        let feature_id = feature.feature_id().to_owned();
+        if !self.installed_feature_ids.insert(feature_id.clone()) {
+            bail!("duplicate pipeline feature: {feature_id}");
+        }
+        if let Err(error) = feature.install(
+            &mut self.manifest_builder,
+            &mut self.runtime_services,
+            &mut self.env_settings,
+        ) {
+            self.installed_feature_ids.remove(&feature_id);
+            return Err(error);
+        }
+        if let Err(error) = self
+            .manifest_builder
+            .record_feature(feature.feature_id(), feature.configuration_fingerprint())
+        {
+            self.installed_feature_ids.remove(&feature_id);
+            return Err(error);
+        }
         Ok(self)
     }
 
     pub fn build(mut self) -> Result<ChunkyPipeline> {
         self.assert_not_built()?;
         let stage_manifest = self.manifest_builder.freeze()?;
+        for registration in stage_manifest.stages.values() {
+            self.env_settings
+                .install_stage_settings(&registration.stage_id, &registration.runtime_settings)?;
+        }
+        let runtime_services = self.runtime_services.freeze()?;
+        let runtime_settings = self.env_settings.freeze()?;
         self.built = true;
         Ok(ChunkyPipeline {
             stage_manifest,
-            artifact_cache: self.artifact_cache,
+            runtime_services,
+            runtime_settings,
         })
     }
 
@@ -175,7 +226,8 @@ impl ChunkyPipelineBuilder {
 #[derive(Clone)]
 pub struct ChunkyPipeline {
     pub stage_manifest: StageManifest,
-    artifact_cache: Arc<dyn ArtifactCache>,
+    pub runtime_services: PipelineRuntimeServices,
+    pub runtime_settings: PipelineRuntimeSettings,
 }
 
 impl ChunkyPipeline {
@@ -184,7 +236,9 @@ impl ChunkyPipeline {
     }
 
     pub fn cache_io(&self) -> ArtifactCacheIO {
-        ArtifactCacheIO { pipeline: self.clone() }
+        ArtifactCacheIO {
+            pipeline: self.clone(),
+        }
     }
 
     pub async fn run(&self, request: RunRequest) -> Result<TaskRunResult> {
@@ -253,7 +307,7 @@ impl ChunkyPipeline {
 
         self.validate_cached_inputs(&request.inputs)?;
         self.validate_outputs_and_targetless_policy(&request.outputs, &request.cache_policy)?;
-        let bindings = ArtifactBindingsProvider::new(self.artifact_cache.clone());
+        let bindings = ArtifactBindingsProvider::new(self.runtime_services.artifact_cache.clone());
         let (supplied, user_supplied_settings) =
             self.bind_supplied_inputs(&bindings, &request).await?;
         self.validate_cache_policy(&request.cache_policy)?;
@@ -281,6 +335,7 @@ impl ChunkyPipeline {
             )
             .await?;
 
+        let runtime_settings = self.prepare_runtime_settings(&plan)?;
         self.register_plan_progress(&progress_tracker, &plan);
         let runner = ExampleTaskRunner::new(self.stage_manifest.clone(), bindings);
         runner
@@ -288,6 +343,7 @@ impl ChunkyPipeline {
                 &plan,
                 supplied,
                 request.outputs,
+                runtime_settings,
                 request.cache_policy,
                 Some(cancellation),
                 progress_tracker,
@@ -296,7 +352,10 @@ impl ChunkyPipeline {
             .await
     }
 
-    fn validate_cached_inputs(&self, inputs: &BTreeMap<ArtifactKey, ProvidedArtifactRoot>) -> Result<()> {
+    fn validate_cached_inputs(
+        &self,
+        inputs: &BTreeMap<ArtifactKey, ProvidedArtifactRoot>,
+    ) -> Result<()> {
         for (artifact_id, root) in inputs {
             self.stage_manifest.find_artifact(artifact_id)?;
             if let ProvidedArtifactRoot::Cached(locator) = root {
@@ -312,7 +371,10 @@ impl ChunkyPipeline {
         Ok(())
     }
 
-    fn validate_cache_policy(&self, cache_policy: &BTreeMap<ArtifactKey, ArtifactCachePolicy>) -> Result<()> {
+    fn validate_cache_policy(
+        &self,
+        cache_policy: &BTreeMap<ArtifactKey, ArtifactCachePolicy>,
+    ) -> Result<()> {
         for artifact_id in cache_policy.keys() {
             self.stage_manifest.find_artifact(artifact_id)?;
         }
@@ -378,13 +440,23 @@ impl ChunkyPipeline {
                         .await?
                 }
                 ProvidedArtifactRoot::Cached(reference) => {
-                    bindings.open_instance_locator(&declaration, locator).await?
+                    bindings
+                        .open_instance_locator(&declaration, reference)
+                        .await?
                 }
             };
             supplied.insert(artifact_id.clone(), instance);
         }
 
         Ok((supplied, user_supplied_settings))
+    }
+
+    fn prepare_runtime_settings(&self, plan: &TaskRunGraph<'_>) -> Result<PipelineRuntimeSettings> {
+        self.runtime_settings.resolve_for_stages(
+            plan.invocations
+                .iter()
+                .map(|invocation| invocation.registration.stage_id()),
+        )
     }
 
     async fn resolve_settings_source(
@@ -482,7 +554,8 @@ impl<'a> TaskRunGraphBuilder<'a, TaskRunGraph<'a>> for ExampleTaskRunGraphBuilde
             for (artifact_id, instance) in &supplied_instances {
                 let locator = instance.locator()?;
                 final_instance_by_provisional.insert(artifact_id.to_string(), locator.to_string());
-                fingerprints_by_instance.insert(locator.to_string(), instance.fingerprint().to_owned());
+                fingerprints_by_instance
+                    .insert(locator.to_string(), instance.fingerprint().to_owned());
             }
 
             let mut invocations = Vec::new();
@@ -563,13 +636,16 @@ impl<'a> TaskRunGraphBuilder<'a, TaskRunGraph<'a>> for ExampleTaskRunGraphBuilde
                             .get(&binding.instance_id)
                             .cloned()
                             .unwrap_or(binding.instance_id);
-                        let task_locator = task_id.as_ref().map(|task_id| {
-                            TaskArtifactLocator::from_key(
-                                &binding.requested_artifact_id,
-                                task_id.clone(),
-                                None,
-                            )
-                        }).transpose()?;
+                        let task_locator = task_id
+                            .as_ref()
+                            .map(|task_id| {
+                                TaskArtifactLocator::from_key(
+                                    &binding.requested_artifact_id,
+                                    task_id.clone(),
+                                    None,
+                                )
+                            })
+                            .transpose()?;
                         Ok(crate::task_request_graph::TaskOutputBinding {
                             requested_artifact_id: binding.requested_artifact_id,
                             instance_id,

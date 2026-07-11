@@ -40,6 +40,7 @@ pub mod task_request_graph;
 
 #[path = "Scheduling/progress_models.rs"]
 pub mod progress_models;
+pub mod runtime;
 #[path = "Scheduling/task_control.rs"]
 pub mod task_control;
 #[path = "Scheduling/task_runner.rs"]
@@ -98,4 +99,8 @@ pub mod pipeline;
 pub use pipeline::{
     chunky_run, chunky_run_away, ArtifactCacheIO, ArtifactCachePolicy, ChunkyPipeline,
     ChunkyPipelineBuilder, ProvidedArtifactRoot, RunRequest,
+};
+pub use runtime::{
+    PipelineRuntimeServices, PipelineRuntimeServicesBuilder, PipelineRuntimeSettings,
+    PipelineRuntimeSettingsBuilder, RuntimeSettingSpec, RuntimeStageSetting,
 };

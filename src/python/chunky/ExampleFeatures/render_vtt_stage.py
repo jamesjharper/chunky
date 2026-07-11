@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ..Bindings.binding_models import InputArtifacts, OutputArtifacts
 from ..Artifacts.artifact_models import ArtifactCapability, ArtifactRequirement
+from ..Pipeline.runtime import PipelineRuntimeSettings
 from ..Stages.stage_models import (
     ResolvedStageRequirements,
     StageExecutionContext,
@@ -25,7 +26,9 @@ class RenderVttExecutor:
         inputs: InputArtifacts,
         outputs: OutputArtifacts,
         context: StageExecutionContext,
+        runtime_settings: PipelineRuntimeSettings,
     ) -> None:
+        del runtime_settings
         timed_words = await inputs.get_artifact(TIMED_WORDS).read()
         music_spans = await inputs.get_artifact(MUSIC_SPANS).read()
         vtt = await inputs.get_artifact(VTT_SETTINGS).read()

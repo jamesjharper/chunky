@@ -5,12 +5,16 @@
 //! does not add crate scaffolding, Cargo files, or feature boilerplate.
 
 use crate::artifact_binding_models::{InputArtifacts, OutputArtifacts};
-use crate::fingerprints::FingerprintProvider;
 use crate::artifact_models::{
     AnyArtifactDeclaration, ArtifactCapability, ArtifactKey, ArtifactRequirement, ArtifactRole,
     PhaseMatchMode,
 };
+use crate::fingerprints::FingerprintProvider;
 use crate::phase_catalog::capability_covers_requirement;
+use crate::runtime::{
+    PipelineRuntimeServicesBuilder, PipelineRuntimeSettings, PipelineRuntimeSettingsBuilder,
+    RuntimeStageSetting,
+};
 use crate::stage_manifest::StageManifest;
 use anyhow::{anyhow, bail, Result};
 use serde_json::Value;
@@ -34,6 +38,7 @@ pub trait StageExecutor: Send {
         inputs: &'a InputArtifacts,
         outputs: &'a OutputArtifacts,
         context: &'a StageExecutionContext,
+        runtime_settings: &'a PipelineRuntimeSettings,
     ) -> BoxFuture<'a, Result<()>>;
 }
 
@@ -104,11 +109,7 @@ impl CancellationSource {
         )
     }
 
-    pub fn cancel_with_origin(
-        &self,
-        reason: Option<String>,
-        origin: CancellationOrigin,
-    ) -> bool {
+    pub fn cancel_with_origin(&self, reason: Option<String>, origin: CancellationOrigin) -> bool {
         let mut state = self.inner.lock().expect("cancellation mutex poisoned");
         if state.cancelled {
             return false;
@@ -582,6 +583,7 @@ pub struct StageRegistration {
     pub resolve_output_capabilities: StageOutputResolver,
     pub resolve_resource_policy: StageResourceResolver,
 
+    pub runtime_settings: Vec<RuntimeStageSetting>,
     pub concurrency_policy: Option<StageConcurrencyPolicy>,
 }
 
@@ -707,7 +709,12 @@ impl<'a> ManifestStageRegistration<'a> {
 pub trait PipelineFeature: Send + Sync {
     fn feature_id(&self) -> &str;
     fn configuration_fingerprint(&self) -> &str;
-    fn install(&self, builder: &mut dyn StageManifestBuilderAccess) -> Result<()>;
+    fn install(
+        &self,
+        manifest_builder: &mut dyn StageManifestBuilderAccess,
+        service_locator: &mut PipelineRuntimeServicesBuilder,
+        env_settings: &mut PipelineRuntimeSettingsBuilder,
+    ) -> Result<()>;
 }
 
 /// Narrow builder surface exposed to feature installers.

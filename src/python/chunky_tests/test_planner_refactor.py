@@ -4,8 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from python.chunky.Bindings.bindings import close_instances
-from src.python.chunky.Bindings.file_cache_provider import FileCacheProvider
+from src.python.chunky.Bindings.bindings import close_instances
 from src.python.chunky.ExampleFeatures.artifact_handles_examples import FileSource, InMemorySource
 from src.python.chunky.ExampleFeatures.stage_examples import (
     ALIGNMENT_SETTINGS,
@@ -21,12 +20,12 @@ from src.python.chunky.ExampleFeatures.stage_examples import (
     WEBVTT_TRANSCRIPT,
     SummaryExampleFeature,
 )
-from src.python.chunky.pipeline import (
+from src.python.chunky.Pipeline.pipeline import (
     ChunkyPipeline,
+    FileCacheFeature,
     RunRequest,
-    _PlannerDefaultSettingsResolver,
-    _flatten_request_artifacts,
 )
+from src.python.chunky.Planning.settings import PlannerDefaultSettingsResolver
 
 
 class FixedAudioSettingsDefaultValueSourceProvider:
@@ -52,11 +51,14 @@ class PlannerRefactorTests(unittest.IsolatedAsyncioTestCase):
         self.audio_path = self.work_dir / "audio.bin"
         self.audio_path.write_bytes(bytes(range(64)))
 
-        self.cache = FileCacheProvider(self.work_dir / "cache", owner_task_id="test")
-        await self.cache.recover()
-        self.pipeline = ChunkyPipeline.builder(artifact_cache=self.cache).install(
-            SummaryExampleFeature()
-        ).build()
+        self.cache_root = self.work_dir / "cache"
+        self.pipeline = (
+            ChunkyPipeline.builder()
+            .install(FileCacheFeature(self.cache_root))
+            .install(SummaryExampleFeature(api_key="test-api-key"))
+            .build()
+        )
+        self.cache = self.pipeline.runtime_services.artifact_cache
 
     async def asyncTearDown(self) -> None:
         self.tmp.cleanup()
@@ -100,9 +102,10 @@ class PlannerRefactorTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def _plan(self, request: RunRequest):
+        await self.pipeline._ensure_runtime_services_ready()
         provider = self.pipeline._build_artifact_bindings_provider(self.cache)
         planner = self.pipeline._build_planner(provider)
-        input_sources = _flatten_request_artifacts(request.inputs)
+        input_sources = request.normalize(self.pipeline.stage_manifest).input_sources
         supplied = {}
         try:
             supplied, user_settings = await self.pipeline._bind_supplied_inputs(
@@ -113,7 +116,7 @@ class PlannerRefactorTests(unittest.IsolatedAsyncioTestCase):
                 supplied_instances=supplied,
                 requested_outputs={WEBVTT_TRANSCRIPT.artifact_id},
                 user_supplied_settings=frozenset(user_settings),
-                default_settings_resolver=_PlannerDefaultSettingsResolver(
+                default_settings_resolver=PlannerDefaultSettingsResolver(
                     self.pipeline.stage_manifest,
                     provider,
                 ),

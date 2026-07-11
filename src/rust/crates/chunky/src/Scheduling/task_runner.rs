@@ -18,8 +18,11 @@ use crate::artifact_binding_models::{
 };
 use crate::artifact_bindings::ArtifactBindingsProvider;
 use crate::artifact_handles::ArtifactTargetHandle;
-use crate::artifact_models::{AnyArtifactDeclaration, ArtifactInstanceLocator, ArtifactKey, TaskArtifactLocator};
+use crate::artifact_models::{
+    AnyArtifactDeclaration, ArtifactInstanceLocator, ArtifactKey, TaskArtifactLocator,
+};
 use crate::pipeline::ArtifactCachePolicy;
+use crate::runtime::PipelineRuntimeSettings;
 use crate::stage_manifest::StageManifest;
 use crate::stage_models::{
     build_stage_logger, CancellationSource, CancellationToken, InMemoryStageProgressReporter,
@@ -205,6 +208,7 @@ impl ExampleTaskRunner {
         plan: &TaskRunGraph<'_>,
         supplied_instances: BTreeMap<ArtifactKey, AnyArtifactInstance>,
         output_targets: BTreeMap<ArtifactKey, Vec<Arc<dyn ArtifactTargetHandle>>>,
+        runtime_settings: PipelineRuntimeSettings,
         cache_policy: BTreeMap<ArtifactKey, ArtifactCachePolicy>,
         cancellation: Option<CancellationSource>,
         progress_tracker: RunProgressTracker,
@@ -231,6 +235,7 @@ impl ExampleTaskRunner {
                         &task_id,
                         &state,
                         invocation,
+                        &runtime_settings,
                         &cancellation,
                         &progress_tracker,
                         &cache_policy,
@@ -332,12 +337,14 @@ impl ExampleTaskRunner {
                 for (index, target) in targets.iter().cloned().enumerate() {
                     let target_index = index + 1;
                     cancellation.raise_if_cancelled()?;
-                    match self.artifact_bindings_provider.materialize(&instance, target).await {
+                    match self
+                        .artifact_bindings_provider
+                        .materialize(&instance, target)
+                        .await
+                    {
                         Ok(()) => {
-                            materialized_targets.insert(
-                                requested.requested_artifact_id.clone(),
-                                target_index,
-                            );
+                            materialized_targets
+                                .insert(requested.requested_artifact_id.clone(), target_index);
                             target_results.push(TargetMaterializationResult {
                                 index: target_index,
                                 status: TargetMaterializationStatus::Succeeded,
@@ -357,15 +364,14 @@ impl ExampleTaskRunner {
                                     status: OutputStatus::Failed,
                                     fingerprint: instance.fingerprint().to_owned(),
                                     instance_locator: instance_locator.clone(),
-                            task_locator: task_locator.clone(),
+                                    task_locator: task_locator.clone(),
                                     targets: target_results,
                                     error_ids: vec!["materialization_failed".to_owned()],
                                 },
                             );
                             events.push(format!(
                                 "failed materializing {} to target {}",
-                                requested.requested_artifact_id,
-                                target_index
+                                requested.requested_artifact_id, target_index
                             ));
                             return Err(error);
                         }
@@ -378,7 +384,7 @@ impl ExampleTaskRunner {
                         status: OutputStatus::Succeeded,
                         fingerprint: instance.fingerprint().to_owned(),
                         instance_locator: instance_locator.clone(),
-                            task_locator: task_locator.clone(),
+                        task_locator: task_locator.clone(),
                         targets: target_results,
                         error_ids: Vec::new(),
                     },
@@ -419,6 +425,7 @@ impl ExampleTaskRunner {
         task_id: &str,
         state: &ArtifactRunState,
         invocation: &RunnableInvocation<'_>,
+        runtime_settings: &PipelineRuntimeSettings,
         cancellation: &CancellationSource,
         progress_tracker: &RunProgressTracker,
         cache_policy: &BTreeMap<ArtifactKey, ArtifactCachePolicy>,
@@ -513,7 +520,10 @@ impl ExampleTaskRunner {
         };
 
         let mut executor = (invocation.registration.registration.executor_factory)();
-        let produced = match executor.execute(&inputs, &outputs, &context).await {
+        let produced = match executor
+            .execute(&inputs, &outputs, &context, runtime_settings)
+            .await
+        {
             Ok(()) => resolve_produced_instances(&resolution.writers).await,
             Err(error) => Err(error),
         };
@@ -586,7 +596,9 @@ fn validate_output_fingerprints(
     Ok(())
 }
 
-async fn resolve_produced_instances(writers: &[AnyArtifactWriter]) -> Result<Vec<AnyArtifactInstance>> {
+async fn resolve_produced_instances(
+    writers: &[AnyArtifactWriter],
+) -> Result<Vec<AnyArtifactInstance>> {
     let mut missing = Vec::new();
     let mut produced = Vec::with_capacity(writers.len());
 

@@ -29,6 +29,12 @@ from ..Artifacts.fingerprints import FingerprintProvider
 from ..Artifacts.phase_catalog import capability_covers_requirement
 
 if TYPE_CHECKING:
+    from ..Pipeline.runtime import (
+        PipelineRuntimeSettings,
+        PipelineRuntimeServicesBuilder,
+        PipelineRuntimeSettingsBuilder,
+    )
+    from .stage_manifest import StageManifestBuilder
     from .stage_manifest import StageManifest
 
 T = TypeVar("T")
@@ -40,6 +46,7 @@ class StageExecutor(Protocol):
         inputs: InputArtifacts,
         outputs: OutputArtifacts,
         context: "StageExecutionContext",
+        runtime_settings: "PipelineRuntimeSettings",
     ) -> None: ...
 
 
@@ -491,6 +498,7 @@ class StageRegistration:
     resolve_output_capabilities: StageOutputResolver
     resolve_resource_policy: StageResourceResolver
 
+    runtime_settings: tuple["RuntimeStageSetting", ...] = ()
     concurrency_policy: StageConcurrencyPolicy | None = None
 
 
@@ -602,7 +610,12 @@ class PipelineFeature(Protocol):
     @property
     def configuration_fingerprint(self) -> str: ...
 
-    def install(self, builder: Any) -> None: ...
+    def install(
+        self,
+        manifest_builder: "StageManifestBuilder",
+        service_locator: "PipelineRuntimeServicesBuilder",
+        env_settings: "PipelineRuntimeSettingsBuilder",
+    ) -> None: ...
 
 
 @dataclass(frozen=True)

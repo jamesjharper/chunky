@@ -6,7 +6,7 @@ import tempfile
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
 from ..Bindings.binding_models import (
@@ -35,6 +35,9 @@ from .progress_models import (
     StageBlockedReason,
     TaskState,
 )
+
+if TYPE_CHECKING:
+    from ..Pipeline.runtime import PipelineRuntimeSettings
 
 
 @dataclass(frozen=True)
@@ -168,6 +171,7 @@ class ExampleTaskRunner:
         plan: TaskRunGraph,
         supplied_instances: dict[ArtifactKey, ArtifactInstance[Any]],
         output_targets: dict[ArtifactKey, tuple[ArtifactTargetHandle[Any], ...]],
+        runtime_settings: "PipelineRuntimeSettings",
         cache_policy: dict[ArtifactKey, Any] | None = None,
         cancellation: CancellationSource | None = None,
         progress_tracker: RunProgressTracker,
@@ -192,6 +196,7 @@ class ExampleTaskRunner:
                     task_id=task_id,
                     state=state,
                     invocation=invocation,
+                    runtime_settings=runtime_settings,
                     cancellation=cancellation,
                     progress_tracker=progress_tracker,
                     cache_policy=cache_policy,
@@ -348,6 +353,7 @@ class ExampleTaskRunner:
         task_id: str,
         state: ArtifactRunState,
         invocation: RunnableInvocation,
+        runtime_settings: "PipelineRuntimeSettings",
         cancellation: CancellationSource,
         progress_tracker: RunProgressTracker,
         cache_policy: dict[ArtifactKey, Any] | None = None,
@@ -456,7 +462,12 @@ class ExampleTaskRunner:
             )
             executor = invocation.registration.executor_factory()
             try:
-                await executor.execute(inputs, outputs, context)
+                await executor.execute(
+                    inputs,
+                    outputs,
+                    context,
+                    runtime_settings,
+                )
                 produced = _resolve_produced_instances(resolution.writers)
             except BaseException:
                 await abort_writers(resolution.writers)

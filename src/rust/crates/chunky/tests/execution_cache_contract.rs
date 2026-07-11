@@ -9,7 +9,7 @@ use chunky_example::cache_models::{
 };
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-use support::{decl, JsonValueCodec, MemorySource, RecordingTarget};
+use support::{decl, legacy_key, JsonValueCodec, MemorySource, RecordingTarget};
 
 #[derive(Default)]
 struct RecordingWaitHandle {

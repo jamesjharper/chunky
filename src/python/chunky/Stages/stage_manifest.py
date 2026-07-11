@@ -166,34 +166,32 @@ class StageManifestBuilder:
 
     def __init__(self) -> None:
         self._features: dict[str, FeatureRecord] = {}
-        self._installing: set[str] = set()
         self._artifacts: dict[ArtifactKey, ArtifactDeclaration[Any]] = {}
         self._stages: dict[str, StageRegistration] = {}
         self._default_producers: dict[ArtifactKey, str] = {}
         self._frozen = False
 
-    def install_feature(self, feature: PipelineFeature) -> "StageManifestBuilder":
+    def record_feature(
+        self,
+        *,
+        feature_id: str,
+        configuration_fingerprint: str,
+    ) -> "StageManifestBuilder":
         self._assert_mutable()
-        feature_id = _non_empty(feature.feature_id, "feature_id")
-        configuration_fingerprint = _non_empty(
-            feature.configuration_fingerprint,
-            f"feature {feature_id} configuration_fingerprint",
+        normalized_feature_id = _non_empty(feature_id, "feature_id")
+        normalized_fingerprint = _non_empty(
+            configuration_fingerprint,
+            f"feature {normalized_feature_id} configuration_fingerprint",
         )
-        existing = self._features.get(feature_id)
+        existing = self._features.get(normalized_feature_id)
         if existing is not None:
-            raise StageManifestError(f"duplicate feature installation: {feature_id!r}")
-        if feature_id in self._installing:
-            raise StageManifestError(f"recursive feature dependency: {feature_id}")
-
-        self._installing.add(feature_id)
-        try:
-            feature.install(self)
-            self._features[feature_id] = FeatureRecord(
-                feature_id=feature_id,
-                configuration_fingerprint=configuration_fingerprint,
+            raise StageManifestError(
+                f"duplicate feature installation: {normalized_feature_id!r}"
             )
-        finally:
-            self._installing.remove(feature_id)
+        self._features[normalized_feature_id] = FeatureRecord(
+            feature_id=normalized_feature_id,
+            configuration_fingerprint=normalized_fingerprint,
+        )
         return self
 
     def add_artifact(
@@ -524,6 +522,15 @@ def _build_description(
                     str(capability.artifact_id)
                     for capability in registration.output_capabilities
                 ),
+                "runtime_settings": [
+                    {
+                        "key": setting.spec.normalized_key(),
+                        "required": setting.required,
+                        "suggested_env_var": setting.spec.suggested_env_var,
+                        "has_default": setting.spec.has_default(),
+                    }
+                    for setting in registration.runtime_settings
+                ],
                 "concurrency_policy": (
                     None
                     if registration.concurrency_policy is None

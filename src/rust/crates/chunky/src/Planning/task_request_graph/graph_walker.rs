@@ -776,10 +776,12 @@ impl<'s, 'ctx, 'a> InvocationRequirementResolver<'s, 'ctx, 'a> {
             return Ok(inherited_settings);
         }
 
-        Ok(inherited_settings.merge(&[ResolvedSettingsView::new_with_fingerprints(
-            pushed_values,
-            pushed_fingerprints,
-        )]))
+        Ok(
+            inherited_settings.merge(&[ResolvedSettingsView::new_with_fingerprints(
+                pushed_values,
+                pushed_fingerprints,
+            )]),
+        )
     }
 
     fn is_settings_artifact(&self, artifact_id: &ArtifactKey) -> bool {

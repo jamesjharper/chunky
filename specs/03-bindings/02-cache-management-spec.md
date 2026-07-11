@@ -191,7 +191,7 @@ class ArtifactCacheIO(Protocol):
     ) -> ArtifactInstance[T]: ...
 ```
 
-`publish` computes the supplied-artifact fingerprint, writes a committed cache entry under that fingerprint, and returns a structured `ArtifactInstanceLocator` serialized as `a-instance`. `open` validates the paired artifact identity and fingerprint, acquires a normal cache read reservation, and returns a cache-backed source handle. Neither operation exposes backend paths, object-store keys, reservation IDs, or raw lock records.
+`publish` computes the supplied-artifact fingerprint, materializes the supplied source into a committed cache entry under that fingerprint, and returns a structured `ArtifactInstanceLocator` serialized as `a-instance`. Implementations must not fake this by reading a large source completely into memory and then writing it back out through a value-only target path. Until the source/target/cache contracts define safe streaming or file-to-cache materialization, `publish` may remain an explicit stub. `open` validates the paired artifact identity and fingerprint, acquires a normal cache read reservation, and returns a cache-backed source handle. Neither operation exposes backend paths, object-store keys, reservation IDs, or raw lock records.
 
 A cached root opened by locator changes availability, not graph semantics. Once opened, it behaves like an ordinary supplied root. Cached settings roots may be opened and read before graph planning so settings-dependent planning hooks receive their values.
 

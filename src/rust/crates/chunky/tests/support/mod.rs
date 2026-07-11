@@ -12,6 +12,7 @@ use chunky_example::artifact_models::{
     ArtifactRequirement, ArtifactRole, ArtifactValue, Codec, ErasedCodec, PhaseMatchMode,
 };
 use chunky_example::manifest_graph::StageManifestGraphBuilder;
+use chunky_example::runtime::PipelineRuntimeSettings;
 use chunky_example::stage_manifest::{StageConsumer, StageManifest, StageProducer};
 use chunky_example::stage_models::{
     BoxFuture, PlanningRunPolicy, ResolvedStageRequirements, ResourcePolicy, StageExecutionContext,
@@ -195,6 +196,7 @@ impl StageExecutor for NoopStageExecutor {
         _inputs: &'a InputArtifacts,
         _outputs: &'a OutputArtifacts,
         _context: &'a StageExecutionContext,
+        _runtime_settings: &'a PipelineRuntimeSettings,
     ) -> BoxFuture<'a, Result<()>> {
         Box::pin(async { Ok(()) })
     }
@@ -204,19 +206,16 @@ pub fn dummy_executor_factory() -> chunky_example::stage_models::StageExecutorFa
     Arc::new(|| Box::new(NoopStageExecutor))
 }
 
-
-pub fn legacy_key(value: &str) -> ArtifactKey {
+pub fn legacy_key(value: &str) -> Result<ArtifactKey> {
     let (path, phase) = match value.rsplit_once('#') {
         Some((path, phase)) => (path, Some(phase.parse::<u32>().expect("valid phase"))),
         None => (value, None),
     };
     let parts = path.split("//").collect::<Vec<_>>();
     match parts.as_slice() {
-        [domain, content_kind] => ArtifactKey::new(*domain, *content_kind, phase, None)
-            .expect("valid test artifact key"),
+        [domain, content_kind] => ArtifactKey::new(*domain, *content_kind, phase, None),
         [projection, domain, content_kind] => ArtifactKey::new(*domain, *content_kind, phase, None)
-            .and_then(|key| key.with_override_domain(*projection))
-            .expect("valid projected test artifact key"),
+            .and_then(|key| key.with_override_domain(*projection)),
         _ => panic!("invalid legacy artifact key: {value}"),
     }
 }
@@ -225,19 +224,20 @@ pub fn artifact_key(name: &str) -> ArtifactKey {
     if name.starts_with("setting_") {
         return setting_key(name);
     }
-    legacy_key(&format!("graph//{}", canonical_node_id(name)))
+    legacy_key(&format!("graph//{}", canonical_node_id(name))).expect("valid graph artifact key")
 }
 
 pub fn setting_key(name: &str) -> ArtifactKey {
     let name = canonical_node_id(name);
     if let Some(base) = name.strip_suffix("_user_or_defaults") {
-        return legacy_key(&format!("settings//{base}"));
+        return legacy_key(&format!("settings//{base}")).expect("valid settings artifact key");
     }
     let marker = "_override_stage_";
     if let Some((base, target_suffix)) = name.split_once(marker) {
-        return legacy_key(&format!("stage_{target_suffix}//settings//{base}"));
+        return legacy_key(&format!("stage_{target_suffix}//settings//{base}"))
+            .expect("valid override settings artifact key");
     }
-    legacy_key(&format!("settings//{name}"))
+    legacy_key(&format!("settings//{name}")).expect("valid settings artifact key")
 }
 
 pub fn canonical_node_id(name: &str) -> String {
@@ -275,7 +275,7 @@ impl From<&str> for KeyOrName {
 
 pub fn artifact_key_with_role(name: &str, _role: ArtifactRole) -> ArtifactKey {
     if name.contains("//") {
-        legacy_key(name)
+        legacy_key(name).expect("valid explicit artifact key")
     } else {
         artifact_key(name)
     }
@@ -358,6 +358,7 @@ pub fn stage_registration_with_resolvers(
         }),
         resolve_output_capabilities: output_resolver,
         resolve_resource_policy: resource_resolver,
+        runtime_settings: vec![],
         concurrency_policy: None,
     }
 }

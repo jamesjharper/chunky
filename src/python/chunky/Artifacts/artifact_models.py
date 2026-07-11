@@ -287,7 +287,7 @@ class ArtifactInstanceLocator:
         if len(segments) != 6 or segments[4] != "fingerprint":
             raise ValueError(
                 "a-instance path must be "
-                "/projection/domain/content_kind/phase/fingerprint/fingerprint"
+                "/{{projection}}/{{domain}}/{{content_kind}}/{{phase}}/fingerprint/{{fingerprint}}"
             )
         projection, domain, content_kind, phase_text, _marker, fingerprint = segments
         return cls(

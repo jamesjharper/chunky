@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ..Bindings.binding_models import InputArtifacts, OutputArtifacts
 from ..Artifacts.artifact_models import ArtifactCapability, ArtifactRequirement
+from ..Pipeline.runtime import PipelineRuntimeSettings
 from ..Stages.stage_models import (
     ResolvedStageRequirements,
     StageExecutionContext,
@@ -25,7 +26,9 @@ class AlignExecutor:
         inputs: InputArtifacts,
         outputs: OutputArtifacts,
         context: StageExecutionContext,
+        runtime_settings: PipelineRuntimeSettings,
     ) -> None:
+        del runtime_settings
         token_text = await inputs.get_artifact(TOKEN_TEXT).read()
         speaker_segments = await inputs.get_artifact(SPEAKER_SEGMENTS).read()
         alignment = await inputs.get_artifact(ALIGNMENT_SETTINGS).read()

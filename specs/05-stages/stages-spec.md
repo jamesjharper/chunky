@@ -136,6 +136,8 @@ settings = await inputs.get_artifact(ASR_SETTINGS).read()
 
 This preserves one artifact-based dependency model for source values, settings, intermediate values, targets, and diagnostics.
 
+Runtime-only configuration such as API keys, provider transport tuning, and scheduler concurrency caps is not a settings artifact. Those values belong to explicit feature/provider configuration and should reach stage code only through injected provider or executor dependencies.
+
 ### Stage Execution Context
 
 The rich scheduler invocation record and the stage-facing execution context are different objects.
@@ -179,6 +181,7 @@ The context must not expose APIs that allow a stage to:
 - select a different producer;
 - write caller materialization targets directly;
 - mutate the stage or artifact manifest;
+- read a generic runtime-settings map or secret store;
 - release scheduler resource leases.
 
 ### Provider and Model Dependencies
@@ -196,9 +199,43 @@ class AsrExecutor:
 
 They should not be looked up through a generic mutable service locator in `StageExecutionContext`.
 
+When a provider requires operational configuration such as an API key, the executor factory should capture a fully configured provider client from explicit feature/provider configuration:
+
+```python
+class OpenAiAsrFeature:
+    def __init__(self, *, api_key: str, concurrency_limit: int = 4) -> None:
+        self._provider = OpenAiAsrProvider(
+            api_key=api_key,
+            concurrency_limit=concurrency_limit,
+        )
+
+    def install(self, manifest_builder, service_locator, env_settings) -> None:
+        del service_locator, env_settings
+        manifest_builder.add_stage(
+            build_openai_asr_stage_registration(
+                executor_factory=lambda: AsrExecutor(self._provider)
+            )
+        )
+```
+
+The corresponding pipeline setup is explicit:
+
+```python
+pipeline = (
+    ChunkyPipeline.builder()
+    .install(ArtifactCacheFeature(cache))
+    .install(OpenAiAsrFeature(api_key=env["OPENAI_API_KEY"]))
+    .build()
+)
+```
+
+The API key is operational runtime configuration. It must not be modeled as a semantic artifact input unless the artifact contract explicitly intends credential identity to affect semantic output identity.
+
 `FingerprintProvider` is also a pipeline-level injectable dependency, but it belongs on planning and artifact-binding collaborators rather than on stage executors. Stages consume already-bound artifacts and resolved planning results; they do not calculate canonical artifact fingerprints themselves.
 
 Credential values are runtime provider configuration. They must not be copied into the serializable manifest description or semantic fingerprints unless the corresponding artifact contract explicitly requires that behavior.
+
+Likewise, runtime concurrency limits, retry budgets, and transport timeouts must not be treated as stage settings unless changing them is explicitly intended to change semantic output behavior.
 
 ### Executor Lifetime and Concurrency
 

@@ -17,7 +17,7 @@ from src.python.chunky.Bindings.cache_models import (
     CacheWait,
     CacheWriteReservation,
 )
-from src.python.chunky.pipeline import ArtifactCachePolicy
+from python.chunky.Pipeline.pipeline import ArtifactCachePolicy
 
 
 class JsonishCodec:

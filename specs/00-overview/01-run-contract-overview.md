@@ -52,7 +52,12 @@ class WebVttTopologyExampleFeature:
     feature_id = "example.webvtt-topology"
     configuration_fingerprint = "webvtt-topology-example-v1"
 
-    def install(self, manifest_builder: "StageManifestBuilder", _dependency_builder: "DependencyBuilder") -> None:
+    def install(
+        self,
+        manifest_builder: "StageManifestBuilder",
+        service_locator: "PipelineRuntimeServicesBuilder",
+        env_settings: "PipelineRuntimeSettingsBuilder",
+    ) -> None:
         manifest_builder.add_artifact(SOURCE_AUDIO)
         manifest_builder.add_artifact(AUDIO_SETTINGS)
         manifest_builder.add_artifact(SPEECH_AUDIO_SETTINGS)
@@ -194,7 +199,6 @@ result = await pipeline.run(
 ```
 
 ### Output Fan-Out
-
 One semantic artifact may be materialized to an ordered list of caller targets in the same run.
 
 ```python
@@ -279,11 +283,13 @@ The policy directives are orthogonal:
 - `do_not_cache` affects write/publish-to-cache for the current run;
 - `desired_ttl` applies only when creating a new cache entry and does not mutate an existing entry's TTL.
 
-### Supplied Root Cache Publication
+### Supplied Artifacts are Cached by default
 
-A caller-provided graph root whose declaration is cacheable is published into the artifact cache by default during binding. This applies uniformly to supplied source artifacts, supplied settings artifacts, and explicitly supplied intermediate artifacts.
+A caller-provided input artifacts are published into the artifact cache by default during binding, provided they are consumed by the the planned graph. 
 
-This publication does not change graph shape or supplied-root precedence. The supplied artifact remains the root selected for the current run; cache publication only makes the same semantic instance durable for later reuse, saved-task re-submission, upload-first workflows, or materialization retry.
+*This applies uniformly to supplied source artifacts, supplied settings artifacts, and explicitly supplied intermediate artifacts.*
+
+The supplied artifact remains the root selected for the current run; cache publication only makes the same semantic instance durable for later reuse, saved-task re-submission, upload-first workflows, or materialization retry.
 
 `cache_policy[artifact_id].do_not_cache` opts out for that exact root. The root can still be used in the current run, but a future persisted task that depends on an uncached provided root is not restartable because its durable root set is incomplete.
 
@@ -291,12 +297,18 @@ This publication does not change graph shape or supplied-root precedence. The su
 
 Chunky also reserves a dedicated artifact-cache IO surface separate from `run(...)` and `run_away(...)`. It lets callers publish artifact content into cache and retrieve published instances without constructing a run request solely for cache population or inspection.
 
-The interface is semantic and handle-based: callers use artifact declarations or artifact IDs plus source or target handles. It must not expose backend-native cache paths, object keys, or lock records. Direct cache writes must use the same fingerprinting, metadata validation, reservation, and atomic publish rules as run-time cache publication. A directly published artifact is therefore a normal cache entry, not a weaker side channel.
+The interface is semantic and handle-based: callers use artifact declarations or artifact IDs plus source or target handles. 
 
-Direct cache IO returns or accepts a concrete `a-instance` locator. When such a locator is later used as a provided root, planning treats it like the same artifact supplied normally, apart from provenance diagnostics. This direct cache IO surface is the common foundation for upload-first web-service flows, duplicate-upload detection, cached-root rebinding, and later output retrieval. A future artifact-existence preflight may check an `a-instance` before a large upload, but that optimization is not required by this version.
+*Direct cache writes must use the same fingerprinting, metadata validation, reservation, and atomic publish rules as run-time cache publication. A directly published artifact is therefore a normal cache entry.*
+
+Cache IO accepts a semantic artifact reference, expressed as either a short artifact ID such as `"source/audio"` or an equivalent `a-ref`, and returns an `a-instance`. 
+- The semantic artifact reference identifies the artifact declaration being published.
+- The returned `a-instance` locator represents a concrete committed cache instance, including its content fingerprint.
+
+This direct cache IO surface is the common foundation for upload-first web-service flows, duplicate-upload detection, cached-root rebinding, and later output retrieval. A future artifact-existence preflight may check an `a-instance` before a large upload, but that optimization is not required by this version.
 
 #### Publishing an artifact through `ArtifactCacheIO`
-A caller may publish a root before creating a run request. The cache IO surface computes the same supplied-artifact fingerprint that normal root binding would compute, reserves the cache entry, writes through the declaration codec, validates metadata, and returns a typed cache reference.
+A caller may publish a root before creating a run request. The cache IO surface is intended to compute the same supplied-artifact fingerprint that normal root binding would compute, reserve the cache entry, materialize the supplied artifact into the cache handle, validate metadata, and return a typed cache reference. Implementations must not require large artifacts to be fully loaded into memory just to publish them. If the active source/target handle contracts cannot support streaming or file-to-cache materialization safely, `ArtifactCacheIO.publish` should remain an explicit stub rather than providing a misleading value-buffering implementation.
 
 ```python
 audio_instance = await pipeline.cache_io.publish(
@@ -304,22 +316,20 @@ audio_instance = await pipeline.cache_io.publish(
     SourceAudioArtifact.from_file_path("input.wav"),
 )
 
-# The locator is semantic plus concrete: it is not just a raw fingerprint.
-assert audio_instance.artifact_key == ArtifactKey.from_a_ref("source/audio")
-print(audio_instance)
+assert audio_instance.artifact_id == ArtifactKey.from_a_ref("source/audio")
+print(audio_instance.fingerprint)
 ```
-
-The returned reference is suitable for saved task configuration, upload-first service flows, or explicit rebinding in a later run. Publishing through `ArtifactCacheIO` does not expose a cache path or backend object key.
 
 #### Using a cached artifact in a task
 
 A cached locator can later be supplied as a graph root in `RunRequest.inputs`. The request key still declares the semantic artifact being supplied, and the `a-instance` locator pins which committed cache instance should be used. The locator's artifact identity must match the normalized request key.
 
+
 ```python
 result = await pipeline.run(
     RunRequest(
         inputs={
-            "source/audio": audio_ref,
+            "source/audio": audio_instance,
             "render/webvtt_settings": SourceSettingsArtifact.from_object({
                 "include_speakers": True,
             }),
@@ -331,12 +341,12 @@ result = await pipeline.run(
         },
     )
 )
+
 ```
 
 During binding, the pipeline opens the cache entry by `a-instance`, validates the cache metadata against the declaration, and acquires a read reservation before planning proceeds. If the cached root is a settings artifact, the pipeline may read it early so settings-dependent planning hooks see the same value they would have seen from an ordinary supplied settings source.
 
 ## Run Request Model
-
 A `RunRequest` is the canonical language-neutral request shape.
 
 ```text

@@ -51,7 +51,9 @@ impl<'a> PlannerSettingsResolver<'a> {
                 .stage_fingerprints_by_id
                 .get(registration.stage_id())
                 .cloned()
-                .ok_or_else(|| anyhow::anyhow!("unknown stage fingerprint: {}", registration.stage_id()))?,
+                .ok_or_else(|| {
+                    anyhow::anyhow!("unknown stage fingerprint: {}", registration.stage_id())
+                })?,
             requested_outputs: declared_outputs.into_iter().collect(),
             resolved_settings: effective_settings,
             inherited_settings,

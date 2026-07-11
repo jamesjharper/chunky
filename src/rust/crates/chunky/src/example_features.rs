@@ -17,10 +17,14 @@ use crate::artifact_models::{
     ArtifactCapability, ArtifactDeclaration, ArtifactKey, ArtifactRequirement, ArtifactRole, Codec,
     DefaultValueSourceProvider, PhaseMatchMode,
 };
+use crate::runtime::{
+    PipelineRuntimeServicesBuilder, PipelineRuntimeSettings, PipelineRuntimeSettingsBuilder,
+    RuntimeSettingSpec, RuntimeStageSetting,
+};
 use crate::stage_manifest::StageManifestBuilder;
 use crate::stage_models::{
     BoxFuture, PipelineFeature, ResolvedStageRequirements, ResourcePolicy, StageExecutionContext,
-    StageExecutor, StagePlanningContext, StageRegistration,
+    StageExecutor, StageManifestBuilderAccess, StagePlanningContext, StageRegistration,
 };
 
 #[derive(Clone, Copy, Default)]
@@ -64,8 +68,6 @@ fn resolved_audio_settings(value: Option<Value>) -> Result<Value> {
     Ok(Value::Object(resolved))
 }
 
-#[async_trait]
-
 fn key(domain: &str, content_kind: &str, phase: Option<u32>) -> ArtifactKey {
     ArtifactKey::new(domain, content_kind, phase, None).expect("valid artifact key")
 }
@@ -85,6 +87,7 @@ fn legacy_key(value: &str) -> ArtifactKey {
     }
 }
 
+#[async_trait]
 impl DefaultValueSourceProvider<Value> for AudioSettingsDefaultValueSourceProvider {
     async fn resolve_source(
         &self,
@@ -245,6 +248,31 @@ fn invocation_id_from(value: &Value) -> Value {
     value.get("invocation_id").cloned().unwrap_or(Value::Null)
 }
 
+pub const TRANSCRIBE_STAGE_ID: &str = "asr.transcribe";
+pub const ASR_PROVIDER_NAME_SETTING: &str = "example.asr.provider_name";
+pub const ASR_API_KEY_SETTING: &str = "example.asr.api_key";
+pub const ASR_CONCURRENCY_LIMIT_SETTING: &str = "example.asr.concurrency_limit";
+
+fn transcribe_runtime_settings() -> Vec<RuntimeStageSetting> {
+    vec![
+        RuntimeStageSetting::optional(RuntimeSettingSpec::string(
+            ASR_PROVIDER_NAME_SETTING,
+            Some("example-asr"),
+            Some("EXAMPLE_ASR_PROVIDER_NAME"),
+        )),
+        RuntimeStageSetting::required(RuntimeSettingSpec::string(
+            ASR_API_KEY_SETTING,
+            None::<Value>,
+            Some("EXAMPLE_ASR_API_KEY"),
+        )),
+        RuntimeStageSetting::optional(RuntimeSettingSpec::integer(
+            ASR_CONCURRENCY_LIMIT_SETTING,
+            Some(4),
+            Some("EXAMPLE_ASR_CONCURRENCY_LIMIT"),
+        )),
+    ]
+}
+
 pub struct PrepareAudioExecutor;
 impl StageExecutor for PrepareAudioExecutor {
     fn execute<'a>(
@@ -252,6 +280,7 @@ impl StageExecutor for PrepareAudioExecutor {
         inputs: &'a InputArtifacts,
         outputs: &'a OutputArtifacts,
         context: &'a StageExecutionContext,
+        _runtime_settings: &'a PipelineRuntimeSettings,
     ) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
             let source = source_audio();
@@ -280,6 +309,7 @@ impl StageExecutor for TranscribeExecutor {
         inputs: &'a InputArtifacts,
         outputs: &'a OutputArtifacts,
         context: &'a StageExecutionContext,
+        runtime_settings: &'a PipelineRuntimeSettings,
     ) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
             let prepared = inputs.get_artifact(&prepared_audio())?.read().await?;
@@ -295,6 +325,9 @@ impl StageExecutor for TranscribeExecutor {
                         "prepared_audio_invocation": invocation_id_from(&prepared),
                         "asr": (*asr).clone(),
                         "language": (*language).clone(),
+                        "provider_name": runtime_settings.get_string(ASR_PROVIDER_NAME_SETTING)?,
+                        "concurrency_limit": runtime_settings.get_int(ASR_CONCURRENCY_LIMIT_SETTING)?,
+                        "api_key_configured": runtime_settings.has(ASR_API_KEY_SETTING),
                     }),
                 ))
                 .await?;
@@ -310,6 +343,7 @@ impl StageExecutor for DiarizeExecutor {
         inputs: &'a InputArtifacts,
         outputs: &'a OutputArtifacts,
         context: &'a StageExecutionContext,
+        _runtime_settings: &'a PipelineRuntimeSettings,
     ) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
             let prepared = inputs.get_artifact(&prepared_audio())?.read().await?;
@@ -338,6 +372,7 @@ impl StageExecutor for DetectMusicExecutor {
         inputs: &'a InputArtifacts,
         outputs: &'a OutputArtifacts,
         context: &'a StageExecutionContext,
+        _runtime_settings: &'a PipelineRuntimeSettings,
     ) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
             let prepared = inputs.get_artifact(&prepared_audio())?.read().await?;
@@ -362,6 +397,7 @@ impl StageExecutor for AlignExecutor {
         inputs: &'a InputArtifacts,
         outputs: &'a OutputArtifacts,
         context: &'a StageExecutionContext,
+        _runtime_settings: &'a PipelineRuntimeSettings,
     ) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
             let token_text_value = inputs.get_artifact(&token_text())?.read().await?;
@@ -392,6 +428,7 @@ impl StageExecutor for RenderVttExecutor {
         inputs: &'a InputArtifacts,
         outputs: &'a OutputArtifacts,
         context: &'a StageExecutionContext,
+        _runtime_settings: &'a PipelineRuntimeSettings,
     ) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
             let timed_words_value = inputs.get_artifact(&timed_words())?.read().await?;
@@ -467,11 +504,12 @@ pub fn prepare_audio_stage() -> StageRegistration {
         }),
         resolve_output_capabilities: fixed_outputs(vec![output]),
         resolve_resource_policy: cpu_resources(),
+        runtime_settings: vec![],
         concurrency_policy: None,
     }
 }
 
-pub fn transcribe_stage() -> StageRegistration {
+pub fn build_transcribe_stage() -> StageRegistration {
     let prepared = prepared_audio();
     let speech_audio = speech_audio_settings();
     let asr = asr_settings();
@@ -481,7 +519,7 @@ pub fn transcribe_stage() -> StageRegistration {
         artifact_id: token.artifact_id().clone(),
     };
     StageRegistration {
-        stage_id: "asr.transcribe".to_owned(),
+        stage_id: TRANSCRIBE_STAGE_ID.to_owned(),
         display_name: "Transcribe".to_owned(),
         registration_version: "1".to_owned(),
         behavior_version: "1".to_owned(),
@@ -513,8 +551,13 @@ pub fn transcribe_stage() -> StageRegistration {
         }),
         resolve_output_capabilities: fixed_outputs(vec![output]),
         resolve_resource_policy: cpu_resources(),
+        runtime_settings: transcribe_runtime_settings(),
         concurrency_policy: None,
     }
+}
+
+pub fn transcribe_stage() -> StageRegistration {
+    build_transcribe_stage()
 }
 
 pub fn diarize_stage() -> StageRegistration {
@@ -554,6 +597,7 @@ pub fn diarize_stage() -> StageRegistration {
         }),
         resolve_output_capabilities: fixed_outputs(vec![output]),
         resolve_resource_policy: cpu_resources(),
+        runtime_settings: vec![],
         concurrency_policy: None,
     }
 }
@@ -586,6 +630,7 @@ pub fn detect_music_stage() -> StageRegistration {
         }),
         resolve_output_capabilities: fixed_outputs(vec![output]),
         resolve_resource_policy: cpu_resources(),
+        runtime_settings: vec![],
         concurrency_policy: None,
     }
 }
@@ -628,6 +673,7 @@ pub fn align_stage() -> StageRegistration {
         }),
         resolve_output_capabilities: fixed_outputs(vec![output]),
         resolve_resource_policy: cpu_resources(),
+        runtime_settings: vec![],
         concurrency_policy: None,
     }
 }
@@ -675,12 +721,31 @@ pub fn render_vtt_stage() -> StageRegistration {
         }),
         resolve_output_capabilities: fixed_outputs(vec![output]),
         resolve_resource_policy: unbound_resources(),
+        runtime_settings: vec![],
         concurrency_policy: None,
     }
 }
 
 #[derive(Clone, Default)]
-pub struct WebVttTopologyExampleFeature;
+pub struct WebVttTopologyExampleFeature {
+    provider_name: Option<String>,
+    api_key: Option<String>,
+    concurrency_limit: Option<i64>,
+}
+
+impl WebVttTopologyExampleFeature {
+    pub fn new(
+        provider_name: Option<String>,
+        api_key: Option<String>,
+        concurrency_limit: Option<i64>,
+    ) -> Self {
+        Self {
+            provider_name,
+            api_key,
+            concurrency_limit,
+        }
+    }
+}
 
 impl PipelineFeature for WebVttTopologyExampleFeature {
     fn feature_id(&self) -> &str {
@@ -691,14 +756,26 @@ impl PipelineFeature for WebVttTopologyExampleFeature {
     }
     fn install(
         &self,
-        builder: &mut dyn crate::stage_models::StageManifestBuilderAccess,
+        builder: &mut dyn StageManifestBuilderAccess,
+        service_locator: &mut PipelineRuntimeServicesBuilder,
+        env_settings: &mut PipelineRuntimeSettingsBuilder,
     ) -> Result<()> {
+        let _ = service_locator;
+        if let Some(provider_name) = &self.provider_name {
+            env_settings.set(ASR_PROVIDER_NAME_SETTING, provider_name.clone())?;
+        }
+        if let Some(api_key) = &self.api_key {
+            env_settings.set(ASR_API_KEY_SETTING, api_key.clone())?;
+        }
+        if let Some(concurrency_limit) = self.concurrency_limit {
+            env_settings.set(ASR_CONCURRENCY_LIMIT_SETTING, concurrency_limit)?;
+        }
         builder.add_artifact_boxed(source_audio().erase())?;
         builder.add_artifact_boxed(audio_settings().erase())?;
         builder.add_artifact_boxed(speech_audio_settings().erase())?;
         builder.add_artifact_boxed(music_audio_settings().erase())?;
         builder.add_stage_boxed(prepare_audio_stage())?;
-        builder.add_stage_boxed(transcribe_stage())?;
+        builder.add_stage_boxed(build_transcribe_stage())?;
         builder.add_stage_boxed(diarize_stage())?;
         builder.add_stage_boxed(detect_music_stage())?;
         builder.add_stage_boxed(align_stage())?;
@@ -710,7 +787,10 @@ impl PipelineFeature for WebVttTopologyExampleFeature {
 pub type SummaryExampleFeature = WebVttTopologyExampleFeature;
 
 pub fn install_summary_example(builder: &mut StageManifestBuilder) -> Result<()> {
-    builder
-        .install_feature(&WebVttTopologyExampleFeature)
-        .map(|_| ())
+    let feature = WebVttTopologyExampleFeature::default();
+    let mut runtime_services = PipelineRuntimeServicesBuilder::new();
+    let mut env_settings = PipelineRuntimeSettingsBuilder::new();
+    feature.install(builder, &mut runtime_services, &mut env_settings)?;
+    builder.record_feature(feature.feature_id(), feature.configuration_fingerprint())?;
+    Ok(())
 }

@@ -9,8 +9,8 @@ use crate::artifact_models::{
 use crate::fingerprints::FingerprintProvider;
 use crate::phase_catalog::ArtifactPhaseCatalog;
 use crate::stage_models::{
-    FeatureRecord, ManifestStageRegistration, PipelineFeature, StageConcurrencyPolicy,
-    StageManifestBuilderAccess, StageRegistration,
+    FeatureRecord, ManifestStageRegistration, StageConcurrencyPolicy, StageManifestBuilderAccess,
+    StageRegistration,
 };
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
@@ -186,7 +186,6 @@ impl StageManifest {
 #[derive(Default)]
 pub struct StageManifestBuilder {
     features: BTreeMap<String, FeatureRecord>,
-    installing: BTreeSet<String>,
     artifacts: BTreeMap<ArtifactKey, AnyArtifactDeclaration>,
     stages: BTreeMap<String, StageRegistration>,
     default_producers: BTreeMap<ArtifactKey, String>,
@@ -198,25 +197,21 @@ impl StageManifestBuilder {
         Self::default()
     }
 
-    pub fn install_feature(&mut self, feature: &dyn PipelineFeature) -> Result<&mut Self> {
+    pub fn record_feature(
+        &mut self,
+        feature_id: impl AsRef<str>,
+        configuration_fingerprint: impl AsRef<str>,
+    ) -> Result<&mut Self> {
         self.assert_mutable()?;
-        let feature_id = non_empty(feature.feature_id(), "feature_id")?;
+        let feature_id = non_empty(feature_id.as_ref(), "feature_id")?;
         let configuration_fingerprint = non_empty(
-            feature.configuration_fingerprint(),
+            configuration_fingerprint.as_ref(),
             &format!("feature {feature_id} configuration_fingerprint"),
         )?;
 
         if self.features.contains_key(&feature_id) {
             bail!("duplicate feature installation: {feature_id:?}");
         }
-        if self.installing.contains(&feature_id) {
-            bail!("recursive feature dependency: {feature_id}");
-        }
-
-        self.installing.insert(feature_id.clone());
-        let install_result = feature.install(self);
-        self.installing.remove(&feature_id);
-        install_result?;
         self.features.insert(
             feature_id.clone(),
             FeatureRecord {
@@ -674,6 +669,14 @@ fn stage_description(registration: &StageRegistration) -> Value {
         "owned_artifact_ids": sorted_key_strings(registration.owned_artifacts.iter().map(|declaration| declaration.artifact_id.clone())),
         "input_capability_ids": sorted_key_strings(registration.input_capabilities.iter().map(|capability| capability.artifact_id.clone())),
         "output_capability_ids": sorted_key_strings(registration.output_capabilities.iter().map(|capability| capability.artifact_id.clone())),
+        "runtime_settings": registration.runtime_settings.iter().map(|setting| {
+            json!({
+                "key": setting.spec.normalized_key(),
+                "required": setting.required,
+                "suggested_env_var": setting.spec.suggested_env_var.clone(),
+                "has_default": setting.spec.has_default(),
+            })
+        }).collect::<Vec<_>>(),
         "concurrency_policy": concurrency_policy_description(registration.concurrency_policy.as_ref()),
     })
 }

@@ -4,19 +4,24 @@
 //! calculate pedigree, schedule stages, or choose caller output targets.
 
 use crate::{
-    pipeline::ArtifactCachePolicy,
     artifact_binding_models::{
         AnyArtifactInstance, AnyArtifactReader, AnyArtifactWriter, ArtifactHandle,
         ArtifactInstance, ProvidedStageOutput, ResolvedStageOutputBindings, StageCacheWait,
         StageOutputBindings, StageOutputResolution,
     },
     artifact_handles::{ArtifactSourceHandle, ArtifactTargetHandle, IntermediateArtifactHandle},
-    artifact_models::{AnyArtifactDeclaration, ArtifactDeclaration, ArtifactInstanceLocator, ArtifactKey},
+    artifact_models::{
+        AnyArtifactDeclaration, ArtifactDeclaration, ArtifactInstanceLocator, ArtifactKey,
+    },
     cache_models::{ArtifactCache, CacheHit, CacheResolution, CacheWait, CacheableOutputBootstrap},
     fingerprints::FingerprintProvider,
+    pipeline::ArtifactCachePolicy,
 };
 use anyhow::{bail, Result};
-use std::{collections::{BTreeMap, HashMap}, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 /// Cache-backed artifact bootstrap and materialization runtime.
 ///
@@ -216,7 +221,11 @@ impl ArtifactBindingsProvider {
             match self.cache.resolve(declaration, &fingerprint, false).await? {
                 CacheResolution::Hit(hit) => {
                     let _ = hit.source_handle.close().await;
-                    return ArtifactInstanceLocator::from_key(&declaration.artifact_id, fingerprint, None);
+                    return ArtifactInstanceLocator::from_key(
+                        &declaration.artifact_id,
+                        fingerprint,
+                        None,
+                    );
                 }
                 CacheResolution::Write(reservation) => {
                     let value = source.get_value(declaration.codec.as_ref()).await?;
@@ -227,7 +236,11 @@ impl ArtifactBindingsProvider {
                         vec![reservation.target_handle],
                     ))?;
                     writer.write_any(value).await?;
-                    return ArtifactInstanceLocator::from_key(&declaration.artifact_id, fingerprint, None);
+                    return ArtifactInstanceLocator::from_key(
+                        &declaration.artifact_id,
+                        fingerprint,
+                        None,
+                    );
                 }
                 CacheResolution::Wait(wait) => {
                     wait.wait_handle.wait().await?;
@@ -264,11 +277,8 @@ impl ArtifactBindingsProvider {
         output_declarations: &[AnyArtifactDeclaration],
         pedigree_fingerprint: &str,
     ) -> Result<StageOutputResolution> {
-        self.bind_stage_outputs_with_cache_policy(
-            output_declarations,
-            pedigree_fingerprint,
-            None,
-        ).await
+        self.bind_stage_outputs_with_cache_policy(output_declarations, pedigree_fingerprint, None)
+            .await
     }
 
     pub async fn bind_stage_outputs_with_cache_policy(

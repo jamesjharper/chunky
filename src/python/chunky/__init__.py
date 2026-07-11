@@ -26,15 +26,22 @@ from .Bindings.file_cache_provider import (
     FileCacheProviderConfig,
     FileCacheProviderGarbageCollectionPolicy,
 )
-from .pipeline import (
+from .Pipeline.pipeline import (
     ArtifactCacheIO,
     ArtifactCachePolicy,
     ChunkyPipeline,
     ChunkyPipelineBuilder,
+    FileCacheFeature,
     RequestValidationError,
     RunRequest,
     chunky_run,
     chunky_run_away,
+)
+from .Pipeline.runtime import (
+    PipelineRuntimeServices,
+    PipelineRuntimeServicesBuilder,
+    PipelineRuntimeSettings,
+    PipelineRuntimeSettingsBuilder,
 )
 from .Scheduling.task_control import RunExecutionError, RunHandle, RunResult, RunStatus
 from .Stages.stage_manifest import StageManifest, StageManifestBuilder
@@ -77,6 +84,7 @@ __all__ = [
     "CancellationSource",
     "ChunkyPipeline",
     "ChunkyPipelineBuilder",
+    "FileCacheFeature",
     "FileCacheProvider",
     "FileCacheProviderConfig",
     "FileCacheProviderGarbageCollectionPolicy",
@@ -84,6 +92,10 @@ __all__ = [
     "ManifestStageRegistration",
     "OutputArtifacts",
     "PhaseMatchMode",
+    "PipelineRuntimeServices",
+    "PipelineRuntimeServicesBuilder",
+    "PipelineRuntimeSettings",
+    "PipelineRuntimeSettingsBuilder",
     "PlannedInputBinding",
     "PlannedOutputBinding",
     "PlannedInvocation",

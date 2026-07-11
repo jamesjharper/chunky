@@ -71,11 +71,15 @@ fn parse_concrete_phase(value: &str) -> Result<Option<u32>> {
 }
 
 fn format_ref_phase(phase: Option<u32>) -> String {
-    phase.map(|value| value.to_string()).unwrap_or_else(|| ANY_PHASE.to_owned())
+    phase
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| ANY_PHASE.to_owned())
 }
 
 fn format_concrete_phase(phase: Option<u32>) -> String {
-    phase.map(|value| value.to_string()).unwrap_or_else(|| NO_PHASE.to_owned())
+    phase
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| NO_PHASE.to_owned())
 }
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -252,7 +256,10 @@ impl ArtifactRefLocator {
                 "artifact reference path must be domain/content_kind[/phase] or projection/domain/content_kind[/phase], optionally prefixed by a-ref:/: {value:?}"
             ),
         };
-        Self::new(projection, ArtifactKey::new(domain, content_kind, phase, None)?)
+        Self::new(
+            projection,
+            ArtifactKey::new(domain, content_kind, phase, None)?,
+        )
     }
 
     pub fn from_key(artifact_key: &ArtifactKey, projection_context: Option<String>) -> Self {
@@ -321,7 +328,11 @@ impl ArtifactInstanceLocator {
         })
     }
 
-    pub fn from_key(artifact_key: &ArtifactKey, fingerprint: impl Into<String>, projection_context: Option<String>) -> Result<Self> {
+    pub fn from_key(
+        artifact_key: &ArtifactKey,
+        fingerprint: impl Into<String>,
+        projection_context: Option<String>,
+    ) -> Result<Self> {
         Self::new(
             projection_context
                 .or_else(|| artifact_key.override_domain.clone())
@@ -412,7 +423,11 @@ impl TaskArtifactLocator {
         })
     }
 
-    pub fn from_key(artifact_key: &ArtifactKey, task_id: impl Into<String>, projection_context: Option<String>) -> Result<Self> {
+    pub fn from_key(
+        artifact_key: &ArtifactKey,
+        task_id: impl Into<String>,
+        projection_context: Option<String>,
+    ) -> Result<Self> {
         Self::new(
             projection_context
                 .or_else(|| artifact_key.override_domain.clone())
@@ -431,7 +446,12 @@ impl TaskArtifactLocator {
             [projection, domain, content_kind, phase, marker, task_id] if marker == "task" => {
                 Self::new(
                     projection.clone(),
-                    ArtifactKey::new(domain.clone(), content_kind.clone(), parse_concrete_phase(phase)?, None)?,
+                    ArtifactKey::new(
+                        domain.clone(),
+                        content_kind.clone(),
+                        parse_concrete_phase(phase)?,
+                        None,
+                    )?,
                     task_id.clone(),
                 )
             }
@@ -842,7 +862,6 @@ pub fn deserialize_json<T: DeserializeOwned>(raw: &[u8]) -> Result<T> {
     Ok(serde_json::from_slice(raw)?)
 }
 
-
 pub struct ArtifactHandle {
     pub declaration: AnyArtifactDeclaration,
     pub fingerprint: String,
@@ -866,7 +885,11 @@ impl ArtifactHandle {
     }
 
     pub fn locator(&self) -> Result<ArtifactInstanceLocator> {
-        ArtifactInstanceLocator::from_key(&self.declaration.artifact_id, self.fingerprint.clone(), None)
+        ArtifactInstanceLocator::from_key(
+            &self.declaration.artifact_id,
+            self.fingerprint.clone(),
+            None,
+        )
     }
 }
 
@@ -951,7 +974,6 @@ pub struct AnyArtifactReader {
     pub(crate) cached: Mutex<Option<ArtifactValue>>,
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -964,16 +986,33 @@ mod tests {
         assert_eq!(key.phase, Some(100));
         assert_eq!(key.override_domain, None);
         assert_eq!(key.to_string(), "a-ref:/global/analysis/audio_summary/100");
-        assert_eq!(ArtifactKey::parse("analysis/audio_summary").unwrap().to_string(), "a-ref:/global/analysis/audio_summary/any");
-        assert_eq!(key.without_phase().to_string(), "a-ref:/global/analysis/audio_summary/any");
+        assert_eq!(
+            ArtifactKey::parse("analysis/audio_summary")
+                .unwrap()
+                .to_string(),
+            "a-ref:/global/analysis/audio_summary/any"
+        );
+        assert_eq!(
+            key.without_phase().to_string(),
+            "a-ref:/global/analysis/audio_summary/any"
+        );
     }
 
     #[test]
     fn parses_override_domain_artifact_keys() {
         let locator = ArtifactRefLocator::parse("asr/audio/prepared/10").unwrap();
-        let key = locator.artifact_key.with_override_domain(locator.projection_context).unwrap();
+        let key = locator
+            .artifact_key
+            .with_override_domain(locator.projection_context)
+            .unwrap();
         assert_eq!(key.override_domain.as_deref(), Some("asr"));
-        assert_eq!(key.without_override().to_string(), "a-ref:/global/audio/prepared/10");
-        assert_eq!(key.without_phase().to_a_ref(true), "a-ref:/asr/audio/prepared/any");
+        assert_eq!(
+            key.without_override().to_string(),
+            "a-ref:/global/audio/prepared/10"
+        );
+        assert_eq!(
+            key.without_phase().to_a_ref(true),
+            "a-ref:/asr/audio/prepared/any"
+        );
     }
 }

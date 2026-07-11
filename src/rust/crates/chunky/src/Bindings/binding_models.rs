@@ -18,7 +18,6 @@ pub use crate::artifact_models::{
     AnyArtifactInstance, AnyArtifactReader, ArtifactHandle, ArtifactInstance,
 };
 
-
 impl AnyArtifactReader {
     pub fn new(handle: Arc<ArtifactHandle>) -> Result<Self> {
         if handle.source.is_none() {

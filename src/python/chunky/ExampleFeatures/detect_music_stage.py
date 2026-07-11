@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ..Bindings.binding_models import InputArtifacts, OutputArtifacts
 from ..Artifacts.artifact_models import ArtifactCapability, ArtifactRequirement
+from ..Pipeline.runtime import PipelineRuntimeSettings
 from ..Stages.stage_models import (
     ResolvedStageRequirements,
     StageExecutionContext,
@@ -24,7 +25,9 @@ class DetectMusicExecutor:
         inputs: InputArtifacts,
         outputs: OutputArtifacts,
         context: StageExecutionContext,
+        runtime_settings: PipelineRuntimeSettings,
     ) -> None:
+        del runtime_settings
         prepared = await inputs.get_artifact(PREPARED_AUDIO).read()
         payload = topology_payload(
             context,

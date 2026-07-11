@@ -6,16 +6,16 @@ from pathlib import Path
 from typing import Any
 
 from src.python.chunky.Artifacts.artifact_models import ArtifactInstanceLocator
-from src.python.chunky.Bindings.file_cache_provider.provider import FileCacheProvider
 from src.python.chunky.ExampleFeatures.artifact_handles_examples import FileSource
 from src.python.chunky.ExampleFeatures.stage_examples import (
     PREPARED_AUDIO,
     WEBVTT_TRANSCRIPT,
     SummaryExampleFeature,
 )
-from src.python.chunky.pipeline import (
+from src.python.chunky.Pipeline.pipeline import (
     ArtifactCachePolicy,
     ChunkyPipeline,
+    FileCacheFeature,
     RequestValidationError,
     RunRequest,
 )
@@ -42,11 +42,12 @@ class TargetlessOutputTests(unittest.IsolatedAsyncioTestCase):
         self.work_dir = Path(self.tmp.name)
         self.audio_path = self.work_dir / "audio.bin"
         self.audio_path.write_bytes(bytes(range(32)))
-        self.cache = FileCacheProvider(self.work_dir / "cache", owner_task_id="test")
-        await self.cache.recover()
-        self.pipeline = ChunkyPipeline.builder(artifact_cache=self.cache).install(
-            SummaryExampleFeature()
-        ).build()
+        self.pipeline = (
+            ChunkyPipeline.builder()
+            .install(FileCacheFeature(self.work_dir / "cache"))
+            .install(SummaryExampleFeature(api_key="test-api-key"))
+            .build()
+        )
 
     async def asyncTearDown(self) -> None:
         self.tmp.cleanup()

@@ -95,6 +95,7 @@ pub mod benchmark_support;
 pub mod demo_support;
 pub mod example_features;
 pub mod pipeline;
+pub mod pipeline_models;
 
 pub use pipeline::{
     chunky_run, chunky_run_away, ArtifactCacheIO, ArtifactCachePolicy, ChunkyPipeline,

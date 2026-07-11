@@ -26,14 +26,16 @@ from .Bindings.file_cache_provider import (
     FileCacheProviderConfig,
     FileCacheProviderGarbageCollectionPolicy,
 )
+from .Pipeline.pipeline_models import (
+    ArtifactCachePolicy,
+    RequestValidationError,
+    RunRequest,
+)
 from .Pipeline.pipeline import (
     ArtifactCacheIO,
-    ArtifactCachePolicy,
     ChunkyPipeline,
     ChunkyPipelineBuilder,
     FileCacheFeature,
-    RequestValidationError,
-    RunRequest,
     chunky_run,
     chunky_run_away,
 )

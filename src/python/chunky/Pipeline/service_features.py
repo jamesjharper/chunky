@@ -16,7 +16,8 @@ from ..Stages.stage_manifest import StageManifest, StageManifestBuilder
 
 if TYPE_CHECKING:
     from .env_settings_features import PipelineRuntimeSettingsBuilder
-    from .pipeline import ArtifactCachePolicy, ChunkyPipeline
+    from .pipeline import ChunkyPipeline
+    from .pipeline_models import ArtifactCachePolicy
 
 
 ArtifactBindingsProviderFactory = Callable[[ArtifactCache], ArtifactBindingsProvider]

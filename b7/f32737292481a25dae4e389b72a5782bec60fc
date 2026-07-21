@@ -1,0 +1,14 @@
+AGENTS.md
+  h_6046a6be1688c0 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "b7f32737292481a25dae4e389b72a5782bec60fc",
+  "prompts": {},
+  "humans": {
+    "h_6046a6be1688c0": {
+      "author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}

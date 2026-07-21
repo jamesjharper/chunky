@@ -1,6 +1,9 @@
 # Chunky Run Contract - Graph Creation
 
 WORK IN PROGRESS 
+
+TODO: ADD SPECIAL NOTE SOMEWHERE THAT ARTIFACTS NEED TO BE DELETED FROM MEMORY ONCE THERE ARE NO LONGER ANY DEPENDENT STAGES WAITING FOR THE ARTIFACT
+
 ## Purpose
 
 This document defines how a `RunRequest` is resolved into a request-specific graph of stage invocations.

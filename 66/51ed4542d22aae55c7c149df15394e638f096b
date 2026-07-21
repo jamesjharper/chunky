@@ -1,0 +1,14 @@
+specs/06-planning/01-task-planning.md
+  h_6046a6be1688c0 4-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "6651ed4542d22aae55c7c149df15394e638f096b",
+  "prompts": {},
+  "humans": {
+    "h_6046a6be1688c0": {
+      "author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}

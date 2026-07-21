@@ -1,6 +1,6 @@
 # AGENTS.md
 
-1. When implementing, or contributing to specs, first read `specs/SPECS_RULE.md.md`
+1. When implementing, or contributing to specs, first read `specs/SPECS_RULE.md`
 
 2. This repository is a work-in-progress codebase.
 

@@ -1,17 +1,16 @@
 # Pipeline Builder
 
 ## Purpose
+`ChunkyPipelineBuilder` is the surface for bootstrapping a `ChunkyPipeline` instance with a stage manifest, configured runtime services and runtime settings.
 
-A configured pipeline turns a frozen `StageManifest`, configured runtime services, runtime settings, and a `RunRequest` into one concrete task execution. The builder is the mutable bootstrap surface used to install pipeline features before the pipeline is frozen.
-
-The builder should remain a thin composition surface. It is not intended to become a general dependency-injection container, and it should not treat runtime settings as a generic mutable service locator.
+> *Design Note:* The builder should remain a thin composition surface. It is not intended to become a general dependency-injection container, and it should not treat runtime service location as a generic mutable service locator.
 
 ## Core Concepts
-1. A `ChunkyPipelineBuilder` collects explicitly installed pipeline features via a `ChunkyPipelineBuilder.install(feature)` construct
+1. A `ChunkyPipelineBuilder` installs programmatically configured pipeline features via a `ChunkyPipelineBuilder.install(feature)` construct
 2. ChunkyPipelineBuilder exposes 3 key builder delegates to the feature installer
- - `StageManifestBuilder`: Used for collecting stage registrations 
- - `PipelineRuntimeServicesBuilder`: Used to allow internal pipeline services to be overridden 
- - `PipelineRuntimeSettingsBuilder` Used to allow stages to registered runtime settings and setting providers 
+ - 1: `StageManifestBuilder`: Used for collecting stage registrations 
+ - 2: `PipelineRuntimeServicesBuilder`: Used to allow internal pipeline services to be overridden 
+ - 3: `PipelineRuntimeSettingsBuilder` Used to allow stages to registered runtime settings spec and custom setting providers
 3. Using the builder delegates, a feature may install none, one or more 
     - artifact declarations
     - stage registrations 
@@ -24,17 +23,6 @@ The builder should remain a thin composition surface. It is not intended to beco
  - `PipelineRuntimeSettings` which  runtime settings.
 
 ## Builder
-*Conceptual shape:*
-
-```python
-class ChunkyPipelineBuilder:
-    def install(self, feature: PipelineFeature) -> "ChunkyPipelineBuilder":
-        pass
-
-    def build(self) -> "ChunkyPipeline":
-        pass
-```
-
 The builder is responsible for:
 - accepting feature installation;
 - providing installers with explicit bootstrap collaborators;
@@ -45,16 +33,31 @@ The builder is responsible for:
 - creating the configured runtime pipeline;
 - rejecting mutation after `build()`.
 
+*Conceptual shape:*
+
+```python
+class ChunkyPipelineBuilder:
+    def install(self, feature: PipelineFeature) -> "ChunkyPipelineBuilder":
+        pass
+
+    ## use_{feature_name}() -> "ChunkyPipelineBuilder":
+    # languages which mechanism like monkey patching, extension methods or traits may provide optional helper methods for a more declarative bootstrapping procedure
+
+    def build(self) -> "ChunkyPipeline":
+        pass
+```
+
+
 ## Pipeline Features
 A pipeline feature is the bootstrap-time installation unit for a coherent slice of pipeline configuration.
-Feature installation makes capabilities available for planning and execution. It remains the planner's responsibility to decide how and if those stages are configured into a task graph.
+Feature installation makes capabilities available for planning and execution.
+
+> *Design Note:* It remains the planner's responsibility to decide how and if stages are configured into a task graph. *With the one exception that a integrator may elect to override the planners implementation via the `PipelineRuntimeServicesBuilder`*
 
 ```python
 class PipelineFeature(Protocol):
     feature_id: str
 
-    @property
-    def configuration_fingerprint(self) -> str: ...
 
     def install(
         self,
@@ -64,9 +67,11 @@ class PipelineFeature(Protocol):
     ) -> None: ...
 ```
 
+
 ### A feature may install:
 
 __Artifact declarations:__
+
 ```python
 class AsrArtifactStageFeature:
     def install(self,manifest_builder: StageManifestBuilder, service_locator: PipelineRuntimeServicesBuilder, env_settings PipelineRuntimeSettingsBuilder) -> None:
@@ -76,6 +81,7 @@ class AsrArtifactStageFeature:
 *Demonstration purposes only, a feature will likely install several artifacts and stages together*
 
 __Stage registrations:__
+
 ```python
 class AsrStageFeature:
     def install(self,manifest_builder: StageManifestBuilder, service_locator: PipelineRuntimeServicesBuilder, env_settings PipelineRuntimeSettingsBuilder) -> None:
@@ -83,6 +89,7 @@ class AsrStageFeature:
 ```
 
 __Set Runtime setting:__
+
 ```python
 class SetSettingsFeature:
     def __init__(self, *, provider_name: str | None = None) -> None:
@@ -96,6 +103,7 @@ class SetSettingsFeature:
 *Demonstration purposes only, a feature will use this mechanic to enable inline setting configs while registering the stage which requires this setting*
 
 __Runtime Setting Source:__
+
 ```python
 class EnvironmentVariableRuntimeSettingSourceFeature:
     def install(self,manifest_builder: StageManifestBuilder, service_locator: PipelineRuntimeServicesBuilder, env_settings PipelineRuntimeSettingsBuilder) -> None:
@@ -108,7 +116,7 @@ __Runtime services:__
 class FileCacheFeature:
     def __init__(self, root: str | Path, *, config: FileCacheProviderConfig | None = None) -> None:
         self._root = Path(root)
-        self..config=config
+        self.config=config
 
     def install(self, manifest_builder: StageManifestBuilder, service_locator: "PipelineRuntimeServicesBuilder", env_settings: PipelineRuntimeSettingsBuilder) -> None:
         service_locator.set_artifact_cache(FileCacheProvider(self._root, config=config))
@@ -144,10 +152,19 @@ __Expected behavior:__
 - if a service is never configured by any feature, `freeze()` supplies the runtime's default implementation for that slot where a default is defined;
 - the frozen `PipelineRuntimeServices` object exposes the resolved service set as an immutable runtime dependency bundle.
 
+The artifact-cache slot always has a resolved provider. When none is installed,
+the builder creates a pipeline-scoped workspace provider. If the caller did not
+
+(TODO: MOVE TO  02-pipeline-builder-inbuilts.md), the pipeline owns a private temporary workspace and deletes
+it on close after releasing active handles. This default supports reuse across
+live runs on the pipeline but does not satisfy canonical durability; operations
+that require durable retention must fail capability validation unless a suitable
+provider is configured.
+
 This keeps service composition deterministic: features may replace a default by explicitly installing a service, but they may not silently override one another.
 
 ## `class PipelineRuntimeSettingsBuilder`
-`PipelineRuntimeSettingsBuilder` is the configuration surface for managing runtime settings such as Credentials, endpoint URLs, concurrency limits, and retry/transport. These setting must not influence the semantic output of the pipeline as this would undermine the artifact caching behaver. Settings which influence the semantic output, must be passed as a Setting artifact when configuring a task.
+`PipelineRuntimeSettingsBuilder` is the configuration surface for managing runtime settings such as Credentials, endpoint URLs, concurrency limits, and retry/transport. These setting must not influence the semantic output of the pipeline as this would undermine the artifact caching behaver. Settings which influence the semantic output, MUST be passed as a setting artifact when configuring a task.
 
 *Conceptual shape:*
 ```python

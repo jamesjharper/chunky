@@ -4,11 +4,14 @@
 
 `ChunkyPipelineBuilder` should ship with a set of inbuilt feature types that cover the common bootstrap concerns:
 
-- installing a durable artifact cache;
-- installing runtime-setting sources;
-- installing explicit runtime-setting values.
+- installing a durable file based artifact cache;
+- installing runtime-setting sources for reading from environment variables;
+- default installing a complete set of core set of core services. 
+- installing sets of required stages for common ASR activities 
 
 These are convenience capabilities, not a second plugin system. They exist so a caller can compose a usable pipeline without re-implementing common bootstrap code.
+
+> Note to Agent: Many of these inbuilt capabilities are late stage development activities, expect this document to be become more fleshed out in the future. 
 
 ## Built-In Features
 

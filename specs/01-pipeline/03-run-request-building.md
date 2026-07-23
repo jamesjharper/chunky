@@ -1,269 +1,849 @@
-# Building a Run Request
+# Run Request Building
 
 ## Purpose
 
-This document defines the caller-facing `RunRequest` model and the rules for constructing one correctly.
+This document defines the two immutable caller-facing request forms, their
+builders, request-level policy, and canonical wire representation.
 
-It focuses on:
+- `LocalRunRequest` is process-local and may own external artifact handles.
+- `DurableRunRequest` is data-only and is used for durable submission and
+  replay.
 
-- semantic artifact addressing;
-- caller-supplied roots and cached-root rebinding;
-- requested outputs and materialization targets;
-- per-artifact cache policy;
-- direct artifact cache I/O used by upload-first and saved-task workflows.
 
-The task-control surface that executes a request is specified separately in [03-run-surface.md](./03-run-surface.md).
+This document does not define cache mechanics, target-handle mechanics,
+planning, execution, or persisted task lifecycle. Examples use Python-like
+syntax to illustrate the language-neutral contract; bindings may use idiomatic
+naming and ownership constructs while preserving the described behavior.
 
-## Run Request Model
+## Artifact addressing
 
-A `RunRequest` is the canonical language-neutral request shape.
+Request builders accept the locator families defined by
+[Artifact Model](../02-artifacts/01-artifacts-spec.md):
 
-```text
-RunRequest
-  inputs: map<a-ref, SourceHandle | a-instance>
-  outputs: map<a-ref, TargetHandle | ordered-list<TargetHandle> | empty-list>
-  run_policy?: PlanningRunPolicy
-  cache_policy?: map<a-ref, ArtifactCachePolicy>
-```
+- `a-ref` identifies a semantic artifact request;
+- `a-instance` identifies one committed cache instance.
 
-Required fields:
-- `inputs`: caller-supplied source artifacts, settings artifacts, explicitly supplied intermediate artifacts, or explicit `a-instance` cached-root locators for those same semantic artifacts;
-- `outputs`: requested semantic artifact references and their caller materialization targets. The target list may be empty only for target-less outputs that can be durably retrieved later.
+The builder interfaces should accept non-canonical forms such as `source/audio`
+instead of its canonical form, `a-ref:/global/source/audio/any`. Builders parse
+accepted non-canonical forms into typed canonical values, and duplicate
+detection uses equality of those parsed values. This is syntactic parsing, not
+manifest lookup or artifact resolution.
 
-Optional fields:
-- `run_policy`: planning or execution-strategy policy;
-- `cache_policy`: exact per-artifact cache-use intent.
+## Local vs. durable requests
 
-`run_policy` may influence planning, producer selection, scheduling, or execution strategy. It must not suppress requested outputs or weaken materialization obligations.
+Local and durable requests differ in how they represent artifacts and in the
+circumstances under which their execution can survive an interruption.
 
-`RunRequest` does not carry runtime settings. Provider credentials, runtime concurrency caps, and similar operational values belong to the configured pipeline rather than request semantics.
+**Durable request:**
 
-## Inputs
+- contains only serializable data;
+- reads inputs from and writes outputs to the artifact cache;
+- can run unattended; and
+- can be paused, restarted, or recovered after a process restart.
 
-Caller-supplied request inputs and explicit `a-instance` cached-root locators become bound artifact instances before planning.
+**Local request:**
 
-Inputs may represent:
+- may consume non-cached artifacts through external source handles; and
+- may materialize outputs directly to external in-memory objects or files.
 
-- source artifacts;
-- settings artifacts;
-- explicitly supplied intermediate artifacts;
-- concrete cached instances for any of the above.
+> A local run can be paused or resumed while its external resources remain
+> valid. After a process restart, it can only be rerun by rebuilding the same
+> request with equivalent inputs and outputs. Reusing a persistent cache from
+> the initial run allows already committed work to be recovered.
 
-During binding, the pipeline validates the artifact declaration, opens any referenced cache entry, and acquires the required reservations before planning proceeds.
+### Durable request limitations
 
-If the bound root is a settings artifact, the pipeline may read it before normal graph planning so settings-dependent planning hooks observe the same value they would have seen from an ordinary supplied settings source.
+Durable requests MUST use committed cache instances for every input and MUST
+request targetless outputs. This ensures that:
 
-## Artifact Addressing
+- the request can be serialized without encoding external input or output
+  handles; and
+- execution can resume or restart without the caller resupplying inputs or
+  collecting outputs synchronously.
 
-Public request fields use semantic artifact reference strings. The `a-ref:/` prefix is accepted but optional for declaration-level references, so examples use short paths such as `source/audio`.
+### Local request limitations
 
-Preferred short semantic reference form:
+Local requests may contain non-serializable external artifact handles. Therefore:
 
-```text
-{domain}/{content_kind}/{phase-or-any}
-```
+- they cannot be serialized, transferred, or durably submitted as-is;
+- source and target handles must remain valid until their I/O completes; and
+- after a process failure, external handles cannot be recovered and the caller must
+  rebuild the request. Only work committed to a persistent cache can be reused.
 
-Concrete instance form:
 
-```text
-a-instance:/global/{domain}/{content_kind}/{phase-or-none}/fingerprint/{fingerprint}
-```
+### Limitations when making a local request durable
 
-Task-scoped requested-output form:
+Local requests can be made durable through an additional API. This API ingests
+the external input handles into the cache and returns an equivalent durable
+request object. A local request being converted to a durable request MUST NOT
+specify external output target handles; otherwise, the API rejects it.
 
-```text
-a-task:/global/{domain}/{content_kind}/{phase-or-none}/task/{task_id}
-```
+## Request: Inputs
 
-The public model distinguishes three related address kinds:
+`inputs` supplies caller-provided artifact roots for a run. A request may
+contain zero or more input roots.
+The caller can specify the following input semantics:
 
-- an `a-ref` says what artifact is needed, produced, cached, or materialized;
-- an `a-instance` says which concrete artifact instance is meant, paired with the final artifact fingerprint;
-- an `a-task` says which task-scoped requested-output binding is meant.
+### 1. Durable request inputs
 
-Plain semantic artifact reference strings remain the default public surface for planning, outputs, and cache policy. Concrete `a-instance` locators are explicit pinning mechanisms used by saved-task and upload-first workflows.
-
-Bindings and internal helpers may still use structured locator objects such as `ArtifactRefLocator`, but support for those objects as direct caller-facing `RunRequest` map keys is not required by this contract.
-
-## Request Normalization
-
-Language bindings may expose nested mappings that normalize to the same semantic `a-ref` values.
-
-```python
-RunRequest(
-    inputs={
-        "source": {
-            "audio": SourceAudioArtifact.from_file_path("input.wav"),
-        },
-        "speech_processing": {
-            "audio_preprocessing": {
-                "audio_settings": SourceSettingsArtifact.from_object({
-                    "sample_rate_hz": 16000,
-                }),
-            },
-        },
-    },
-    outputs={
-        "render": {
-            "webvtt_transcript": TargetVttArtifact.to_file_path("output.vtt"),
-        },
-    },
-)
-```
-
-Normalization is deterministic:
-
-- direct string keys must parse as semantic `a-ref` references; the `a-ref:/` prefix is optional;
-- nested keys must be strings;
-- direct `ArtifactKey` entries map directly to values, not nested mappings;
-- normalized paths must resolve to two or three nested path components before conversion to `a-ref`;
-- omitted projection context canonicalizes to `global`;
-- omitted `a-ref` phase canonicalizes to `any`;
-- `a-instance` and `a-task` never infer `any`;
-- duplicate artifact IDs are rejected after projection context is stripped;
-- structural validation errors across `inputs`, `outputs`, and `cache_policy` should be accumulated and reported together.
-
-## Outputs and Materialization
-
-Callers may request materialization for any semantic artifact known to the manifest and materializable to the requested target handle.
-
-One artifact may be materialized to multiple caller targets in the same run:
+A durable request input is the `a-instance` locator of an exact committed
+artifact. The artifact MUST already exist in the cache with a matching
+fingerprint. **This is the only input pattern supported by durable requests.**
 
 ```python
-outputs = {
-    "render/webvtt_transcript": [
-        TargetVttArtifact.to_file_path("output.vtt"),
-        InMemoryTargetArtifact(),
-    ],
-}
+local_or_durable_builder.include_cached_input("source/audio/none/fingerprint/2f9d...")
 ```
 
-Fan-out rules:
+### 2. External request inputs (local only)
 
-- a single target handle is normalized as a one-item target list;
-- multiple target handles are represented as an ordered list under one artifact key;
-- list order is semantically meaningful and must be preserved for materialization, diagnostics, and cancellation reporting;
-- caller target handles are not passed to producing stage executors;
-- caller target paths or sinks are not part of semantic artifact identity or cache keys.
-
-If one target materialization fails, the run fails as a whole while reporting which targets succeeded and which failed. Successful target writes are left in place; rollback is not promised.
-
-## Target-Less Requested Outputs
-
-A requested output may have an empty target list. This is an explicit request for semantic availability and later retrieval, not an omitted output.
+Callers may provide an externally sourced artifact through an artifact source
+handle. This pattern allows a caller to specify an explicit input source, such
+as a file on disk or an in-memory object.
 
 ```python
-result = await pipeline.run(
-    RunRequest(
-        inputs={
-            "source/audio": SourceAudioArtifact.from_file_path("input.wav"),
-        },
-        outputs={
-            "render/webvtt_transcript": [],
-        },
-    )
-)
-```
-
-Target-less outputs are valid only when the requested artifact is durably retrievable after the run.
-
-Validation rules are intentionally strict:
-
-- the artifact must be known to the manifest;
-- the output declaration must be cacheable for this request;
-- `cache_policy[artifact_id].do_not_cache=True` is a validation error;
-- every requested output receives an `a-task` locator during planning finalization;
-- an externally retrievable `a-instance` locator is emitted only after durable cache commit.
-
-Clients should store returned locators rather than reconstructing them from graph metadata.
-
-## Cache Policy
-
-`cache_policy` is an explicit per-run, per-artifact policy surface. It expresses semantic cache-use intent, not backend-specific operational knobs.
-
-Conceptual shape:
-
-```python
-@dataclass(frozen=True)
-class ArtifactCachePolicy:
-    ignore_existing_cache: bool = False
-    do_not_cache: bool = False
-    desired_ttl: timedelta | None = None
-```
-
-Directive semantics are orthogonal:
-
-- `ignore_existing_cache` affects read and reuse for this run only;
-- `do_not_cache` affects write and publish-to-cache behavior for this run only;
-- `desired_ttl` applies only when creating a new cache entry and never mutates an existing entry's TTL.
-
-Validation rules:
-
-- unknown artifact IDs are request validation errors;
-- known but unreachable artifacts are ignored for the run and surfaced as diagnostics;
-- policy may target inputs, requested outputs, or intermediates that are known to the manifest;
-- `do_not_cache=True` is invalid when the same artifact is requested with an empty target list;
-- the original TTL of an existing cache entry persists even if a later request names a different desired TTL.
-
-Cache policy also controls provided-root publication. Any caller-provided root whose declaration is cacheable is published to cache by default during binding. If `do_not_cache=True` is set for that exact artifact, the root remains usable for the current run but is not published as a durable cache entry.
-
-This rule applies equally to supplied sources, supplied settings, and explicitly supplied intermediates.
-
-## Direct Artifact Cache I/O
-
-Chunky also exposes a dedicated artifact-cache I/O surface separate from `run(...)` and `run_away(...)`. It lets callers publish artifact content into cache and retrieve published instances without constructing a run request solely for cache population or inspection.
-
-The interface is semantic and handle-based: callers use artifact declarations or semantic artifact IDs plus source or target handles.
-
-Direct cache writes must use the same fingerprinting, metadata validation, reservation, and atomic publish rules as run-time cache publication. A directly published artifact is therefore a normal cache entry.
-
-Cache I/O accepts an `a-ref` locator and returns an `a-instance` locator:
-
-- the `a-ref` identifies which semantic artifact declaration is being published;
-- the returned `a-instance` identifies the concrete committed cache instance, including its final content fingerprint.
-
-This surface is the common foundation for upload-first web-service flows, duplicate-upload detection, cached-root rebinding, and later output retrieval.
-
-### Publishing through `ArtifactCacheIO`
-
-```python
-audio_instance = await pipeline.cache_io.publish(
+local_builder_only.include_input(
     "source/audio",
     SourceAudioArtifact.from_file_path("input.wav"),
 )
-
-assert audio_instance.artifact_id == ArtifactKey.from_a_ref("source/audio")
-print(audio_instance.fingerprint)
 ```
 
-The cache layer is intended to compute the same supplied-artifact fingerprint that normal root binding would compute, reserve the cache entry, materialize the supplied artifact into the cache handle, validate metadata, and return a typed cache reference. Implementations must avoid value-buffering large artifacts; if the current handle/cache contracts cannot materialize the source into the cache safely, this method should be left as an explicit stub.
+### Expected behavior
 
-### Using a Cached Artifact in a Run Request
+#### Valid input types
+
+Inputs may be source, settings, or explicitly supplied intermediate artifacts.
+Caller-supplied settings are ordinary input artifacts.
+
+> Note: Settings are strictly parameters that affect artifact output shapes.
+> Changing settings invalidates their derived artifacts. Settings therefore
+> should not contain credentials, cache backend configuration, pipeline-wide
+> capacity, or other operational values that do not affect the resulting
+> artifacts. These runtime settings are pipeline configuration rather than
+> request inputs. See
+> [PipelineRuntimeSettingsBuilder](./01-pipeline-builder.md).
+
+#### Input consumption behavior
+
+Providing an input does not guarantee its consumption.
+
+**Why:**
+
+*The planner* works backward from the requested outputs through a graph of
+configured stages. As each stage is encountered, the planner resolves inputs by
+looking for a candidate producer of the respective artifact. A supplied input
+is a terminal candidate; that is, it prevents the planner from needing to
+produce that artifact when a requirement in the request-specific graph selects
+it. However, because input artifacts are included in the task graph on a
+discovery basis, supplying an input does not guarantee that the pipeline will
+execute a stage with it.
+
+If the planner cannot resolve a required input from a supplied root, an
+applicable default, a compatible cache entry, or a producer path, planning
+fails. Unselected optional inputs do not make the run fail.
+
+*Stage implementations* determine which inputs are relevant by evaluating their
+artifact requirements. They should declare every required input and every
+optional input that can improve the requested output so that the planner can
+select and bind available inputs consistently.
+
+
+## Request: Outputs
+
+`outputs` tells the pipeline which semantic artifacts the caller wants back and
+how each should be materialized.
+
+The caller can specify the following output semantics:
+
+### 1. Durable requested outputs
+
+Durable artifacts can be materialized directly from the cache later by querying
+the caching interface. This pattern supports "set-and-forget" integrations,
+such as running ASR as a background process, or web services in which upload
+and download form a multistep asynchronous process.
+
+All requested outputs are cache-durable by default unless disabled through
+configuration. **This is the only retrieval pattern supported by durable
+requests.**
 
 ```python
-result = await pipeline.run(
-    RunRequest(
-        inputs={
-            "source/audio": audio_instance,
-            "render/webvtt_settings": SourceSettingsArtifact.from_object({
-                "include_speakers": True,
-            }),
-        },
-        outputs={
-            "render/webvtt_transcript": [
-                TargetVttArtifact.to_file_path("output-from-cached-audio.vtt"),
-            ],
-        },
+local_or_durable_builder.expect_output("render/webvtt_transcript")
+```
+
+### 2. A single output target (local only)
+
+Callers may request materialization for any artifact known to the manifest and
+materializable to the given target handle. This pattern allows a caller to
+specify an explicit external output target, such as a file on disk or an
+in-memory object.
+
+```python
+local_builder_only.expect_output_target(
+    "render/webvtt_transcript",
+    TargetVttArtifact.to_file_path("output.vtt"),
+)
+```
+
+### 3. Multiple output targets (local only)
+
+One artifact may be materialized to multiple caller targets in the same run.
+Repeated calls for the same `a-ref` create an ordered fan-out.
+
+```python
+some_in_memory_target = InMemoryTargetArtifact()
+
+local_builder_only = (
+    local_builder_only
+    .expect_output_target(
+        "render/webvtt_transcript",
+        TargetVttArtifact.to_file_path("output.vtt"),
+    )
+    .expect_output_target("render/webvtt_transcript", some_in_memory_target)
+)
+```
+
+### Expected behavior
+
+#### Fan-out rules
+
+- multiple target handles are represented as an ordered list under one artifact
+  key;
+- list order is semantically meaningful and must be preserved for
+  materialization, diagnostics, and cancellation reporting;
+- if one target materialization fails, the run fails as a whole while reporting
+  which targets succeeded and which failed. Successful target writes are left
+  in place; rollback is not promised or attempted.
+
+#### Internal artifact planning behavior
+
+An output can exist at any point in the planned `TaskRunGraph`; however, output
+targets are never treated as artifact intermediaries.
+
+*Example:* If an artifact is written to disk and is later an input dependency
+for another stage, the later stage does not subsequently read the file from
+disk. Instead, an internal `IntermediateArtifactHandle` enables artifact
+handover. It is kept in memory between stages and freed only after all dependent
+stages are complete.
+
+> *Design comment:* The `IntermediateArtifactHandle` should be the first
+> materialization target so that work in progress is not lost if a subsequent
+> target fails.
+
+#### Notes on cache hits and materialization
+
+`ChunkyPipeline` optimistically reuses cached artifacts when available. This
+means that if a stage's output requirements are already satisfied, the stage is
+omitted from execution. In such cases, the pipeline MUST still honor the output
+materialization requirements associated with the omitted stage.
+
+Two specific cases may require separate handling to ensure materialization:
+
+1. A stage has been omitted, but another stage that has not been omitted requires
+   the materialized artifact. In this case, the pipeline should use the existing
+   cached artifact handle to materialize efficiently from the in-memory cached
+   instance. This process is likely identical or comparable to the standard
+   process.
+
+2. A stage has been omitted, and there are no other requirements for this
+   artifact, most likely because the dependent stage also has cached outputs. In
+   this case, the pipeline must load the artifact from the cache solely to
+   materialize it to the configured output. Materialization order must match the
+   order that would apply if the artifact were processed without a cache.
+
+## Request: Cache policy
+
+Both request forms may provide one or more `ArtifactCachePolicy` values and an
+optional `TaskCachePolicy`. Artifact policies apply to individual artifacts;
+the task policy supplies task-wide defaults. Together they control cache reuse,
+publication, and retention.
+
+```text
+enum ArtifactCacheBehavior
+  INHERITED
+  CACHE
+  NO_CACHE
+  OVERWRITE
+  DRY_RUN
+
+ArtifactCachePolicy
+  artifact: a-ref
+  behavior: ArtifactCacheBehavior = INHERITED
+  desired_ttl?: positive-duration
+
+TaskCachePolicy
+  behavior: ArtifactCacheBehavior = INHERITED
+  max_ttl?: positive-duration
+```
+
+### `ArtifactCacheBehavior`
+
+`ArtifactCacheBehavior` defines five ways in which the runtime may interact
+with the shared artifact cache:
+
+| Behavior     | Read an existing shared entry | Publish a newly produced entry |
+|--------------|------------------------------:|-------------------------------:|
+| `INHERITED`  | inherit                       | inherit                        |
+| `CACHE`      | yes                           | yes                            |
+| `NO_CACHE`   | no                            | no                             |
+| `OVERWRITE`  | no                            | yes                            |
+| `DRY_RUN`    | yes                           | no                             |
+
+**`ArtifactCacheBehavior::INHERITED`**
+
+Defers to the next applicable configuration layer:
+
+`artifact policy` → `task policy` → `artifact registration default`
+
+**`ArtifactCacheBehavior::CACHE`**
+
+Reuses a valid cached entry when present and publishes a newly produced entry
+on a miss.
+
+**`ArtifactCacheBehavior::NO_CACHE`**
+
+Skips both cache lookup and publication.
+
+**`ArtifactCacheBehavior::OVERWRITE`**
+
+Ignores any existing cached entry and publishes a newly produced replacement.
+
+**`ArtifactCacheBehavior::DRY_RUN`**
+
+Reuses a valid cached entry when present but does not publish a newly produced
+entry on a miss.
+
+### Example
+
+```python
+request = (
+    local_or_durable_builder
+    .include_cached_input("source/audio/none/fingerprint/2f9d...")
+    .expect_output("render/webvtt_transcript")
+    .with_task_cache_policy(
+        behavior=ArtifactCacheBehavior.INHERITED,
+        max_ttl=timedelta(days=1),
+    )
+    .with_artifact_cache_policy(
+        "audio/prepared",
+        ArtifactCachePolicy(behavior=ArtifactCacheBehavior.OVERWRITE),
+    )
+    .with_artifact_cache_policy(
+        "render/webvtt_transcript",
+        ArtifactCachePolicy(
+            behavior=ArtifactCacheBehavior.CACHE,
+            desired_ttl=timedelta(days=1),
+        ),
+    )
+    .build()
+)
+```
+
+### Policy resolution
+
+#### TTL resolution
+
+TTL is resolved in this order:
+
+- the artifact policy's `desired_ttl`, when present; otherwise
+- the greater of the task policy's `max_ttl` and the producing stage's default
+  TTL, ignoring either value when absent.
+
+An artifact's TTL SHOULD be refreshed to the resolved value whenever a task
+successfully reads it or commits it as an output.
+
+The resolved TTL SHOULD be passed to the cache provider for each refresh. TTL
+is best-effort: the provider decides how expiry is represented and enforced and
+MAY ignore the request when unsupported. Providers may expose additional hooks
+for cleanup.
+
+#### Cache behavior resolution
+
+Cache behavior is resolved in this order:
+
+1. the artifact policy, unless its behavior is `INHERITED` or unstated;
+2. the task policy, unless its behavior is `INHERITED` or unstated; then
+3. the producing stage's default behavior.
+
+`INHERITED` delegates to the next level; it does not itself select cache read
+or publication behavior.
+
+Cache hit, miss, refresh, reservation, publication, retention, and garbage
+collection behavior is defined by
+[Cache Management](../03-bindings/02-cache-management-spec.md).
+
+## Request: Run policy
+
+Both request forms may contain one optional `RunPolicy`. It controls scheduler
+admission for the task's planned stage invocations, primarily to prevent
+resource-intensive work, such as local ASR inference, from oversubscribing
+available hardware.
+
+Run policy affects execution scheduling only. It does not change graph
+planning, producer selection, artifact identity, cache behavior, requested
+outputs, or materialization obligations.
+
+### Resource constraints
+
+Each stage invocation declares the resource classes it requires through
+`StageConcurrencyPolicy`. The initial classes are:
+
+- `vram`: GPU memory, such as model weights and inference buffers held by a
+  local ASR model;
+- `ram`: host memory;
+- `gpu`: GPU compute capacity;
+- `cpu`: CPU compute capacity.
+
+A stage may declare more than one class. Before starting the invocation, the
+scheduler must acquire capacity for every declared class and release it when
+the invocation stops. An unconstrained stage does not acquire a resource-class
+slot.
+
+For the initial MVP, each class is exclusive by default: at most one invocation
+that claims the class may run in the task at once. Stages that claim different
+classes may run together. A stage claiming both `vram` and `gpu` occupies one
+slot in each class.
+
+### Policy model
+
+```text
+enum ResourceConstraint
+  VRAM
+  RAM
+  GPU
+  CPU
+
+RunPolicy
+  prevent_concurrency: bool = False
+  constraint_concurrency_limits: map<ResourceConstraint, positive-int>
+```
+
+### Example
+
+```python
+(
+    local_or_durable_builder
+    .with_run_policy(
+        RunPolicy(
+            constraint_concurrency_limits={
+                ResourceConstraint.VRAM: 1,
+                ResourceConstraint.CPU: 2,
+            },
+        )
     )
 )
 ```
 
-The normalized input key still declares the semantic artifact being supplied. The `a-instance` value pins which concrete committed cache instance should be used. The locator is valid only when its semantic artifact identity matches the normalized input key and the cache contains committed metadata compatible with the manifest declaration.
+This request serializes `vram` stages while allowing up to two `cpu` stages to
+run concurrently, subject to lower pipeline-wide limits. A stage claiming both
+classes must acquire capacity from each before it starts.
 
-## Settings and Defaults
+### Scheduling behavior
 
-Settings are normal artifacts. They participate in artifact fingerprints like any other effective input.
+`constraint_concurrency_limits` overrides the default limit for individual
+resource classes. A limit of `1` serializes invocations that claim the class; a
+higher limit permits that many concurrent invocations.
 
-Caller-supplied settings are bound before planning. Declaration defaults are resolved lazily: the planner owns relevance discovery and requests only the defaults needed by the request-specific graph.
+`prevent_concurrency=True` is the simple safe mode. It allows no more than one
+stage invocation from the task to run at a time, including unconstrained stages
+and stages that use different resource classes. When enabled, it takes
+precedence over per-class limits.
 
-A resolved default behaves exactly like a supplied graph root after it is bound. Default-source providers must be deterministic and local to the setting declaration plus optional caller override; they must not inspect broader request shape, planner state, cache state, wall-clock time, or resource availability.
+### Effective limits and validation
+
+Run policy may lower pipeline-wide scheduler capacity but must not raise it.
+Pipeline configuration remains responsible for physical capacity shared by
+concurrent tasks, provider quotas, device affinity, and other long-lived
+operational limits. Where both layers specify a limit, the lower value applies.
+
+- policy keys must be known `ResourceConstraint` values;
+- policy limits must be positive integers;
+- `prevent_concurrency` and per-class limits may be specified together; and
+- the resolved policy is fixed when the execution plan is created and must not
+  change while the task runs.
+
+Detailed admission and task-control behavior is defined by
+[Eventing and Task Control](../07-scheduling/eventing-and-task-control-model-spec.md).
+
+### Open design questions
+
+> Note: This concept is still in its infancy. The current implementation is a
+> stopgap solution for a working proof of concept and may become considerably
+> more complex over time. This capability could be useful in
+> resource-constrained environments. For the kinds of tasks this software will
+> perform, most systems would be considered resource-constrained.
+
+- The stage contract currently has both `ResourcePolicy` and
+  `StageConcurrencyPolicy`. Their responsibilities must be consolidated or
+  distinguished before the scheduling API is finalized.
+- The initial model uses whole slots. It does not express quantities such as
+  `16 GiB` of VRAM or resource pools spanning multiple devices.
+- Fairness, priority, and arbitration of conflicting run-level limits across
+  tasks remain unspecified.
+- Remote-provider rate limits and stage-specific concurrency keys may need
+  first-class constraint types instead of mapping to CPU, GPU, RAM, or VRAM.
+
+## Local request objects
+
+### `LocalRequest`
+
+`LocalRunRequest` is an immutable process-local submission description.
+Conceptually:
+
+```text
+LocalRunRequest
+  inputs: map<canonical-a-ref, ArtifactSourceHandle>
+  outputs: map<canonical-a-ref, OutputRequest>
+
+  durable_inputs: list<canonical-a-instance>
+  durable_outputs: list<canonical-a-ref>
+
+  run_policy?: RunPolicy
+  task_cache_policy?: TaskCachePolicy
+  cache_policy: map<canonical-a-ref, ArtifactCachePolicy>
+
+OutputRequest
+  targets: ordered-list<ArtifactTargetHandle>
+```
+
+### `LocalRequestBuilder`
+
+`LocalRunRequestBuilder` constructs a local request.
+
+```python
+builder = LocalRunRequestBuilder()
+```
+
+Construction is explicit through the operations below. Builders do not flatten
+nested mappings or convert a request into a separate manifest-resolved form.
+
+Its language-neutral interface is:
+
+```text
+LocalRunRequestBuilder
+  include_input(a-ref, ArtifactSourceHandle) -> self
+  include_cached_input(a-instance) -> self
+
+  expect_output_target(a-ref, ArtifactTargetHandle) -> self
+  expect_output(a-ref) -> self
+
+  with_run_policy(RunPolicy) -> self
+  with_task_cache_policy(TaskCachePolicy) -> self
+  with_artifact_cache_policy(a-ref, ArtifactCachePolicy) -> self
+
+  build() -> LocalRunRequest
+  close() -> void
+```
+
+#### Design notes
+
+Bindings may implement fluent methods by mutating and returning the builder or
+by returning a new builder value. Either approach must preserve the same
+ownership and duplicate-declaration rules.
+
+`with_run_policy` and `with_task_cache_policy` may each be called at most once.
+`with_artifact_cache_policy` may be called once for each parsed artifact
+reference. Repeated declarations are structural errors rather than
+last-write-wins updates.
+
+`build()` performs structural validation and constructs the immutable request.
+It does not look up artifact declarations or resolve references against a
+manifest.
+
+### Converting a Local Request to a Durable Request
+
+Creating a durable request from a local request is an explicit, consuming,
+asynchronous operation defined by
+[Durable Request Preparation](06-durable-request-preparation.md). It is never
+hidden inside either builder or local execution.
+
+Only a local request with targetless outputs is eligible. The service rejects
+local targets, preflights the current manifest and provider, commits every
+supplied input, and returns a durable request containing the committed input
+locators.
+
+```python
+local_request = (
+    LocalRunRequestBuilder()
+    .include_input("source/audio", SourceAudioArtifact.from_file_path("input.wav"))
+    .expect_output("render/webvtt_transcript")
+    .build()
+)
+
+durable_request = await pipeline.make_durable(
+    local_request,
+    cancellation=cancellation,
+    progress=progress,
+)
+
+result = await pipeline.run(durable_request)
+```
+
+The local request is consumed on success, failure, or cancellation. Inputs
+committed before an unsuccessful conversion remain normal unreferenced cache
+entries. Durable preparation does not create or preserve local delivery
+attachments.
+
+
+## Durable request objects
+
+### `DurableRequest`
+
+`DurableRunRequest` is the serializable durable computation contract. It
+contains no external handles, open streams, file descriptors, callbacks,
+credentials, backend paths, provider identifiers, pipeline-manifest identifier,
+or delivery destinations.
+
+Its data model is:
+
+```text
+DurableRunRequest
+  version: 1
+  durable_inputs: set<canonical-a-instance>
+  durable_outputs: set<canonical-a-ref>
+  run_policy?: RunPolicy
+  task_cache_policy?: TaskCachePolicy
+  cache_policy: map<canonical-a-ref, ArtifactCachePolicy>
+```
+
+The address kinds are intentional:
+
+- every element of `durable_inputs` is a concrete, committed `a-instance`;
+- every element of `durable_outputs` is a semantic `a-ref` and may retain an
+  unresolved phase such as `any`;
+- every cache-policy key is a canonical `a-ref`.
+
+### `DurableRunRequestBuilder`
+
+`DurableRunRequestBuilder` is also standalone and manifest-independent:
+
+```text
+DurableRunRequestBuilder
+  static from_object(NonCanonicalDurableRunRequest) -> self
+  include_cached_input(a-instance) -> self
+  expect_output(a-ref) -> self
+
+  with_run_policy(RunPolicy) -> self
+  with_task_cache_policy(TaskCachePolicy) -> self
+  with_artifact_cache_policy(a-ref, ArtifactCachePolicy) -> self
+
+  build() -> DurableRunRequest
+```
+
+- **`include_cached_input`** accepts only a committed instance locator but does
+  not verify that it is committed in the configured cache.
+- **`expect_output`** declares one durable semantic output without a local
+  target. Repeating either declaration for the same parsed reference is
+  invalid.
+- **`with_run_policy`** and **`with_task_cache_policy`** may each be called at
+  most once.
+- **`with_artifact_cache_policy`** may be called once for each parsed artifact
+  reference. Repeated declarations are structural errors.
+
+The builder supplies the current schema name and version automatically. Callers
+cannot override either field through normal construction. The builder does not
+access the cache to prove that an instance exists and does not inspect a
+manifest to prove that an output can be produced.
+
+**Example:**
+
+```python
+durable_request = (
+    DurableRunRequestBuilder()
+    .include_cached_input(audio_instance)
+    .expect_output("render/webvtt_transcript")
+    .with_artifact_cache_policy(
+        "render/webvtt_transcript",
+        ArtifactCachePolicy(
+            behavior=ArtifactCacheBehavior.OVERWRITE,
+            desired_ttl=timedelta(days=1),
+        ),
+    )
+    .build()
+)
+
+receipt = await durable_task_service.submit(durable_request)
+```
+
+#### Example upload and run
+
+Direct cache I/O is exposed through a contract on the pipeline instance. It
+returns an `a-instance` locator for the cache instance, which can subsequently
+be used in a request.
+
+```python
+desired_input_ttl = timedelta(days=1)
+audio_instance = await pipeline.publish_artifact(
+    "source/audio",
+    SourceAudioArtifact.from_file_path("input.wav"),
+    desired_input_ttl,
+)
+
+request = (
+    DurableRunRequestBuilder()
+    .include_cached_input(audio_instance)
+    .expect_output("render/webvtt_transcript")
+    .build()
+)
+
+result = await pipeline.run(request)
+```
+
+### `NonCanonicalDurableRunRequest`
+
+`NonCanonicalDurableRunRequest` is a non-canonical, serializable, fault-tolerant
+contract. It has the same elements as `DurableRunRequest` but does not guarantee
+that locators are in canonical form. This object provides a flexible
+serialization contract for externally sourced tasks such as web requests.
+
+```text
+NonCanonicalDurableRunRequest
+  version: 1
+  durable_inputs: set<a-instance>
+  durable_outputs: set<a-ref>
+  run_policy?: RunPolicy
+  task_cache_policy?: NonCanonicalTaskCachePolicy
+  cache_policy: map<a-ref, NonCanonicalArtifactCachePolicy>
+
+NonCanonicalArtifactCachePolicy
+  artifact: a-ref
+  behavior: ArtifactCacheBehavior = INHERITED
+  desired_ttl?: positive-duration
+
+NonCanonicalTaskCachePolicy
+  behavior: ArtifactCacheBehavior = INHERITED
+  max_ttl?: positive-duration
+```
+
+#### JSON encoding example
+
+```json
+{
+  "version": 1,
+  "inputs": [
+    "source/audio/none/fingerprint/2f9d...",
+    "render/webvtt_settings/none/fingerprint/81aa..."
+  ],
+  "outputs": [
+    "render/webvtt_transcript/any"
+  ],
+  "cache_policy": {
+    "render/webvtt_transcript": {
+      "behavior": "OVERWRITE",
+      "desired_ttl_seconds": 86400
+    }
+  }
+}
+```
+
+**Example usage:**
+
+```python
+external_request = json.loads(request_json_string)
+canonical_request = DurableRunRequestBuilder.from_object(external_request).build()
+```
+
+## Build validation and ownership
+
+Both builders validate the complete accumulated description and return one
+structured failure containing all independently detectable issues. An issue
+whose prerequisite failed is omitted to avoid misleading cascades.
+
+Conceptually:
+
+```text
+RequestValidationFailure
+  issues: ordered-list<RequestValidationIssue>
+
+RequestValidationIssue
+  path: request field or parsed artifact reference
+  code: stable machine-readable category
+  message: human-readable explanation
+```
+
+Issue order is deterministic. Bindings may surface the failure as an exception
+or result value, but they must preserve all issues and their paths. A value that
+cannot be converted to the binding's builder method parameter type may fail at
+the call boundary before it becomes part of builder validation.
+
+`LocalRunRequestBuilder.build()` rejects at least:
+
+- malformed artifact references and locators;
+- duplicate input roots that parse to the same artifact reference;
+- duplicate run or per-artifact policy declarations;
+- zero requested outputs;
+- repeated targetless output declarations;
+- mixing targeted and targetless declarations for one output;
+- a TTL attached to a non-writing cache behavior; and
+- cache behaviors incompatible with the declared output form.
+
+Unknown artifacts, target/declaration compatibility, declaration cacheability,
+provider capability, phased-family matching, and graph support require a frozen
+pipeline and are not builder errors.
+
+A phased artifact selector MUST NOT be converted into an exact match during
+request construction. The builder has no family catalog with which to select a
+concrete phase, so it preserves the parsed selector in the request. Exact-phase
+validation, `AT_MOST` selection, and terminal phase-less remapping are owned by
+planning, as defined in
+[Phased intermediate references](../02-artifacts/01-artifacts-spec.md#phased-intermediate-references).
+
+Adding an external source or target handle transfers ownership to the builder. A
+successful `build()` consumes the builder and transfers every handle into the
+immutable `LocalRunRequest`. A failed build leaves the builder and its handles
+valid so the caller may correct structural errors and retry.
+
+`close()` consumes an unbuilt builder and closes or aborts every handle it still
+owns. Dropping an unbuilt builder must provide equivalent cleanup in languages
+with deterministic destruction. Bindings without enforceable move semantics
+must reject mutation after successful build and reject reuse of a consumed
+request.
+
+Once local execution begins, the pipeline owns request cleanup across binding,
+planning, execution, cancellation, failure, and materialization.
+
+## Operational validation boundary
+
+Construction and deserialization establish structural validity. The consuming
+pipeline, durable-request preparer, or durable task service separately validates
+facts that require current configuration or I/O:
+
+- referenced inputs exist, are readable, and match their cache metadata;
+- local targets are compatible with current artifact declarations;
+- the provider supports the durability required by the operation;
+- output and policy references are interpreted against the current frozen
+  manifest; and
+- planning determines whether the requested graph can be satisfied.
+
+Durable preparation rejects ineligible outputs before reading source handles.
+Direct durable submission rejects malformed data, unusable input instances,
+and insufficient provider durability before task creation. A structurally valid
+direct request whose output is unknown, non-cacheable, or unsupported by the
+current graph may be accepted and terminate as `UNPLANNABLE` without starting a
+stage.
+
+## Invariants
+
+1. `LocalRunRequest` and `DurableRunRequest` have separate standalone builders.
+2. Builders perform syntactic parsing and structural validation but no I/O,
+   manifest inspection, or artifact resolution.
+3. A request may have zero explicit inputs and must have at least one output.
+4. External source and target handles transfer ownership into the builder,
+   request, and execution lifecycle.
+5. Local target order is significant; canonical collection order is not.
+6. Supplied inputs are authoritative when selected and are never implicitly
+   published by local execution.
+7. `DurableRunRequest` contains only durable semantic data and no delivery
+   attachments.
+8. Canonical construction and deserialization share structural validation.
+9. Cache policy cannot make a supplied input optional or change graph shape.
+10. `RunPolicy` cannot change semantic work.
+11. Durable inputs are exact, committed `a-instance` locators, and durable
+    outputs are targetless semantic `a-ref` locators.
+12. Converting a local request to a durable request is explicit, consumes the
+    local request, and rejects all external output targets before reading input
+    handles.
+13. Duplicate declarations are detected after canonical parsing and are never
+    resolved using last-write-wins behavior.
+14. Request construction preserves unresolved phased artifact selectors;
+    planning alone resolves them against a frozen manifest.
+15. A successful build consumes the builder, while a failed build preserves the
+    builder and all handles it owns for correction or cleanup.

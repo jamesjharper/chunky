@@ -1,0 +1,24 @@
+specs/SPECS_RULE.md
+  s_dfc08024ce8900::t_eac75e29db9746 7-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "cf5813acc733fece602c59e6c9f825e7265490c1",
+  "prompts": {},
+  "humans": {
+    "h_6046a6be1688c0": {
+      "author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  },
+  "sessions": {
+    "s_dfc08024ce8900": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8ce9-134d-7c30-b6b0-738dcda56412",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}

@@ -665,7 +665,7 @@ durable_request = (
 receipt = await durable_task_service.submit(durable_request)
 ```
 
-#### Example upload and run
+#### Example upload and Start
 
 Direct cache I/O is exposed through a contract on the pipeline instance. It
 returns an `a-instance` locator for the cache instance, which can subsequently

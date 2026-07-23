@@ -2,13 +2,15 @@
 
 ## Purpose
 
-This document defines the two immutable caller-facing request forms, their
-builders, request-level policy, and canonical wire representation.
+This document defines the caller-facing contract for constructing run requests:
+the local and durable request forms, accepted artifact addressing, input and
+output semantics, request-level cache and run policy, builder validation and
+ownership, local-to-durable conversion, and the durable request's serialized
+representation.
 
 - `LocalRunRequest` is process-local and may own external artifact handles.
 - `DurableRunRequest` is data-only and is used for durable submission and
   replay.
-
 
 This document does not define cache mechanics, target-handle mechanics,
 planning, execution, or persisted task lifecycle. Examples use Python-like
@@ -743,37 +745,177 @@ canonical_request = DurableRunRequestBuilder.from_object(external_request).build
 
 ## Build validation and ownership
 
-Both builders validate the complete accumulated description and return one
-structured failure containing all independently detectable issues. An issue
-whose prerequisite failed is omitted to avoid misleading cascades.
+Both builders accumulate component-level structural issues and return them
+together from `build()`.
+> Issues whose prerequisites failed are omitted to avoid misleading cascades.
 
-Conceptually:
+`from_object(...)` separately validates the serialized envelope shape, field shapes, and version before returning a builder. 
+> If deserialization fails, `from_object(...)` immediately returns one `RequestValidationFailure` containing all independently detectable deserialization issues;.
+
+The platform-universal envelope is:
 
 ```text
 RequestValidationFailure
+  kind: REQUEST_VALIDATION
+  message: human-readable summary string
+  version: 1
   issues: ordered-list<RequestValidationIssue>
 
 RequestValidationIssue
-  path: request field or parsed artifact reference
-  code: stable machine-readable category
-  message: human-readable explanation
+  code: stable machine-readable category string
+  message: human-readable explanation string
+  context_type:
+    UnableToDeserializeRequest
+    | UnableToBuildRunPolicyRequest
+    | UnableToBuildCachePolicyRequest
+    | UnableToBuildDurableInputsRequest
+    | UnableToBuildDurableOutputsRequest
+    | UnableToBuildInputsRequest
+    | UnableToBuildOutputsRequest
+  context: object selected by context_type
+
+UnableToDeserializeRequest
+  violation: violation_message
+  field_path: json_path_string
+
+UnableToBuildRunPolicyRequest
+  field?: prevent_concurrency | constraint_concurrency_limits
+  resource_constraint?: canonical ResourceConstraint or original supplied string
+
+UnableToBuildCachePolicyRequest
+  scope: TASK | ARTIFACT
+  artifact_reference?: canonical a-ref or original supplied string
+  field?: behavior | desired_ttl | max_ttl
+
+UnableToBuildDurableInputsRequest
+  instance_reference?: original supplied string
+
+UnableToBuildDurableOutputsRequest
+  artifact_reference?: original supplied string
+
+UnableToBuildInputsRequest
+  artifact_reference?: original supplied string
+
+UnableToBuildOutputsRequest
+  artifact_reference?: original supplied string
+  target_index?: nonnegative-index
 ```
 
-Issue order is deterministic. Bindings may surface the failure as an exception
-or result value, but they must preserve all issues and their paths. A value that
-cannot be converted to the binding's builder method parameter type may fail at
-the call boundary before it becomes part of builder validation.
+`context_type` identifies the request component that could not be built. `UnableToBuildCachePolicyRequest`
+is shared by task and artifact cache policies; `scope` distinguishes them.
+`UnableToDeserializeRequest` is reserved for envelope or field-shape failures
+returned directly by `from_object(...)`, before a request component can be
+interpreted. A successfully returned builder never contains this context type.
 
-`LocalRunRequestBuilder.build()` rejects at least:
+Context fields are included only when relevant. Declaration indexes use
+zero-based caller declaration order. References are canonical when parsing
+succeeded and otherwise preserve the original supplied string. Context never
+contains an external artifact handle, target handle, raw request body, parsed
+runtime object, or exception.
 
-- malformed artifact references and locators;
-- duplicate input roots that parse to the same artifact reference;
-- duplicate run or per-artifact policy declarations;
-- zero requested outputs;
-- repeated targetless output declarations;
-- mixing targeted and targetless declarations for one output;
-- a TTL attached to a non-writing cache behavior; and
-- cache behaviors incompatible with the declared output form.
+The complete failure MUST have a lossless, data-only representation usable both
+as an in-process result and across transport boundaries such as a web-service
+response. It MUST NOT contain or require access to builders, pipelines, binding
+runtimes, exceptions, parsed artifact objects, handles, callbacks, or other
+process-local state. Bindings may surface the failure as an exception or result
+value, but must expose the same serializable data. This specification does not
+prescribe a wire encoding.
+
+For example:
+
+```json
+{
+  "kind": "REQUEST_VALIDATION",
+  "message": "Unable build invalid task request",
+  "version": 1,
+  "issues": [
+    {
+      "code": "mixed_output_form",
+      "message": "Output already has a targetless declaration.",
+      "context_type": "UnableToBuildOutputsRequest",
+      "context": {
+        "artifact_reference": "render/webvtt_transcript",
+      }
+    }
+  ]
+}
+```
+
+Issue order is deterministic. The following list is the complete set of
+validation codes. `from_object(...)` returns deserialization issues immediately;
+`build()` returns all accumulated component issues.
+
+**`from_object` (`UnableToDeserializeRequest`):**
+- *`invalid_request_shape`*: the request or a required field has the wrong
+  structural type, or a required field is absent;
+- *`unsupported_request_version`*: `version` is not supported.
+
+These issues originate from and are returned by `from_object(...)`. If
+deserialization succeeds, errors in contained cached inputs, outputs, or
+policies use the corresponding component context below and are returned by
+`build()`.
+
+**`include_input` (`UnableToBuildInputsRequest`):**
+- *`invalid_artifact_reference`*: the `a-ref` cannot be parsed; and
+- *`duplicate_input`*: another input resolves to the same parsed artifact
+  reference.
+
+**`include_cached_input` (`UnableToBuildDurableInputsRequest`):**
+- *`invalid_artifact_instance`*: the locator cannot be parsed as an
+  `a-instance`; and
+- *`duplicate_input`*: another input resolves to the same parsed artifact
+  reference.
+
+**`expect_output` (`UnableToBuildDurableOutputsRequest`):**
+- *`invalid_artifact_reference`*: the `a-ref` cannot be parsed;
+- *`mixed_output_form`*: the same parsed output has a targeted declaration.
+
+**`expect_output_target` (`UnableToBuildOutputsRequest`):**
+- *`invalid_artifact_reference`*: the `a-ref` cannot be parsed; and
+- *`mixed_output_form`*: the same parsed output has a targetless declaration. Repeated targeted declarations are valid and create ordered fan-out.
+
+**`with_run_policy` (`UnableToBuildRunPolicyRequest`):**
+- *`duplicate_run_policy`*: a run policy was already declared;
+- *`invalid_resource_constraint`*: a concurrency-limit key is not a known
+  `ResourceConstraint`; and
+- *`invalid_concurrency_limit`*: a concurrency limit is not a positive integer (language dependent).
+
+**`with_task_cache_policy` (`UnableToBuildCachePolicyRequest`, `TASK`):**
+- *`duplicate_task_cache_policy`*: a task cache policy was already declared;
+- *`invalid_cache_behavior`*: the behavior is not a known
+  `ArtifactCacheBehavior`;
+- *`invalid_ttl`*: a supplied TTL is not a positive duration;  (language dependent).
+- *`ttl_requires_writing_cache`*: request-level policy resolution attaches a
+  TTL to `NO_CACHE` or `DRY_RUN`.
+
+**`with_artifact_cache_policy` (`UnableToBuildCachePolicyRequest`, `ARTIFACT`):**
+- *`invalid_artifact_reference`*: the supplied `a-ref` cannot be parsed;
+- *`duplicate_artifact_cache_policy`*: a policy already exists for the same parsed artifact reference;
+- *`invalid_cache_behavior`*: the behavior is not a known`ArtifactCacheBehavior`;
+- `invalid_ttl`: a supplied TTL is not a positive duration; and
+- `ttl_requires_writing_cache`: request-level policy resolution attaches a
+  TTL to `NO_CACHE` or `DRY_RUN`.
+
+**`build`:**
+- *`no_outputs`*: no output was requested; and
+- *`targetless_output_requires_cache_write`*: request-level policy resolution
+  gives a targetless output `NO_CACHE` or `DRY_RUN`.
+
+For `build`, `no_outputs` uses `UnableToBuildOutputsRequest` for a local builder
+and `UnableToBuildDurableOutputsRequest` for a durable builder.
+`targetless_output_requires_cache_write` uses
+`UnableToBuildDurableOutputsRequest`.
+
+**`close`:**
+no request-validation errors.
+
+`from_object` is durable-only; `include_input`, `expect_output_target`, and
+`close` are local-only. Other operations apply to both builders.
+
+A value that cannot be converted to a binding method's parameter type may fail
+at the call boundary before builder validation. Calls on a consumed builder are
+also binding-level lifecycle errors; neither case produces a
+`RequestValidationFailure`.
 
 Unknown artifacts, target/declaration compatibility, declaration cacheability,
 provider capability, phased-family matching, and graph support require a frozen
@@ -786,6 +928,7 @@ validation, `AT_MOST` selection, and terminal phase-less remapping are owned by
 planning, as defined in
 [Phased intermediate references](../02-artifacts/01-artifacts-spec.md#phased-intermediate-references).
 
+### Ownership
 Adding an external source or target handle transfers ownership to the builder. A
 successful `build()` consumes the builder and transfers every handle into the
 immutable `LocalRunRequest`. A failed build leaves the builder and its handles
@@ -800,7 +943,7 @@ request.
 Once local execution begins, the pipeline owns request cleanup across binding,
 planning, execution, cancellation, failure, and materialization.
 
-## Operational validation boundary
+### Operational validation boundary
 
 Construction and deserialization establish structural validity. The consuming
 pipeline, durable-request preparer, or durable task service separately validates

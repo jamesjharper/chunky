@@ -157,7 +157,7 @@ the builder creates a pipeline-scoped workspace provider. If the caller did not
 
 (TODO: MOVE TO  02-pipeline-builder-inbuilts.md), the pipeline owns a private temporary workspace and deletes
 it on close after releasing active handles. This default supports reuse across
-live runs on the pipeline but does not satisfy canonical durability; operations
+local runs on the pipeline but does not satisfy durable-submission requirements; operations
 that require durable retention must fail capability validation unless a suitable
 provider is configured.
 
@@ -244,7 +244,7 @@ This keeps operational configuration validation aligned with the true execution 
 
 ## `class StageManifestBuilder`
 
-`StageManifestBuilder` is the configuration surface for registering available stages for performing data transformations within the pipeline. Stages are statically registered capabilities which are dynamically composed to mean a `RunRequests` requirements.
+`StageManifestBuilder` is the configuration surface for registering available stages for performing data transformations within the pipeline. Stages are statically registered capabilities which are dynamically composed to meet a `LocalRunRequest`'s requirements.
 
 Stages are installed by calling `manifest_builder.add_stage(registration)` from a feature's `install(...)` method.
 
@@ -298,9 +298,9 @@ The important builder-time implications are:
 - __`owned_artifacts`__ are the artifacts declared by stage [[../02-artifacts/01-artifacts-spec#Artifact Declarations|Artifact Declarations]]
 - __`output_capabilities`__ defines a static set of output capabilities this stage *could* produce if requested
 - __`input_capabilities`__ defines a static set of input requirements this stage *could* require depending on a specific set of requested outputs
-- __`resolve_output_capabilities()`__ is a function to be used to assess a stages *actual* `output_capabilities` within the context of a specific `RunRequest`
-- __`resolve_requirements()`__ is a function to be used to assess a stages *actual* `input_requirements` within the context of a specific `RunRequest`
-- __`resolve_resource_policy()`__ is a function to be used to assess a stages *actual* `resource_policy` within the context of a specific `RunRequest`
+- __`resolve_output_capabilities()`__ is a function to be used to assess a stage's *actual* `output_capabilities` within the context of a specific `LocalRunRequest`
+- __`resolve_requirements()`__ is a function to be used to assess a stage's *actual* `input_requirements` within the context of a specific `LocalRunRequest`
+- __`resolve_resource_policy()`__ is a function to be used to assess a stage's *actual* `resource_policy` within the context of a specific `LocalRunRequest`
 - __`runtime_settings`__ lets a stage declare a set of runtime-setting specs that it depends on to be successfully invoked. Runtime settings are resolved and validate after planning and before execution of the task plan
 - __`concurrency_policy`__ provides optional execution constraints beyond the default scheduler behavior.
 

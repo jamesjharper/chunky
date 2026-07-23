@@ -4,6 +4,8 @@
 
 Keep them clear, logically ordered, concise, and maintainable. State each requirement once, where readers would expect it. Avoid unnecessary implementation detail, repetition, and mixing requirements with rationale or examples without distinction.
 
+Prefer prose and lists. Avoid tables unless they are small, simple, and make a comparison materially easier to understand. Use headings or nested lists for long text, many entries, or content organized by operation or entity.
+
 Treat the specification as the authoritative expression of human design intent at its chosen level of abstraction. Missing detail does not automatically grant permission to invent new design intent. It may be intentionally delegated, defined elsewhere, irrelevant at this level, or unresolved.
 
 ## Decision authority follows module boundaries:
@@ -34,6 +36,5 @@ When uncertain, ask:
 If only the module implementation must know, decide independently. If callers, operators, other modules, or future implementations must know, treat it as a surface-level design decision and involve the human.
 
 When work can continue without resolving a surface decision, preserve flexibility and continue rather than forcing a premature choice.
-
 
 

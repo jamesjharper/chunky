@@ -77,6 +77,12 @@ Returns the typed artifact value. The handle decides whether the codec is needed
 ### `get_content_fingerprint(codec)`
 `get_content_fingerprint(codec)` returns the content contribution for a supplied source handle. It does not return the final artifact fingerprint.
 
+A source handle should represent one stable logical snapshot, and a separately
+reported content fingerprint should describe the same content returned to
+execution. This is a soft integrity expectation: implementations should use
+inexpensive consistency checks where practical, but need not spool or reread
+every source solely to prove snapshot stability.
+
 The method remains valid for every source-handle type:
 
 - a caller-supplied file, object, or stream returns a stable digest of its semantic content;
@@ -423,7 +429,9 @@ class ArtifactWriter(Generic[T]):
                 await target.abort()
 ```
 
-Cacheable provided roots use the same target lifecycle when they are published into durable cache during binding. The binding layer first computes the supplied-artifact fingerprint from the source handle, then writes that semantic instance to a reserved cache target unless the exact artifact policy has `do_not_cache=True`. This publication is separate from stage output writing and does not change supplied-root planning semantics.
+Explicit artifact publication and canonicalization use the same target lifecycle
+when committing supplied content into cache. Live execution does not publish a
+supplied source merely because it was selected as a graph root.
 
 For a cacheable artifact that must be produced, the runner binds two semantic output targets:
 
@@ -443,7 +451,11 @@ If the durable cache commit fails:
 
 If the semantic artifact commits successfully but a later caller-provided materialization fails, the semantic cache entry remains valid. A subsequent run may reuse the cached artifact and retry materialization without rerunning the producing stage.
 
-For target-less requested outputs, there are no caller materialization targets to bind. The runner reports success once the semantic artifact has become durably available, preserves the requested output's `a-task` locator, and exposes the externally retrievable `a-instance` locator after durable commit. Non-cacheable publication-only outputs cannot satisfy target-less requests because there would be no later retrieval path after the task exits.
+For targetless requested outputs there are no caller materialization targets.
+The runner reports availability only after the semantic artifact has committed,
+and exposes an `a-instance` only for that real readable cache entry. The
+provider's lifetime determines whether a live result is durable; canonical
+tasks require the stronger persisted-task retention contract.
 
 
 
@@ -452,5 +464,6 @@ For target-less requested outputs, there are no caller materialization targets t
 1. `ArtifactHandle.declaration.artifact_id` is the resolved semantic artifact ID.
 2. Concrete cached-instance references must be rebound into cache source handles before use.
 3. A cache source handle owns an active read reservation from binding until close.
-4. Provided-root cache publication uses the same prepare/commit/abort target lifecycle as stage-produced cache publication.
+4. Explicit cache publication uses the same prepare/commit/abort target
+   lifecycle as stage-produced cache publication.
 5. Settings roots opened from cache may be read before planning; other opened roots behave like supplied graph roots after binding.

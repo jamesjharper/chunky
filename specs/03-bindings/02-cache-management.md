@@ -24,7 +24,7 @@ Cache management is responsible for:
 - acquiring shared read reservations for valid hits;
 - acquiring exclusive write reservations for missing or deliberately refreshed entries;
 - returning an explicit wait result when another task owns the write reservation;
-- publishing prepared cache values atomically, including provided roots published during binding;
+- publishing prepared cache values atomically, including explicit artifact ingestion;
 - releasing reservations after commit, abort, source close, cancellation, or recovery;
 - preventing garbage collection from racing active readers and writers;
 - detecting and recovering stale reservations and incomplete entries;
@@ -165,13 +165,13 @@ Only `committed` entries may be returned as hits.
 
 The file-cache example treats the final metadata file as the completion marker. Data may be staged or even moved into its final data location first, but the entry is not considered complete until the matching metadata is atomically published.
 
-## Provided-Root Publication and Direct Cache IO
+## Direct Cache I/O
 
-Cacheable provided roots are published to durable cache by default during binding unless the request's exact per-artifact policy sets `do_not_cache=True`. This applies to caller-supplied sources, settings, and explicitly supplied intermediates.
-
-Publication uses the supplied-artifact fingerprint already calculated from the artifact declaration and source handle content fingerprint. It must go through the same reservation, preparation, metadata validation, commit, abort, and waiter-notification rules as any other cache write. It must not create a weaker cache-entry class.
-
-If a valid committed entry already exists for the supplied fingerprint, the cache may return or confirm the corresponding `ArtifactInstanceLocator` without rewriting the entry. A request-level `desired_ttl` applies only when a new entry is created and must not mutate the TTL of an existing entry.
+Publishing caller-supplied content is explicit. Local request binding does not
+publish a source merely because it is selected as an input. Direct publication
+and durable request preparation use the ordinary reservation, validation,
+prepare, commit, abort, and waiter-notification rules; they do not create a
+weaker entry class.
 
 The direct artifact-cache IO interface is a public convenience over the same semantics:
 
@@ -182,7 +182,6 @@ class ArtifactCacheIO(Protocol):
         declaration: ArtifactDeclaration[T],
         source: ArtifactSourceHandle[T],
         *,
-        policy: PerArtifactCachePolicy | None = None,
     ) -> ArtifactInstanceLocator: ...
 
     async def open(
@@ -191,11 +190,64 @@ class ArtifactCacheIO(Protocol):
     ) -> ArtifactInstance[T]: ...
 ```
 
-`publish` computes the supplied-artifact fingerprint, materializes the supplied source into a committed cache entry under that fingerprint, and returns a structured `ArtifactInstanceLocator` serialized as `a-instance`. Implementations must not fake this by reading a large source completely into memory and then writing it back out through a value-only target path. Until the source/target/cache contracts define safe streaming or file-to-cache materialization, `publish` may remain an explicit stub. `open` validates the paired artifact identity and fingerprint, acquires a normal cache read reservation, and returns a cache-backed source handle. Neither operation exposes backend paths, object-store keys, reservation IDs, or raw lock records.
+`publish` computes the supplied-artifact fingerprint, commits the source under
+that fingerprint, and returns its structured `a-instance` locator. It uses the
+ordinary artifact I/O contract; no separate streaming or bounded-memory
+guarantee is required. Providers may optimize transfer internally, but transfer
+capabilities and source-consumption semantics are outside this contract. `open`
+validates semantic identity and fingerprint,
+acquires a normal read reservation, and returns a cache-backed source handle.
+Neither operation exposes backend paths, object-store keys, reservations, or
+raw lock records.
 
 A cached root opened by locator changes availability, not graph semantics. Once opened, it behaves like an ordinary supplied root. Cached settings roots may be opened and read before graph planning so settings-dependent planning hooks receive their values.
 
 This direct cache IO surface is also the foundation for later requested-output retrieval. Results and output-availability events should expose an externally retrievable `a-instance` locator only after the cache entry is committed and validated. A future existence preflight may check whether a concrete `a-instance` already exists before uploading content, but that optimization is outside this version.
+
+## Task-instance relations
+
+The cache stores a TTL-bound, untyped relation:
+
+```text
+(task_id, task_a_ref) -> (resolved_canonical_a_ref, fingerprint)
+```
+
+`task_a_ref` is the stable requested output reference embedded in `a-task` and
+may contain `any`. The value uses the fully resolved final-graph identity,
+including projection, domain, content kind, and concrete phase. The resulting
+`a-instance` is reconstructed from that identity and fingerprint.
+
+A relation is written only for a committed readable entry, whether obtained as
+a hit or newly produced. It does not pin the entry and has a task-history TTL
+independent of entry lifetime. Entry expiry can therefore make an old `a-task`
+unresolvable.
+
+For one task-facing artifact reference, at most one effective mapping exists.
+Conflicting mappings fail rather than overwrite one another. A recovery attempt
+may replace an incompatible stale mapping only while the task remains
+nonterminal; terminal mappings are immutable until their history expires.
+
+Local tasks may use the same relation, but resolution lasts only as long as the
+provider's task history and entry. The default workspace provider does not make
+these locators survive pipeline shutdown.
+
+## Request cache modes
+
+The request layer supplies one of four produced-artifact modes. Cache resolution
+implements them as follows:
+
+- `DEFAULT`: accept a valid shared hit; reserve and publish on a miss;
+- `REFRESH`: ignore shared hits; reserve and publish replacement work;
+- `READ_ONLY`: accept a valid hit; return a non-publishing miss otherwise; and
+- `BYPASS`: neither look up nor publish a shared entry.
+
+On recovery, `REFRESH` may reuse an exact committed instance already related to
+the same durable task. It still ignores compatible shared entries from other
+tasks. `BYPASS` work has no committed instance to recover.
+
+A resolved TTL is a best-effort retention request. A successful cache read or
+new output commit refreshes the entry's expiry from that event. The TTL never
+shortens a task retention claim or overrides provider limits.
 
 ## Cache Resolution Contract
 
@@ -362,7 +414,10 @@ The source handle is closed when the owning task or scoped artifact binding no l
 
 An entry with one or more active read reservations is not eligible for deletion.
 
-The cache may update `last_used_at` when a read reservation is successfully acquired or released. The chosen update policy must not weaken reservation protection or make semantic metadata inconsistent.
+The cache SHOULD update `last_used_at` and refresh expiry when a cached entry is
+successfully consumed. Acquiring a reservation without consuming the entry does
+not refresh it. The update must not weaken reservation protection or make
+semantic metadata inconsistent.
 
 ### Reservation inspection
 
@@ -1383,10 +1438,13 @@ It does not change because:
 18. Supplied artifacts are fingerprinted from identity plus semantic content.
 19. Stage-produced artifacts are fingerprinted from resolved identity and codec plus production pedigree.
 20. Fingerprint aggregation is deterministic and order-stable.
-21. Cacheable provided roots are published to cache by default unless exact artifact policy opts out.
+21. Caller-supplied live roots are published only through an explicit cache-I/O
+    or durable-preparation operation.
 22. Direct cache IO uses artifact declarations and handles, not backend paths or raw cache keys.
 23. Direct cache writes obey the same correctness and atomicity rules as run-time cache publication.
 24. A cached-instance reference is an `a-instance` locator; rebinding validates both artifact identity and fingerprint.
 25. Cached settings roots may be opened before planning when explicitly supplied by `a-instance` locator.
 26. Externally retrievable `a-instance` locators are exposed only after durable commit.
 27. Upload deduplication and future artifact-existence preflight use the same `a-instance` identity.
+28. Task-instance relations are written only for committed readable entries and
+    never pin those entries.

@@ -49,7 +49,7 @@ a-instance:/global/{domain}/{content_kind}/{phase-or-none}/fingerprint/{fingerpr
 Task-scoped requested outputs use:
 
 ```text
-a-task:/global/{domain}/{content_kind}/{phase-or-none}/task/{task_id}
+a-task:/global/{domain}/{content_kind}/{requested-phase}/task/{task_id}
 ```
 
 
@@ -60,7 +60,9 @@ The declaration-level semantic artifact reference surface. It may be written as 
 The `a-instance` URI surface for a concrete artifact instance. It pairs resolved artifact identity with the final artifact fingerprint.
 
 ### Task Artifact Locator
-The `a-task` URI surface for a task-scoped requested-output binding. It carries task ID, not fingerprint, and resolves through task metadata.
+The `a-task` URI surface for a task-scoped requested-output binding. It carries
+the stable requested reference and task ID, not a resolved fingerprint, and may
+therefore retain an unresolved `any` phase.
 
 ### Projection Context
 The leading contextual path segment in locator URIs. `global` means no projection. Projection context is presentation-only and does not participate in semantic equality, hashing, planning, cache lookup, or fingerprint payloads.

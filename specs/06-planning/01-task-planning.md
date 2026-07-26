@@ -6,7 +6,7 @@ TODO: ADD SPECIAL NOTE SOMEWHERE THAT ARTIFACTS NEED TO BE DELETED FROM MEMORY O
 
 ## Purpose
 
-This document defines how a `RunRequest` is resolved into a request-specific graph of stage invocations.
+This document defines how a run request is resolved into a request-specific graph of stage invocations.
 
 Graph creation is responsible for deciding **what work exists**. It starts from a frozen `StageManifest`, applies one request, resolves supplied roots, cached roots, producer paths, stage requirements, settings propagation, optional paths, and invocation deduplication, then emits a stable request graph that later execution code can fingerprint, cache-check, schedule, and materialize.
 
@@ -28,7 +28,7 @@ The main public planning interface is `TaskRunPlanner`.
 A caller gives `plan(...)` 
 - the artifacts already supplied or rebound from explicit cached-root references for this request, 
 - the semantic outputs the caller wants to make available, including any caller materialization targets, 
-- and the run policy that should shape planning and execution behavior. 
+- and the scheduling policy that will be attached to the completed graph.
 
 The planner returns a `TaskRunGraph`: an immutable, request-specific graph of concrete stage invocations and requested output bindings.
 
@@ -44,9 +44,11 @@ graph = planner.plan(
 
 __`supplied_instances`__ contains the request roots that are already available before planning starts. These may include source artifacts, settings artifacts, or intermediate artifacts supplied by the caller, plus artifacts rebound from explicit `a-instance` cached-root locators. Supplied instances are considered before producer paths, so a supplied or rebound artifact can satisfy a requirement without adding a producing stage invocation to the graph.
 
-__`requested_outputs`__ is the set of terminal artifact IDs the caller wants from this run. Each requested output may have one or more caller materialization targets, or zero targets when the request is target-less and durable cache retrieval is the intended delivery path. Planning starts from these outputs and walks backward through the stage manifest until every required input is satisfied by either a supplied instance or a planned producer invocation.
+__`requested_outputs`__ is the set of terminal artifact IDs the caller wants from this run. Each requested output may have local materialization targets or be targetless. Planning starts from these outputs and walks backward through the stage manifest until every required input is satisfied by either a supplied instance or a planned producer invocation.
 
-__`run_policy`__ is the request policy visible to planning and execution. It represents behavior modifiers that can affect how the `TaskRunGraph` is built or run. It covers rules such as whether particular resources should never be cached, how resource limits should be interpreted, and other request-level execution constraints.
+__`run_policy`__ is scheduling and admission policy carried with the completed
+graph. It cannot change topology, producer selection, artifact identity,
+fingerprints, requested outputs, cache behavior, or materialization.
 
 ### Plan response:
 The response is the planned graph for exactly one request:
@@ -169,7 +171,7 @@ The manifest-level view contains:
 - `producer_edges`, one edge from a stage to each concrete output artifact recorded in `manifest.producers`;
 - `consumer_edges`, one edge from a stage to each input artifact selector recorded in `manifest.consumers`.
 
-It is independent of any single `RunRequest`. Its should be built by Planning orchestrator as part of its initialization process, and (re)used by the per task planning process for `RunRequest`. Failures in generating this graph should be surfaced once at the time of initialization.
+It is independent of any single run request. It should be built by the planning orchestrator as part of initialization and reused by the per-task planning process. Failures in generating this graph should be surfaced once at initialization.
 
 ```python
 class TaskRunPlanner:
@@ -200,7 +202,7 @@ The request context records:
 - the frozen manifest graph;
 - requested output artifact IDs;
 - supplied source, settings, and intermediate artifact instances;
-- run policy visible during planning;
+- scheduling policy carried for post-graph admission;
 - request settings already read from supplied
 
 Building the request context should result
@@ -312,11 +314,17 @@ The scheduler may update runtime state in an execution manifest, but it must not
 
 ### Target-less requested outputs
 
-A target-less requested output is an output entry with an empty caller-target list. Planning treats it as the same semantic output requirement as a normal materialized output. It must not create a separate request surface, synthetic target artifact, or special producer path.
+A targetless requested output is the same semantic graph requirement as a
+materialized output. It must not create a synthetic artifact or special producer
+path.
 
-Validation before or around planning must reject target-less outputs when the artifact cannot be durably retrieved after the run. The common validation rule is: the requested artifact must be cacheable for this request, and the same exact artifact must not have `cache_policy.do_not_cache=True`.
+Validation requires targetless live and canonical outputs to be cacheable with
+`DEFAULT` or `REFRESH` mode. The durability promised after commit depends on the
+provider and task contract, not on graph shape.
 
-The planner records the requested output binding normally and assigns it a stable `a-task` locator. Execution is responsible for exposing the externally retrievable `a-instance` locator after durable publication and skipping caller materialization because there are no targets to write.
+The planner records the requested output binding normally. Task control owns the
+stable requested-reference `a-task`; execution records its `a-instance` relation
+only after a committed readable entry exists.
 
 ## 2. Implementation Model
 
@@ -544,13 +552,17 @@ When `declared_artifact_id != resolved_artifact_id`, the output was terminal-rem
 
 #### `RequestedOutputBinding`
 
-A `RequestedOutputBinding` maps a user-requested output artifact ID to the artifact instance selected to satisfy it. Every requested output binding also receives a `TaskArtifactLocator`:
+A `RequestedOutputBinding` maps a user-requested output artifact ID to the
+artifact instance selected to satisfy it. It carries the task-owned locator for
+that stable requested reference:
 
 ```text
-a-task:/global/{domain}/{content_kind}/{phase-or-none}/task/{task_id}
+a-task:/global/{domain}/{content_kind}/{requested-phase}/task/{task_id}
 ```
 
-The `a-task` locator is public and stable for the live task. It resolves through task metadata to the selected internal `a-instance` locator once planning has finalized concrete identity. Download or content retrieval may still fail with a typed state error when the instance is not yet committed or is not durably retrievable.
+The `a-task` locator is public and stable for the task. Planning may resolve a
+concrete output identity internally, but public resolution remains `PLANNED`
+until cache metadata names a committed readable `a-instance`.
 
 ## 3. Evaluated Graph Expansion
 
@@ -725,14 +737,16 @@ For the invocation's current requested output subset, it builds a `StagePlanning
 - stage ID;
 - requested declared outputs;
 - effective settings;
-- inherited settings;
-- run policy.
+- inherited settings.
 
 The resolver then asks the stage registration for:
 
 - validated output capabilities;
 - validated input requirements;
 - validated resource policy.
+
+Request `RunPolicy` is applied only after graph construction as scheduling and
+admission input; stage planning hooks cannot inspect it to change the graph.
 
 The planner must fail if the stage cannot expose one of the outputs currently requested from the invocation.
 
@@ -819,7 +833,9 @@ Settings artifacts use the same supplied-artifact fingerprinting rule after defa
 
 A cached root does not receive a new fingerprint during planning. Its reference already contains the final artifact fingerprint that was validated during binding. For a cached settings root, the planner may read the rebound value before requirement resolution, but the fingerprint remains the paired reference fingerprint.
 
-Provided-root cache publication is not a planning operation. It stores the supplied root under its supplied-artifact fingerprint during binding and does not change graph shape, producer choice, or instance identity.
+Explicit publication of a supplied root is not a planning operation and does
+not change graph shape, producer choice, or instance identity. Live request
+binding does not publish supplied roots implicitly.
 
 ### 6.2 Invocation Pedigree Fingerprints
 
@@ -888,7 +904,7 @@ Finalization performs:
 3. Assignment of stable planned invocation IDs in topological order.
 4. Calculation of final expected fingerprints for every supplied and produced artifact binding.
 5. Minting of structured internal `a-instance` locators for every planned artifact binding.
-6. Minting of stable `a-task` locators for every user-requested output.
+6. Attaching the stable task-owned requested-output locators.
 7. Conversion from `InvocationDraft` to `PlannedInvocation`.
 8. Partitioning of input bindings into required and optional input binding tuples.
 9. Stable ordering of requested output bindings.
@@ -955,5 +971,6 @@ Graph creation should preserve these invariants:
 16. Final invocation IDs and dependency indexes are assigned only after the graph is topologically ordered.
 17. Scheduling and runtime execution must not call stage planning hooks in a way that changes graph shape.
 18. Explicit cached-root references behave like supplied roots after binding.
-19. Cacheable provided-root publication is outside graph creation and must not affect graph shape.
+19. Explicit supplied-root publication is outside graph creation and must not
+    affect graph shape.
 20. Cached settings roots may be read before planning so deterministic planning hooks can inspect their values.

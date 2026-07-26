@@ -2,483 +2,274 @@
 
 ## Purpose
 
-This document defines Chunky's public task-control and progress-feedback contract.
+This specification defines scheduler-owned task and attempt transitions,
+fail-fast coordination, cooperative stopping, run-policy enforcement, and the
+stage-level scheduling progress used by the public run state.
 
-It covers:
+The [Run Surface](../01-pipeline/04-run-surface.md) owns `run`, `start`,
+`RunHandle`, durable service methods, cancellation acknowledgements, and the
+canonical `RunState`, `Progress`, and `RunResult` shapes.
 
-- synchronous and asynchronous task execution;
-- task handles and task lifecycle state;
-- fixed fail-fast behavior and terminal results;
-- cancellation requests and cooperative cancellation;
-- stage progress reporting;
-- progress snapshots for pending, running, and blocked stages;
-- progress subscriptions and isolation of handler failures from pipeline execution.
+The [Persisted Task Lifecycle](02-persisted-task-lifecycle.md) owns durable
+acceptance, recovery eligibility, control-event persistence, active expiry, and
+terminal record retention.
 
-Graph creation defines what work exists. Scheduling decides when planned stage invocations may run. Artifact and cache handles own concrete I/O and reservation lifecycles. Task control coordinates these systems and exposes one stable public view of the run.
-
-## Design Boundaries
+## Design boundaries
 
 Task control is responsible for:
 
-- allocating and exposing a task ID;
-- owning the task lifecycle state;
-- exposing synchronous and asynchronous completion;
-- accepting cancellation requests;
-- providing task and progress snapshots;
-- collecting terminal output results, committed retrieval references, target materialization results, and errors;
-- building the public progress snapshot from scheduler state and stage-reported progress;
-- notifying progress subscribers whenever that snapshot changes, without blocking scheduler state transitions.
+- allocating local task and attempt identity;
+- creating a fresh attempt for an eligible durable task;
+- centralizing task and attempt state mutation;
+- applying run policy during admission and scheduling;
+- routing cancellation, expiry, task-failure, and orderly-shutdown stop signals;
+- stopping admission and coordinating safe cleanup;
+- maintaining a coherent current stage-progress snapshot;
+- collecting output and target outcomes for the run-surface result builder; and
+- publishing exactly one terminal outcome to the owning local or durable task
+  record.
 
 Task control is not responsible for:
 
-- changing the planned graph;
-- selecting artifact producers;
-- deciding whether an invocation is ready for resource admission;
-- resolving cache hits or acquiring cache reservations;
-- serializing or materializing artifacts itself;
-- interpreting provider-specific cancellation behavior.
+- changing the graph or selecting artifact producers;
+- changing requested outputs, cache policy, or artifact identity;
+- persisting or recovering scheduler queues, plans, reservations, or progress;
+- defining public handle, receipt, state, result, or failure-envelope shapes;
+- serializing or materializing artifacts itself; or
+- interpreting provider-specific cancellation beyond the adapter contract.
 
-Those behaviors remain owned by graph creation, scheduling, cache coordination, artifact handles, and stage adapters.
+Graph construction, planning, cache coordination, artifact I/O, and stage
+adapters retain those responsibilities.
 
-The initial implementation does not require:
+The initial model has no public progress subscription or event-replay surface.
+Task control maintains a current immutable snapshot for polling and awaiting
+through the run surface.
 
-- durable tasks that survive process restart;
-- distributed task queues or cross-process progress delivery;
-- user-controlled pause and resume;
-- per-output await handles;
-- automatic task retry or runtime graph replanning;
-- persistent progress history after the owning process exits.
+## Task and attempt model
 
-A future persisted-task layer sits above this live task-control model. It stores normalized request/configuration records and planning-visible compatibility metadata, not live scheduler state, partial stage state, or in-flight progress snapshots. Compatibility-waiting belongs to that persisted layer and must not expand the live `TaskState` enum.
+A task is one accepted run request and the lifecycle of satisfying it. Task
+identity is allocated before planning so that planning, execution, output
+states, cancellation, and diagnostics share one stable `task_id`.
 
-## Task Model
+Every execution has a required `attempt_id`:
 
-A **task** is one accepted `RunRequest` and the lifecycle of satisfying that request.
+- a local task has one task ID and one attempt ID;
+- a durable task keeps its task ID across service restarts; and
+- every durable recovery creates a new attempt ID.
 
-The task is created before planning begins so that planning failures, cancellation during planning, progress reporting, and diagnostics can all use the same task ID.
+Task and attempt IDs are operational identity. They MUST NOT affect semantic
+artifact identity or fingerprints.
 
-Conceptually, task control owns one mutable task record:
-
-```python
-@dataclass
-class TaskRecord:
-    task_id: str
-    state: "TaskState"
-    cancellation: "CancellationSource"
-    progress_dispatcher: "RunProgressDispatcher"
-    completion: "CompletionCell[RunResult]"
-    execution_manifest: "ExecutionManifest | None" = None
-    artifact_manifest: "ArtifactManifest | None" = None
-    result: "RunResult | None" = None
-```
-
-`TaskRecord` is an internal coordination object. Public callers interact through a `RunHandle`, which exposes read-only snapshots and control operations.
-
-### Task Identity
-
-`task_id` is generated when the request is accepted. It must be unique within the configured task manager and stable for the lifetime of the live execution attempt.
-
-Task IDs are used for:
-
-- progress and diagnostic correlation;
-- cache reservation ownership;
-- diagnostics and manifest lookup;
-- cancellation routing;
-- associating a `RunResult` with its request.
-
-The format is implementation-defined. It must not be used as part of semantic artifact identity or artifact fingerprints. Future durable persisted tasks have a separate stable persisted-task ID; every restart creates a fresh live `task_id`, and persisted-task events/results carry both IDs when both exist.
-
-## Task State
-
-Task state is intentionally coarse:
-
-```python
-class TaskState(str, Enum):
-    CREATED = "created"
-    RUNNING = "running"
-    CANCELLING = "cancelling"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-```
-
-`RUNNING` includes scheduling, waiting, stage execution, cache coordination, and target materialization.
-
-Wait states such as `waiting_for_artifacts`, `waiting_for_global_cache`, and `waiting_for_resources` belong to individual stage invocations, not the task as a whole. One task may have one invocation running while another waits for a cache writer and a third waits for GPU resources. Representing those conditions as one task state would be ambiguous and would cause the public task state to oscillate.
-
-The current mixture of task activity is exposed by `RunProgressSnapshot`.
-
-### State Transitions
-
-Normal completion follows:
+Conceptually, a live attempt owns:
 
 ```text
-created -> running -> completed
+AttemptRecord
+  task_id
+  attempt_id
+  phase
+  stop_source
+  scheduling_progress
+  completion_cell
+  execution_manifest?
+  artifact_manifest?
 ```
 
-Planning or execution failure follows:
+This is an internal coordination object, not a public serialized contract.
+
+## Attempt phases and transitions
+
+Attempt phase is intentionally coarse:
 
 ```text
-created -> failed
-created -> running -> failed
+CREATED
+RUNNING
+STOPPING
+FINISHED
 ```
 
-Cancellation follows:
+`RUNNING` covers planning, dependency waiting, resource admission, cache
+coordination, stage execution, and local target delivery. Detailed waiting and
+blocked conditions belong to individual stage invocations.
+
+`STOPPING` means no new work is admitted while cancellation, expiry,
+task-failure, or orderly local shutdown cleanup runs. The public run state
+remains `InProgress` during this phase.
+
+Typical internal transitions are:
 
 ```text
-created -> cancelling -> cancelled
-running -> cancelling -> cancelled
+CREATED -> RUNNING -> FINISHED
+CREATED -> STOPPING -> FINISHED
+RUNNING -> STOPPING -> FINISHED
 ```
 
-Task-failure shutdown may use `cancelling` while stopping remaining work but still retain failure as the terminal outcome:
+The terminal public variant is selected separately from the internal stop
+phase. For example, task-failure cleanup uses `STOPPING` but produces `Failed`,
+not `Cancelled`.
 
-```text
-running -> cancelling -> failed
-```
+State mutation MUST be centralized through task control. Planners, schedulers,
+stages, progress reporters, and callbacks MUST NOT directly terminalize a task.
 
-A terminal state is immutable:
+## Run policy
 
-```text
-completed
-failed
-cancelled
-```
+`RunPolicy` controls admission and scheduling only. Implementations may use it
+for resource classes, concurrency limits, fairness, or other execution
+constraints, subject to pipeline-wide capacity.
 
-No transition is allowed out of a terminal state.
+It MUST NOT change graph topology, producer selection, artifact identity,
+fingerprints, requested outputs, cache behavior, or target delivery.
+Conflicting or unsatisfiable scheduling constraints fail explicitly rather than
+silently changing semantic work.
 
-State mutation must be centralized through task control. The scheduler, planner, handlers, and stages must not directly mutate public task state.
+## Fail-fast behavior
 
-## Synchronous and Asynchronous Execution
-
-`chunky_run` and `chunky_run_away` use the same task controller, planner, scheduler, cache coordinator, progress dispatcher, and result model.
-
-Language-neutral meaning:
-
-```text
-chunky_run(request) == chunky_run_away(request).await_to_completion()
-```
-
-`chunky_run` creates a task and blocks the calling thread until its `RunResult` is available.
-
-`chunky_run_away` creates the same task and immediately returns a `RunHandle` for in-process observation and control.
-
-`chunky_run_away` does not imply a durable background job. If the owning process exits, the initial implementation does not guarantee that the task continues or can be reattached.
-
-### Python Example
-
-```python
-from chunky import chunky_run_away
-
-
-async def main() -> None:
-    handle = chunky_run_away(
-        inputs={
-            "source/audio": AudioSource.from_file_path("input.wav"),
-        },
-        outputs={
-            "render/webvtt_transcript": WebVttTarget.to_file_path(
-                "output.vtt"
-            ),
-        },
-    )
-
-    print(handle.task_id)
-    result = await handle
-
-    if result.status is RunStatus.COMPLETED:
-        print("complete")
-```
-
-Python bindings should make `RunHandle` directly awaitable. An explicit `await_to_completion()` method may also be provided for parity with other bindings.
-
-### Rust Example
-
-```rust
-let handle = chunky_run_away(request)?;
-println!("{}", handle.task_id());
-
-let result = handle.await_to_completion().await?;
-if result.status == RunStatus::Completed {
-    println!("complete");
-}
-```
-
-Binding-level errors returned by `?` represent failure to use the local task-control mechanism, such as an unavailable runtime or a closed task manager. Planning, stage, artifact, and materialization failures are represented by a terminal `RunResult`.
-
-A binding may reject a call before task creation when the supplied values cannot be converted into a valid `RunRequest`, such as a Python argument with the wrong programmatic type. In that case no task ID or `RunResult` exists. Once the request is accepted and a task ID is allocated, subsequent domain failures are represented through task state, progress snapshots, and `RunResult`.
-
-## Run Handle
-
-A `RunHandle` is a lightweight reference to one task controlled by the task manager.
-
-Conceptually:
-
-```python
-class RunHandle(Generic[T]):
-    task_id: str
-
-    def get_progress(self) -> "RunProgressSnapshot": ...
-    def get_result(self) -> "RunResult[T] | None": ...
-
-    def cancel(
-        self,
-        reason: str | None = None,
-    ) -> bool: ...
-
-    async def await_to_completion(self) -> "RunResult[T]": ...
-
-    def subscribe_progress_events(
-        self,
-        handler: "RunProgressHandler",
-    ) -> "ProgressSubscription": ...
-
-    def __await__(self): ...
-```
-
-Bindings may rename these methods to match local conventions.
-
-### Handle Semantics
-
-- `get_progress()` returns a consistent complete snapshot from the task-owned progress tracker.
-- `get_result()` returns `None` until the task reaches a terminal state.
-- `await_to_completion()` waits for any terminal state and returns the same `RunResult` stored by `get_result()`.
-- awaiting the handle delegates to `await_to_completion()` and does not implicitly cancel the task if the caller's await is cancelled.
-- `cancel()` requests cancellation and returns immediately. It returns `True` when this call first requests cancellation and `False` when cancellation was already requested or the task is already terminal.
-- `subscribe_progress_events()` registers a callback, immediately schedules the current complete snapshot, and then receives future changed snapshots.
-
-`ProgressSubscription` is an idempotent detach handle. Detaching the subscription stops future callbacks and does not cancel or otherwise modify the task.
-
-Progress handlers run outside the scheduling path. Handler failures are logged and do not fail the task. Python handlers that signal event-loop-owned objects must use thread-safe loop signalling, such as `loop.call_soon_threadsafe(...)`.
-
-The focused example does not demonstrate durable reattachment or cross-process handle sharing. Dropping a handle does not cancel the task.
-
-## Failure Behavior
-
-Chunky uses fail-fast behavior for every task. Failure behavior is not configurable in the initial contract.
+Chunky uses fail-fast behavior for every task. It is not configurable in the
+initial contract.
 
 When a task-fatal failure occurs:
 
-1. The first task-fatal failure is recorded.
-2. The scheduler stops admitting new stage invocations and new materialization work.
-3. Running invocations receive cancellation with origin `task_failure`.
-4. Unwritten artifact targets are aborted.
-5. Work on independent branches is not deliberately continued.
-6. Outputs that cannot complete because execution was stopped are reported as `blocked`.
-7. The task becomes `failed` after required cleanup and after running work has stopped or has been safely abandoned by its adapter.
+1. task control records the causal failure;
+2. new stage invocations and target deliveries stop being admitted;
+3. running work receives a `TASK_FAILURE` stop signal;
+4. unwritten artifact targets are aborted;
+5. independent branches are not deliberately continued;
+6. requested outputs that cannot complete because of the failure become
+   `PREVENTED_BY_FAILURE`;
+7. unstarted local targets whose semantic output failed become
+   `PREVENTED_BY_FAILURE`; and
+8. the task becomes `Failed` only after required cleanup finishes or an adapter
+   safely abandons its work.
 
-Already committed semantic artifacts remain valid. A failure elsewhere in the task does not invalidate a successfully committed cache entry.
+Already committed semantic artifacts remain valid. Failure elsewhere in the
+task does not invalidate a successful committed artifact or change its
+`OutputState` from `SUCCEEDED`.
 
-## Cancellation
+All detailed causes are aggregated into the single universal failure envelope
+defined by the [Failure Contract](../00-overview/02-failure-contract.md).
 
-Cancellation is a request, not an immediate forced state transition.
+## Cooperative stopping
 
-```python
-class CancellationOrigin(str, Enum):
-    CALLER = "caller"
-    TASK_FAILURE = "task_failure"
-    PROCESS_SHUTDOWN = "process_shutdown"
-    INTERNAL = "internal"
+### Stop origins
 
+The internal stop source distinguishes:
 
-class CancelRequestResult(str, Enum):
-    ACCEPTED = "accepted"
-    ALREADY_REQUESTED = "already_requested"
-    ALREADY_TERMINAL = "already_terminal"
+```text
+CALLER
+ACTIVE_EXPIRY
+TASK_FAILURE
+ORDERLY_SHUTDOWN
+INTERNAL_FAILURE
 ```
 
-`RunHandle.cancel()` is idempotent:
+The public cancellation operations accept no caller-provided reason.
+Implementations may retain internal diagnostic details, but those details do
+not alter the public cancellation request.
 
-- the first valid request returns `accepted`;
-- repeated requests return `already_requested`;
-- requests after a terminal state return `already_terminal`.
-
-### Cancellation Source and Token
-
-Task control owns one cancellation source. The scheduler and each stage invocation receive a read-only token derived from that source.
+The scheduler and each stage invocation receive a read-only token:
 
 ```python
-class CancellationToken(Protocol):
+class StopToken(Protocol):
     @property
-    def is_cancelled(self) -> bool: ...
+    def is_stopping(self) -> bool: ...
 
     @property
-    def reason(self) -> str | None: ...
+    def origin(self) -> StopOrigin: ...
 
-    async def wait_cancelled(self) -> None: ...
+    async def wait_stopping(self) -> None: ...
     async def wait_for(self, awaitable: Awaitable[T]) -> T: ...
-    def raise_if_cancelled(self) -> None: ...
+    def raise_if_stopping(self) -> None: ...
 ```
 
-The token may additionally expose the cancellation origin and user-provided reason.
+`wait_for()` makes resource and cache waits responsive without cancelling
+another task that owns an in-flight cache write.
 
-The stage receives the token through `StageExecutionContext`, together with its scoped progress reporter. `wait_for()` is used for cancellation-aware resource and cache waits; cancelling the local wait does not cancel another task that owns an in-flight cache write.
+Stages SHOULD check the token:
 
-Stages should check cancellation at safe boundaries, especially:
-
-- before starting expensive provider work;
+- before expensive provider work;
 - between independent batches or chunks;
-- before preparing outputs;
+- before preparing or committing outputs; and
 - before returning from long-running loops.
 
-Provider adapters should forward cancellation to an external API, subprocess, thread, or model runtime when that provider supports cancellation.
+Provider adapters SHOULD forward stopping to external APIs, subprocesses,
+threads, or model runtimes when supported.
 
-### Cancellation Flow
+### Stop flow
 
-When cancellation is accepted:
+After a stop event wins:
 
-1. Task control atomically changes the task state to `cancelling`.
-2. The updated progress snapshot is delivered to subscribers.
-3. The scheduler stops starting new stage invocations and new materialization work.
-4. Invocations waiting for artifacts, resources, or global cache writers become `cancelled`.
-5. Running invocations observe the cancellation token.
-6. Unwritten output handles are aborted through `ArtifactWriter.abort_if_unwritten()` or the equivalent runner cleanup.
-7. Cache wait registrations are released.
-8. Resource leases are released when running invocations stop.
-9. Task-owned artifact source handles are closed, releasing cache read reservations.
-10. The task becomes `cancelled` after cleanup completes.
+1. the attempt enters `STOPPING`;
+2. task control stops new invocation and target-delivery admission;
+3. dependency, resource, and cache wait registrations are released;
+4. waiting invocations receive the corresponding terminal status;
+5. running invocations observe their token;
+6. unwritten output handles are aborted;
+7. task-owned source handles and cache read reservations close;
+8. resource leases release as running work stops; and
+9. task control publishes the selected terminal state after cleanup.
 
-A long-running provider call may not stop immediately when the provider does not support cancellation. In that case the task remains `cancelling` until the call returns, unless the provider adapter explicitly supports safe abandonment.
+A provider call that cannot be cancelled keeps the task `InProgress` until it
+returns unless its adapter can prove safe abandonment. Safely abandoned work
+MUST be unable to publish artifacts, retain leases, or commit a target after
+finalization.
 
-Safe abandonment means the abandoned work can no longer publish artifacts, retain resource leases, or commit a cache target after the task has been finalized. The scheduler must not assume that arbitrary threads or provider calls can be safely abandoned.
+### Artifact and target races
 
-### Cancellation and Artifact Commit Races
+Stopping does not roll back committed artifacts or atomically committed caller
+targets:
 
-Cancellation does not roll back already committed artifacts or materialized caller targets.
+- an artifact committed before the stop is observed remains valid;
+- a prepared but unwritten output is aborted;
+- a stage result returned after stopping is ignored unless it was already
+  committed through its bound writer;
+- an unstarted caller target is not attempted; and
+- an atomically committed caller target is not deleted.
 
-The default behavior is:
+These rules prevent partial publication while preserving valid completed work.
 
-- an artifact committed before cancellation is observed remains valid and may remain cached;
-- an output that is only prepared, or has not yet been written, is aborted;
-- an output returned by a stage after cancellation is ignored unless it was already committed through its bound writer;
-- caller materialization that has not started is not attempted;
-- a caller target already atomically committed is not deleted.
+### Outcome precedence
 
-These rules preserve cache correctness and avoid exposing partial outputs.
+The authoritative terminal outcome is chosen from durable or local ordering
+facts, not merely from which cleanup callback returns first.
 
-### Cancellation and Failure Precedence
+- completion already committed remains `Completed`;
+- a task-fatal failure that made the task unsatisfiable before caller
+  cancellation normally produces `Failed`;
+- accepted caller cancellation normally produces `Cancelled`;
+- durable expiry produces `Expired`;
+- explicit orderly local shutdown may produce `Interrupted`; and
+- an unrelated serious cleanup failure may produce `Failed` when safe resource
+  release cannot be established.
 
-A non-cancellation failure that made the task unsatisfiable before caller cancellation was accepted produces a final `failed` result.
+The persisted lifecycle owns the durable first-recorded cancellation-versus-
+expiry rule.
 
-When caller cancellation is accepted first, cancellation-induced errors are recorded as cancellation details and the task normally becomes `cancelled`.
+## Scheduling progress
 
-An unrelated internal failure discovered during cancellation cleanup may still produce `failed` when the implementation cannot prove that task-owned reservations, handles, or resources were safely released.
+Progress answers:
 
-## Run Result
+1. which planned invocations are pending, running, or blocked;
+2. what active subtasks running stages report;
+3. why ready stages are blocked; and
+4. how many planned invocations are finished or active.
 
-Every terminal task produces one compact `RunResult`, including failed and cancelled tasks.
+Task control rebuilds one immutable `PlanProgressState` whenever a visible
+value changes. The run surface embeds the current value in
+`InProgress(Progress)`; it does not expose a subscription API.
 
-```python
-class RunStatus(str, Enum):
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-    SHUTDOWN_INTERRUPTED = "shutdown_interrupted"
+### Public stage categories
 
+Every unfinished planned invocation appears in exactly one category:
 
-@dataclass(frozen=True)
-class RunResult:
-    task_id: str
-    status: RunStatus
-    outputs: dict[ArtifactKey, "OutputResult"]
-    errors: tuple["RunError", ...]
-    manifest: "RunManifestSummary | None" = None
-    manifest_location: "ArtifactLocation | None" = None
-    persisted_task_id: str | None = None
-```
+- `pending`: it has not started because an upstream artifact in this task is
+  unavailable;
+- `running`: it has started and is not terminal; or
+- `blocked`: its required artifacts are available, but an external scheduling
+  constraint prevents admission.
 
-The full execution and artifact manifests remain separate diagnostic data. The result contains only a compact summary or a location from which the full manifest can be loaded when diagnostics are enabled.
+Finished invocations are absent from active lists and contribute to
+`finished_stage_count`.
 
-Awaiting a task returns `RunResult` for normal domain failures. Bindings may provide `raise_for_failure()` as a convenience, but the language-neutral contract must preserve failed and partial output information without requiring exception inspection.
-
-### Output Result
-
-`RunResult.outputs` contains one entry for every requested output artifact. It is keyed by requested semantic artifact ID, not by materialization target. Fan-out materialization details live inside the output result. A target-less requested output still has an `OutputResult`; its materialization list is empty.
-
-```python
-class OutputStatus(str, Enum):
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    BLOCKED = "blocked"
-    CANCELLED = "cancelled"
-
-
-@dataclass(frozen=True)
-class TargetMaterializationResult:
-    target_index: int
-    status: OutputStatus
-    error_ids: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class OutputResult:
-    artifact_id: ArtifactKey
-    task_locator: TaskArtifactLocator
-    status: OutputStatus
-    fingerprint: str | None
-    instance_locator: ArtifactInstanceLocator | None = None
-    targets: tuple[TargetMaterializationResult, ...] = ()
-    error_ids: tuple[str, ...] = ()
-```
-
-`RunResult.outputs` contains results only for artifacts requested in the run output map. It does not contain entries for intermediates, settings, diagnostics that were not requested as outputs, or incidental stage outputs.
-
-The output statuses mean:
-
-- `succeeded`: the semantic output was available and every configured caller target, if any, was materialized successfully. For target-less outputs, semantic availability plus durable `a-instance` publication is enough.
-- `failed`: this output failed directly while producing, validating, committing, reading, or materializing it. `error_ids` references the errors that describe the failure.
-- `blocked`: this output did not complete because a different task-fatal failure caused fail-fast shutdown before this output could succeed. This is a terminal result, not a waiting-to-materialize state.
-- `cancelled`: this output did not complete because caller, process-shutdown, or internal cancellation won the task's terminal outcome.
-
-`task_locator` is present for every requested output once planning has finalized. `fingerprint` is present when the semantic artifact fingerprint is known. `instance_locator` is present only after the artifact is committed and durably retrievable. It may therefore be present on a failed output when semantic production succeeded but caller-target materialization failed. In that case the semantic cache entry remains valid and reusable even though one configured target result is `failed`.
-
-### Error Model
-
-`RunResult.errors` contains compact, user-facing descriptions of failures. The error model is intentionally small because detailed exception data, stack traces, provider responses, and cleanup diagnostics belong in the optional run manifest.
-
-```python
-@dataclass(frozen=True)
-class RunError:
-    error_id: str
-    code: str
-    message: str
-    stage_id: str | None = None
-    artifact_id: ArtifactKey | None = None
-```
-
-- `error_id` allows an `OutputResult` to reference the error that caused it to fail.
-- `code` is a stable programmatic identifier such as `planning_failed`, `stage_failed`, `artifact_invalid`, or `materialization_failed`.
-- `message` is a concise human-readable explanation.
-- `stage_id` is present when the failure belongs to a particular stage.
-- `artifact_id` is present when the failure belongs to a particular input, produced artifact, or requested output.
-
-The first task-fatal error determines the fail-fast outcome. Additional errors should be included only when they help explain cleanup or why a configured output failed.
-
-## Progress Model
-
-Progress reporting exists to give callers useful feedback while a potentially long ASR run is in progress. It answers:
-
-1. Which stages are currently running?
-2. What progress have those stages reported?
-3. Which stages have not started yet?
-4. Which stages are ready but blocked, and why?
-5. How many planned stages are finished, pending, running, or blocked?
-
-The public model is one immutable `RunProgressSnapshot`. It is rebuilt whenever one of those visible values changes and is delivered to handlers registered through `RunHandle.subscribe_progress_events(handler)`.
-
-### Public Stage Categories
-
-A planned stage invocation appears in exactly one active category:
-
-
-- `pending`: the stage has not started because one or more upstream artifacts are not yet available. This is normal dependency waiting.
-- `running`: the stage has started and has not yet reached a terminal state.
-- `blocked`: the stage's required artifacts are available, but the scheduler cannot currently start it because of an external scheduling constraint.
-
-Completed, skipped, failed, and cancelled invocations are no longer included in the active stage lists. They contribute to `finished_stage_count`.
-
-### Blocked Reasons
-
-The initial implementation needs only two blocked reasons:
+### Blocked reasons
 
 ```python
 class StageBlockedReason(str, Enum):
@@ -486,16 +277,20 @@ class StageBlockedReason(str, Enum):
     WAITING_FOR_OTHER_TASK = "waiting_for_other_task"
 ```
 
-- `waiting_for_compute`: the stage is ready, but a required resource or concurrency slot is unavailable. The description may name the relevant resource, such as GPU memory, GPU compute, CPU compute, or a stage-specific concurrency limit.
-- `waiting_for_other_task`: another task currently owns the cache write reservation for an output this invocation would otherwise produce. The invocation waits for that task to commit or abandon the artifact before cache resolution is attempted again.
+`WAITING_FOR_COMPUTE` covers an unavailable resource, capacity slot, or
+stage-specific concurrency permit.
 
-Waiting for upstream stages in the same task is `pending`, not `blocked`.
+`WAITING_FOR_OTHER_TASK` means another task owns the cache write reservation for
+an artifact this invocation would otherwise produce. The invocation waits for
+commit or abandonment and then repeats cache resolution.
 
-### Stage-Defined Progress
+Waiting on unfinished upstream work in the same task is `pending`, not
+`blocked`.
 
-A stage defines its own useful units of progress. Task control does not attempt to infer a universal percentage from model internals, audio duration, or the number of graph nodes.
+### Stage-defined progress
 
-A running stage may report zero or more active subtasks. More than one subtask may be active at the same time, such as several ASR chunks or detector profiles running concurrently.
+A stage defines its own useful units. Task control does not infer a universal
+percentage from model internals, media duration, or graph size.
 
 ```python
 @dataclass(frozen=True)
@@ -505,11 +300,11 @@ class StageSubtaskProgress:
     percentage: float | None = None
 ```
 
-- `subtask_id` is stable within the invocation and identifies later updates or completion of the same subtask.
-- `name` is a short stage-defined description.
-- `percentage` is optional and, when present, is in the inclusive range `0.0` to `100.0`.
-- `None` means the subtask is active but its completion cannot be estimated usefully.
-The reporter exposed to a stage can remain small:
+`subtask_id` is stable within the invocation. `percentage`, when present, is in
+the inclusive range `0.0` through `100.0`. `None` means progress cannot be
+estimated usefully. Several subtasks may be active concurrently.
+
+The stage reporter may remain small:
 
 ```python
 class StageProgressReporter(Protocol):
@@ -533,11 +328,13 @@ class StageSubtaskReporter(Protocol):
     def finish(self) -> None: ...
 ```
 
-`start_subtask()` adds the subtask. `update()` changes its name or percentage. `finish()` idempotently removes it. Task control clears any remaining subtasks automatically when the stage stops running.
+`start_subtask()` adds a subtask, `update()` replaces its public fields, and
+`finish()` idempotently removes it. Task control removes all remaining subtasks
+when the invocation stops running.
 
-Chunky does not calculate an overall task percentage from these values. Different stages measure different kinds of work, and their relative cost is not stable enough for a meaningful weighted percentage.
+Chunky does not combine stage percentages into a task-wide percentage.
 
-### Stage Progress Snapshot
+### Stage snapshot
 
 ```python
 @dataclass(frozen=True)
@@ -551,31 +348,18 @@ class StageProgressSnapshot:
     blocking_task_id: str | None = None
 ```
 
-`invocation_id` distinguishes multiple invocations of the same stage when settings or requested outputs cause the planner to create more than one invocation.
+`invocation_id` distinguishes multiple invocations of one stage.
 
-For pending and running stages, the blocked fields are `None`. For a blocked stage:
+Pending and running snapshots have no blocked fields. A blocked snapshot has a
+reason, may have a bounded human-readable description, and includes
+`blocking_task_id` when another known Chunky task is the blocker. Only running
+stages normally contain subtasks.
 
-- `blocked_reason` identifies the broad reason;
-- `blocked_description` provides a short human-readable explanation;
-- `blocking_task_id` is populated when the blocker is another known Chunky task.
-
-Only running stages normally contain subtasks.
-
-### Run Progress Snapshot
+### Scheduling snapshot
 
 ```python
 @dataclass(frozen=True)
-class OutputAvailabilitySnapshot:
-    artifact_id: ArtifactKey
-    task_locator: TaskArtifactLocator
-    instance_locator: ArtifactInstanceLocator
-
-
-@dataclass(frozen=True)
-class RunProgressSnapshot:
-    task_id: str
-    task_state: TaskState
-
+class PlanProgressState:
     total_stage_count: int
     finished_stage_count: int
     pending_stage_count: int
@@ -585,12 +369,9 @@ class RunProgressSnapshot:
     pending_stages: tuple[StageProgressSnapshot, ...]
     running_stages: tuple[StageProgressSnapshot, ...]
     blocked_stages: tuple[StageProgressSnapshot, ...]
-    available_outputs: tuple[OutputAvailabilitySnapshot, ...] = ()
 ```
 
-The count fields describe planned stage invocations, not stage types. Therefore, two invocations of the same stage count as two stages in this snapshot.
-
-The following relationship should always hold:
+Counts describe planned invocations, not stage types:
 
 ```text
 total_stage_count =
@@ -600,121 +381,53 @@ total_stage_count =
   + blocked_stage_count
 ```
 
-The list lengths must match their corresponding active counts. `available_outputs` contains requested outputs that have become durably retrievable. Entries are added only after cache commit and include the same concrete cached-instance reference later returned in `RunResult`.
+Each active list length MUST equal its corresponding count. Each list uses
+stable planner invocation order.
 
-Before planning has produced an execution plan, `total_stage_count` may be zero. Once the execution plan is fixed, it must not change during normal scheduling.
+Before planning fixes a plan, `total_stage_count` may be zero. Once fixed, it
+does not change during that attempt. Recovery creates a new attempt and may
+produce a different plan and stage count.
 
-`finished_stage_count` includes invocations that completed successfully or were skipped because their requested outputs were already supplied or cache-resolved. On failed or cancelled tasks it also includes invocations that reached a terminal failed or cancelled state. Detailed terminal information remains in `RunResult` and the run manifest rather than expanding the progress model.
+`finished_stage_count` includes successful, cache-resolved, skipped, failed, and
+stopped invocations that reached an attempt-terminal condition. Detailed output
+and terminal information remains in the run-surface `OutputState` and
+`RunResult`.
 
-### Snapshot Change and Subscription Semantics
+Requested-output state is not duplicated here. The run surface places the
+complete sorted `OutputState` list beside `PlanProgressState` in `Progress`.
 
-`subscribe_progress_events(handler)` is called every time the public `RunProgressSnapshot` changes.
+## Local and durable attempt lifetime
 
-A new snapshot is produced when, for example:
+An orderly local task-manager shutdown stops all attempts and awaits either a
+terminal public state or safe release of task-owned resources. That path may
+produce local `Interrupted`.
 
-- task state changes;
-- planning fixes the total stage count;
-- a stage moves between pending, running, blocked, and finished;
-- a blocked reason or description changes;
-- a stage adds, updates, or clears a subtask;
-- a reported subtask percentage changes.
+Abrupt task-manager loss cannot truthfully select a terminal outcome. It becomes
+a run-surface `TASK_UNAVAILABLE` call failure.
 
-Internal scheduler operations that do not change the public snapshot do not trigger the handler.
+Orderly durable-service shutdown stops only the current attempt. It does not
+terminalize the durable task. Recovery before active expiry creates a fresh
+attempt and fresh progress; recovery after active expiry enters expiry cleanup
+without creating an attempt.
 
-Conceptually:
+No progress history, event replay, plan, stage checkpoint, or scheduler queue is
+carried across attempts.
 
-```python
-RunProgressHandler = Callable[[RunProgressSnapshot], None]
-```
+## Invariants
 
-Delivery rules:
-
-- snapshots are delivered in the order they were created for a task;
-- the handler receives the complete immutable snapshot, not a delta;
-- a handler failure is logged or added to diagnostics and does not fail the task;
-- slow handlers must not block planning, scheduling, stage execution, or cancellation;
-- detaching the returned `ProgressSubscription` stops future callbacks;
-- callers use `get_progress()` when they need the current snapshot immediately after subscribing.
-
-The initial implementation does not require a public low-level event stream, event replay, event sequence numbers, or an asynchronous event iterator. Resubscription promises a current coherent snapshot, including already available requested-output references, but not replay of every prior transient stage-progress change. A future event replay or cursor-resume extension is reserved.
-
-### Example Progress Snapshot
-
-```python
-RunProgressSnapshot(
-    task_id="task-123",
-    task_state=TaskState.RUNNING,
-    total_stage_count=8,
-    finished_stage_count=2,
-    pending_stage_count=2,
-    running_stage_count=2,
-    blocked_stage_count=2,
-    pending_stages=(
-        StageProgressSnapshot(
-            invocation_id="compose-1",
-            stage_id="transcript.compose",
-            display_name="Compose transcript",
-        ),
-        StageProgressSnapshot(
-            invocation_id="render-1",
-            stage_id="render.webvtt",
-            display_name="Render WebVTT",
-        ),
-    ),
-    running_stages=(
-        StageProgressSnapshot(
-            invocation_id="asr-1",
-            stage_id="asr.transcribe",
-            display_name="Transcribe audio",
-            subtasks=(
-                StageSubtaskProgress("Transcribing frame 3", 72.0),
-                StageSubtaskProgress("Transcribing frame 4", 28.0),
-            ),
-        ),
-        StageProgressSnapshot(
-            invocation_id="vad-1",
-            stage_id="speech_detection.vad",
-            display_name="Detect speech",
-            subtasks=(
-                StageSubtaskProgress("Running permissive VAD"),
-            ),
-        ),
-    ),
-    blocked_stages=(
-        StageProgressSnapshot(
-            invocation_id="diarize-1",
-            stage_id="speaker_detection.diarize",
-            display_name="Detect speakers",
-            blocked_reason=StageBlockedReason.WAITING_FOR_COMPUTE,
-            blocked_description="Waiting for GPU memory",
-        ),
-        StageProgressSnapshot(
-            invocation_id="align-1",
-            stage_id="alignment.words",
-            display_name="Align transcript",
-            blocked_reason=StageBlockedReason.WAITING_FOR_OTHER_TASK,
-            blocked_description=(
-                "Waiting for another task to finish producing prepared audio"
-            ),
-            blocking_task_id="task-117",
-        ),
-    ),
-)
-```
-
-## Recommended Invariants
-
-1. Task state remains coarse; dependency and scheduling waits are represented at stage-invocation scope.
-2. Every planned invocation appears exactly once as pending, running, blocked, or finished.
-3. A stage is pending while waiting for upstream artifacts in the same task.
-4. A stage is blocked only when compute capacity or another task prevents its next progress; unfinished upstream work in the same task is represented as pending.
-5. A stage may report several active subtasks concurrently.
-6. Stage percentages are optional and are never combined into a synthetic task-wide percentage.
-7. `subscribe_progress_events()` is invoked whenever the complete public progress snapshot changes.
-8. Progress handlers cannot fail or delay the task.
-9. The execution plan fixes `total_stage_count`; scheduling does not add or remove planned invocations.
-10. `RunResult`, not the progress snapshot, remains the authoritative terminal outcome.
-11. Requested-output availability snapshots and terminal results carry the same `a-task` and committed externally retrievable `a-instance` locator.
-12. An `a-instance` availability event is emitted only after durable commit.
-13. Future persisted-task resume uses current snapshot continuity, not historical event replay, unless a later replay extension is added.
-14. Shutdown-interrupted durable attempts are distinguishable from ordinary cancellation or failure.
+1. Stable task identity and execution-attempt identity are distinct.
+2. Task control alone mutates attempt phase and publishes terminal outcomes.
+3. `STOPPING` remains publicly `InProgress` until safe cleanup completes.
+4. Run policy changes scheduling only, never semantic work.
+5. Fail-fast shutdown stops new work but preserves already committed artifacts
+   and targets.
+6. Every unfinished planned invocation is exactly one of pending, running, or
+   blocked.
+7. Same-task dependency waiting is pending; external capacity or task
+   contention is blocked.
+8. Stage percentages are optional and are never combined into an overall task
+   percentage.
+9. The execution plan fixes stage count for one attempt; recovery may create a
+   different plan in a new attempt.
+10. The initial contract exposes current snapshots through `RunState` and no
+    public subscription or replay API.

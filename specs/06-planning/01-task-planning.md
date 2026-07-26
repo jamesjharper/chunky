@@ -615,7 +615,7 @@ For phased intermediate families, a concrete supplied phase may satisfy a bounde
 
 A supplied artifact becomes an `ArtifactResolution` with no producer invocation key.
 
-A cached-root reference is resolved before this step by the pipeline or binding layer. Once it becomes an `ArtifactInstance`, producer selection treats it exactly like an ordinary supplied root. Cache availability is not searched speculatively during planning; only roots explicitly selected by the request may enter this path.
+A cached-root reference is resolved before this step by the runtime or binding layer. Once it becomes an `ArtifactInstance`, producer selection treats it exactly like an ordinary supplied root. Cache availability is not searched speculatively during planning; only roots explicitly selected by the request may enter this path.
 
 ### 3.5 Producer Selection
 

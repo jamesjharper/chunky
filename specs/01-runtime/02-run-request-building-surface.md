@@ -20,7 +20,7 @@ naming and ownership constructs while preserving the described behavior.
 ## Artifact addressing
 
 Request builders accept the locator families defined by
-[Artifact Model](../02-artifacts/01-artifacts-spec.md):
+[Artifact Model](../02-artifacts/01-artifact-model-surface.md):
 
 - `a-ref` identifies a semantic artifact request;
 - `a-instance` identifies one committed cache instance.
@@ -118,11 +118,11 @@ Caller-supplied settings are ordinary input artifacts.
 
 > Note: Settings are strictly parameters that affect artifact output shapes.
 > Changing settings invalidates their derived artifacts. Settings therefore
-> should not contain credentials, cache backend configuration, pipeline-wide
+> should not contain credentials, cache backend configuration, runtime-wide
 > capacity, or other operational values that do not affect the resulting
-> artifacts. These runtime settings are pipeline configuration rather than
+> artifacts. These runtime settings are runtime configuration rather than
 > request inputs. See
-> [PipelineRuntimeSettingsBuilder](./01-pipeline-builder.md).
+> [RuntimeSettingsBuilder](./01-runtime-builder-surface.md).
 
 #### Input consumption behavior
 
@@ -136,7 +136,7 @@ looking for a candidate producer of the respective artifact. A supplied input
 is a terminal candidate; that is, it prevents the planner from needing to
 produce that artifact when a requirement in the request-specific graph selects
 it. However, because input artifacts are included in the task graph on a
-discovery basis, supplying an input does not guarantee that the pipeline will
+discovery basis, supplying an input does not guarantee that the runtime will
 execute a stage with it.
 
 If the planner cannot resolve a required input from a supplied root, an
@@ -151,7 +151,7 @@ select and bind available inputs consistently.
 
 ## Request: Outputs
 
-`outputs` tells the pipeline which semantic artifacts the caller wants back and
+`outputs` tells the runtime which semantic artifacts the caller wants back and
 how each should be materialized.
 
 The caller can specify the following output semantics:
@@ -232,22 +232,22 @@ stages are complete.
 
 #### Notes on cache hits and materialization
 
-`ChunkyPipeline` optimistically reuses cached artifacts when available. This
+`ChunkyRuntime` optimistically reuses cached artifacts when available. This
 means that if a stage's output requirements are already satisfied, the stage is
-omitted from execution. In such cases, the pipeline MUST still honor the output
+omitted from execution. In such cases, the runtime MUST still honor the output
 materialization requirements associated with the omitted stage.
 
 Two specific cases may require separate handling to ensure materialization:
 
 1. A stage has been omitted, but another stage that has not been omitted requires
-   the materialized artifact. In this case, the pipeline should use the existing
+   the materialized artifact. In this case, the runtime should use the existing
    cached artifact handle to materialize efficiently from the in-memory cached
    instance. This process is likely identical or comparable to the standard
    process.
 
 2. A stage has been omitted, and there are no other requirements for this
    artifact, most likely because the dependent stage also has cached outputs. In
-   this case, the pipeline must load the artifact from the cache solely to
+   this case, the runtime must load the artifact from the cache solely to
    materialize it to the configured output. Materialization order must match the
    order that would apply if the artifact were processed without a cache.
 
@@ -370,7 +370,7 @@ or publication behavior.
 
 Cache hit, miss, refresh, reservation, publication, retention, and garbage
 collection behavior is defined by
-[Cache Management](../03-bindings/02-cache-management-spec.md).
+[Cache Management](../03-bindings/02-cache-management.md).
 
 ## Request: Run policy
 
@@ -435,7 +435,7 @@ RunPolicy
 ```
 
 This request serializes `vram` stages while allowing up to two `cpu` stages to
-run concurrently, subject to lower pipeline-wide limits. A stage claiming both
+run concurrently, subject to lower runtime-wide limits. A stage claiming both
 classes must acquire capacity from each before it starts.
 
 ### Scheduling behavior
@@ -451,8 +451,8 @@ precedence over per-class limits.
 
 ### Effective limits and validation
 
-Run policy may lower pipeline-wide scheduler capacity but must not raise it.
-Pipeline configuration remains responsible for physical capacity shared by
+Run policy may lower runtime-wide scheduler capacity but must not raise it.
+Runtime configuration remains responsible for physical capacity shared by
 concurrent tasks, provider quotas, device affinity, and other long-lived
 operational limits. Where both layers specify a limit, the lower value applies.
 
@@ -553,9 +553,8 @@ manifest.
 ### Converting a Local Request to a Durable Request
 
 Creating a durable request from a local request is an explicit, consuming,
-asynchronous operation defined by
-[Durable Request Preparation](06-durable-request-preparation.md). It is never
-hidden inside either builder or local execution.
+asynchronous operation. It is never hidden inside either builder or local
+execution.
 
 Only a local request with targetless outputs is eligible. The service rejects
 local targets, preflights the current manifest and provider, commits every
@@ -570,13 +569,13 @@ local_request = (
     .build()
 )
 
-durable_request = await pipeline.make_durable(
+durable_request = await runtime.make_durable(
     local_request,
     cancellation=cancellation,
     progress=progress,
 )
 
-result = await pipeline.run(durable_request)
+result = await runtime.run(durable_request)
 ```
 
 The local request is consumed on success, failure, or cancellation. Inputs
@@ -591,7 +590,7 @@ attachments.
 
 `DurableRunRequest` is the serializable durable computation contract. It
 contains no external handles, open streams, file descriptors, callbacks,
-credentials, backend paths, provider identifiers, pipeline-manifest identifier,
+credentials, backend paths, provider identifiers, runtime-manifest identifier,
 or delivery destinations.
 
 Its data model is:
@@ -667,13 +666,13 @@ receipt = await durable_task_service.submit(durable_request)
 
 #### Example upload and Start
 
-Direct cache I/O is exposed through a contract on the pipeline instance. It
+Direct cache I/O is exposed through a contract on the runtime instance. It
 returns an `a-instance` locator for the cache instance, which can subsequently
 be used in a request.
 
 ```python
 desired_input_ttl = timedelta(days=1)
-audio_instance = await pipeline.publish_artifact(
+audio_instance = await runtime.publish_artifact(
     "source/audio",
     SourceAudioArtifact.from_file_path("input.wav"),
     desired_input_ttl,
@@ -686,7 +685,7 @@ request = (
     .build()
 )
 
-result = await pipeline.run(request)
+result = await runtime.run(request)
 ```
 
 ### `NonCanonicalDurableRunRequest`
@@ -815,7 +814,7 @@ runtime object, or exception.
 
 The complete failure MUST have a lossless, data-only representation usable both
 as an in-process result and across transport boundaries such as a web-service
-response. It MUST NOT contain or require access to builders, pipelines, binding
+response. It MUST NOT contain or require access to builders, runtimes, binding
 runtimes, exceptions, parsed artifact objects, handles, callbacks, or other
 process-local state. Bindings may surface the failure as an exception or result
 value, but must expose the same serializable data. This specification does not
@@ -919,14 +918,14 @@ also binding-level lifecycle errors; neither case produces a
 
 Unknown artifacts, target/declaration compatibility, declaration cacheability,
 provider capability, phased-family matching, and graph support require a frozen
-pipeline and are not builder errors.
+runtime and are not builder errors.
 
 A phased artifact selector MUST NOT be converted into an exact match during
 request construction. The builder has no family catalog with which to select a
 concrete phase, so it preserves the parsed selector in the request. Exact-phase
 validation, `AT_MOST` selection, and terminal phase-less remapping are owned by
 planning, as defined in
-[Phased intermediate references](../02-artifacts/01-artifacts-spec.md#phased-intermediate-references).
+[Phased intermediate references](../02-artifacts/01-artifact-model-surface.md#phased-intermediate-references).
 
 ### Ownership
 Adding an external source or target handle transfers ownership to the builder. A
@@ -940,13 +939,13 @@ with deterministic destruction. Bindings without enforceable move semantics
 must reject mutation after successful build and reject reuse of a consumed
 request.
 
-Once local execution begins, the pipeline owns request cleanup across binding,
+Once local execution begins, the runtime owns request cleanup across binding,
 planning, execution, cancellation, failure, and materialization.
 
 ### Operational validation boundary
 
 Construction and deserialization establish structural validity. The consuming
-pipeline, durable-request preparer, or durable task service separately validates
+runtime, durable-request preparer, or durable task service separately validates
 facts that require current configuration or I/O:
 
 - referenced inputs exist, are readable, and match their cache metadata;

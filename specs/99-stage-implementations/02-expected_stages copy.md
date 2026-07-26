@@ -1,6 +1,6 @@
-# Candidate Built-In Pipeline Stages
+# Candidate Built-In Runtime Stages
 ## Artifact Naming
-Some intermediate pipeline artifact families opt into concrete numbered IDs for non-terminal processing phases:
+Some intermediate runtime artifact families opt into concrete numbered IDs for non-terminal processing phases:
 
 ```text
 {domain}/{content_kind}/{phase}
@@ -14,7 +14,7 @@ For phased families, phase-less intermediate requirements request the completed 
 {domain}/{content_kind}
 ```
 
-Pipeline stages should not need to know whether they are terminal producers for a phased artifact family. Stages that produce phased intermediate artifacts declare concrete phase-numbered outputs. The planner is responsible for detecting when the selected terminal producer satisfies a phase-less requirement and storing that result under the phase-less final artifact ID. The `any` phase selector is not used.
+Runtime stages should not need to know whether they are terminal producers for a phased artifact family. Stages that produce phased intermediate artifacts declare concrete phase-numbered outputs. The planner is responsible for detecting when the selected terminal producer satisfies a phase-less requirement and storing that result under the phase-less final artifact ID. The `any` phase selector is not used.
 
 Not all intermediate artifacts use phase selectors. For example, `audio/prepared` is an intermediate artifact whose concrete instances are distinguished by constraints and fingerprints rather than by phase numbers.
 
@@ -599,11 +599,11 @@ _Default resources:_
 3. Bounded numeric requirements such as `transcript/token_text/200` are planning-time selectors, not necessarily exact persisted artifact IDs. The planner resolves them to the highest available concrete numeric phase in the same intermediate artifact family less than or equal to the requested bound.
 4. Phase numbers do not use globally meaningful bands across artifact families. Numeric phase values are meaningful only within a single intermediate artifact family and its producer chain.
 5. The `any` phase selector should be removed from the artifact model. Final references should use the phase-less intermediate artifact family ID, such as `transcript/token_text`, rather than `transcript/token_text`.
-6. Pipeline stages should not need to know whether they are terminal producers for an artifact family. Stages that produce phased intermediate artifacts should always declare concrete phase-numbered outputs. Consumers that need the completed version should declare a phase-less requirement, and the planner is responsible for detecting the terminal selected producer in the task graph and assigning the correct phase-less final artifact ID for cache lookup and downstream consumption.
+6. Runtime stages should not need to know whether they are terminal producers for an artifact family. Stages that produce phased intermediate artifacts should always declare concrete phase-numbered outputs. Consumers that need the completed version should declare a phase-less requirement, and the planner is responsible for detecting the terminal selected producer in the task graph and assigning the correct phase-less final artifact ID for cache lookup and downstream consumption.
 7. When a planned terminal producer satisfies a phase-less final intermediate requirement, store only the phase-less final artifact ID. Do not also store or alias the same produced content under the concrete phase-numbered artifact ID.
 8. Final intermediate identity is contextual to a phase-less requirement in the planned graph. A non-terminal output should remain stored under its concrete phase-numbered ID even if it is currently the highest known phase in its artifact family.
 9. Input declarations that include a phase number express a less-than-or-equal upper bound for that artifact family. For example, an input requirement of `transcript/token_text/200` means "needs the highest available `transcript/token_text` phase less than or equal to 200." Output declarations with phase numbers remain exact concrete phases, such as outputting `transcript/token_text/201`.
-10. A phase-less intermediate input requirement means the consumer needs the completed version of that artifact family. This finality is per artifact family, not necessarily finality for the entire pipeline.
+10. A phase-less intermediate input requirement means the consumer needs the completed version of that artifact family. This finality is per artifact family, not necessarily finality for the entire runtime.
 11. Source, settings, target, and diagnostic artifacts may use semantic namespaced IDs with arbitrary namespace depth, but they do not receive numeric phase selector semantics. The planner should apply phase semantics based on artifact role/declaration, not solely from legacy textual separator counts.
 12. Existing intermediate input references using legacy final selectors should be rewritten as `a-ref` locators with `any` phase selectors.
 13. Terminal remapping from a concrete phase-numbered output to a phase-less final artifact ID happens per output artifact family, not per whole stage invocation. A multi-output stage may have one output stored as phase-less final while another output from the same invocation remains stored under its concrete phase-numbered ID.
@@ -616,7 +616,7 @@ _Default resources:_
 20. The run manifest should record the concrete declared output phase that produced a phase-less final intermediate artifact, such as `produced_from_declared_output: transcript/token_text/101`. This is manifest provenance only and should not create an additional cache alias.
 21. The section order in this document is descriptive only and should not imply runtime order. Actual execution order is derived from the planned artifact dependency DAG.
 22. Stage definitions should depend on artifact requirements, not directly on other stage IDs. Stage IDs are used for provenance, behavior versioning, scheduling metadata, and explicit producer preferences, but ordinary dependencies should remain artifact-based.
-23. Every stage's effective settings should be represented as settings artifact inputs, including settings synthesized from defaults. Some stages may explicitly consume shared settings artifacts owned by another stage or subsystem rather than duplicating the same setting schema; VAD and diarization detector profiles are key examples and should be defined once in the pipeline.
+23. Every stage's effective settings should be represented as settings artifact inputs, including settings synthesized from defaults. Some stages may explicitly consume shared settings artifacts owned by another stage or subsystem rather than duplicating the same setting schema; VAD and diarization detector profiles are key examples and should be defined once in the runtime.
 24. Shared settings artifacts should have one authoritative declaration owned by the subsystem they conceptually belong to. Other stages may reference that declaration as a borrowed settings input instead of redefining the schema.
 25. Borrowed/shared settings artifacts are included in the consuming stage invocation fingerprint like any other input. Settings ownership affects declaration authority, not dependency or cache invalidation behavior.
 26. Stages should resolve borrowed/shared settings as required inputs only when the current request and settings actually require them. `possible_inputs` can remain broad for graph construction, while `resolve_required_inputs(context)` should be precise.

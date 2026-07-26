@@ -12,7 +12,7 @@ LocalRunRequest --- local binding ---+
 DurableRunRequest - durable binding -+
 ```
 
-Both paths use the pipeline's frozen manifest and configured cache provider.
+Both paths use the runtime's frozen manifest and configured cache provider.
 They do not convert through one another.
 
 ## Local binding
@@ -63,7 +63,7 @@ instances.
 ## Failure and cleanup
 
 Binding and execution are cancellation-aware. On failure or cancellation the
-pipeline:
+runtime:
 
 - closes all owned source handles, including unused ones;
 - aborts uncommitted target and cache writes;

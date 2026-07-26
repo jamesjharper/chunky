@@ -69,6 +69,8 @@ impl ArtifactCacheIO {
     }
 }
 
+// TODO(runtime-naming): Rename ChunkyPipelineBuilder to ChunkyRuntimeBuilder
+// with the coordinated public runtime naming refactor.
 pub struct ChunkyPipelineBuilder {
     manifest_builder: StageManifestBuilder,
     runtime_services: PipelineRuntimeServicesBuilder,
@@ -142,6 +144,8 @@ impl ChunkyPipelineBuilder {
 }
 
 #[derive(Clone)]
+// TODO(runtime-naming): Rename ChunkyPipeline to ChunkyRuntime to match the
+// runtime specification; this object owns the configured service collection.
 pub struct ChunkyPipeline {
     pub stage_manifest: StageManifest,
     pub runtime_services: PipelineRuntimeServices,

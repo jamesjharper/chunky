@@ -220,6 +220,8 @@ impl RuntimeSettingSource for EnvironmentVariableRuntimeSettingSource {
     }
 }
 
+// TODO(runtime-naming): Rename PipelineRuntimeSettings and its builder to
+// RuntimeSettings and RuntimeSettingsBuilder to match specs/01-runtime.
 #[derive(Clone)]
 pub struct PipelineRuntimeSettings {
     values: BTreeMap<String, Value>,
@@ -501,6 +503,8 @@ impl PipelineRuntimeSettingsBuilder {
     }
 }
 
+// TODO(runtime-naming): Rename PipelineRuntimeServices and its builder to
+// RuntimeServices and RuntimeServicesBuilder to match specs/01-runtime.
 #[derive(Clone)]
 pub struct PipelineRuntimeServices {
     pub artifact_cache: Arc<dyn ArtifactCache>,

@@ -118,6 +118,8 @@ def default_runner_factory(
 
 
 @dataclass(frozen=True)
+# TODO(runtime-naming): Rename PipelineRuntimeServices and its builder to
+# RuntimeServices and RuntimeServicesBuilder to match specs/01-runtime.
 class PipelineRuntimeServices:
     artifact_cache: ArtifactCache
     artifact_bindings_provider_factory: ArtifactBindingsProviderFactory

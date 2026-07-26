@@ -31,7 +31,7 @@ This is the evaluated plan plus the volatile runtime execution state resolved fo
 
 ### 2.1 Stage Manifest Plan
 
-The planner starts from the configured stage manifest and builds a static candidate graph. This graph contains every stage that may be used for the current pipeline configuration, along with every artifact relationship those stages declare.
+The planner starts from the configured stage manifest and builds a static candidate graph. This graph contains every stage that may be used for the current runtime configuration, along with every artifact relationship those stages declare.
 
 In this graph:
 
@@ -484,7 +484,7 @@ If the existing writer completes successfully, the waiting task re-checks the pr
 
 This keeps graph construction stable while deferring cache-sensitive run, skip, or wait decisions until the last responsible moment.
 
-Global cache coordination is defined in [Cache management](0x-Cache-management.md). Artifact fingerprinting is described in more detail in [Artifact caching and fingerprinting](#3-artifact-caching-and-fingerprinting). Cache-aware execution is described in [Cache and Execution](#5-cache-and-execution), and runtime orchestration is described in [Scheduling](04-scheduling.md).
+Global cache coordination is defined in [Cache management](../../03-bindings/02-cache-management.md). Artifact fingerprinting is described in more detail in [Artifact caching and fingerprinting](#3-artifact-caching-and-fingerprinting). Cache-aware execution is described in [Cache and Execution](#5-cache-and-execution), and runtime orchestration is described in [Scheduling](../../07-scheduling/eventing-and-task-control-model-spec.md).
 
 ## 3. Artifact caching and fingerprinting
 

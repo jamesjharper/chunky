@@ -41,7 +41,7 @@ The handle owns the definition of semantic equality. For example:
 ### Manifest fingerprint
 
 __Use:__
-- Identifies the effective manifest shape for a pipeline configuration.
+- Identifies the effective manifest shape for a runtime configuration.
 - Invalidates planning-derived cache state when manifest structure or manifest version changes.
 
 __API:__

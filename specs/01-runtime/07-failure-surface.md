@@ -14,8 +14,8 @@ shapes, and version before returning a builder.
 > `RequestValidationFailure` containing all independently detectable
 > deserialization issues.
 
-The platform-wide [Failure Contract](../00-overview/02-failure-contract.md)
-owns the root envelope, versioning, serialization, and binding invariants.
+This failure surface owns the root envelope, versioning, serialization, and
+binding invariants.
 Request building owns its `REQUEST_VALIDATION` member and the following issue
 contexts:
 
@@ -79,7 +79,7 @@ runtime object, or exception.
 
 The complete failure MUST have a lossless, data-only representation usable both
 as an in-process result and across transport boundaries such as a web-service
-response. It MUST NOT contain or require access to builders, pipelines, binding
+response. It MUST NOT contain or require access to builders, runtimes, binding
 runtimes, exceptions, parsed artifact objects, handles, callbacks, or other
 process-local state. Bindings may surface the failure as an exception or result
 value, but must expose the same serializable data. This specification does not
@@ -183,7 +183,7 @@ also binding-level lifecycle errors; neither case produces a
 
 Unknown artifacts, target/declaration compatibility, declaration cacheability,
 provider capability, phased-family matching, and graph support require a frozen
-pipeline and are not builder errors.
+runtime and are not builder errors.
 
 A phased artifact selector MUST NOT be converted into an exact match during
 request construction. The builder has no family catalog with which to select a

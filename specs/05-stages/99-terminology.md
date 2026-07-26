@@ -5,7 +5,7 @@ This document consolidates the domain terminology defined in the `specs/04-stage
 ## Core Terms
 
 ### Stage
-A deterministic unit of pipeline behavior that reads already-bound semantic artifacts and writes already-bound semantic artifacts.
+A deterministic unit of runtime behavior that reads already-bound semantic artifacts and writes already-bound semantic artifacts.
 
 ### Stage Model
 The semantic model that separates bootstrap-time registration, request-specific planning, and runtime stage execution.
@@ -93,7 +93,7 @@ The planner optimization that reuses one invocation across graph paths when all 
 The planner behavior that creates separate invocations when stage identity, versions, settings, constraints, inputs, or requested outputs differ.
 
 ### Registry Override
-A per-run override that derives a new manifest snapshot without mutating the pipeline's baseline frozen manifest.
+A per-run override that derives a new manifest snapshot without mutating the runtime's baseline frozen manifest.
 
 ## Runtime Terms
 
@@ -129,11 +129,15 @@ The post-execution runner check that every bound output was written correctly an
 
 ## Bootstrap and Manifest Terms
 
-### Pipeline Feature
+### Runtime
+The configured collection of the stage manifest, runtime services, and runtime
+settings that plans and executes runs. A runtime is not a single run.
+
+### Runtime Feature
 A coherent bootstrap installation unit that can add artifact declarations, stage registrations, provider bindings, defaults, and dependencies.
 
 ### Feature Installer
-Bootstrap code that installs one pipeline feature into the stage manifest builder.
+Bootstrap code that installs one runtime feature into the stage manifest builder.
 
 ### Feature Dependency
 A bootstrap-time prerequisite relationship between features or shared declarations.
@@ -148,7 +152,7 @@ The deterministic identity of a frozen manifest, derived from its declarations, 
 A portable diagnostic representation of the runtime manifest that excludes executable objects, credentials, and process-local references.
 
 ### Baseline Manifest
-The pipeline-owned frozen stage manifest used as the default input to planning for all runs.
+The runtime-owned frozen stage manifest used as the default input to planning for all runs.
 
 ### Derived Manifest
 A request-specific frozen manifest snapshot produced from the baseline manifest plus registry overrides.

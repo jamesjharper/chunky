@@ -53,6 +53,8 @@ from ..Stages.stage_manifest import StageManifest
 from ..Stages.stage_models import CancellationOrigin, CancellationSource
 
 
+# TODO(runtime-naming): Rename ChunkyPipeline to ChunkyRuntime to match the
+# runtime specification; this object owns the configured service collection.
 class ChunkyPipeline:
     def __init__(
         self,

@@ -16,6 +16,8 @@ _MISSING = object()
 
 
 @dataclass(frozen=True)
+# TODO(runtime-naming): Rename PipelineRuntimeSettings and its builder to
+# RuntimeSettings and RuntimeSettingsBuilder to match specs/01-runtime.
 class PipelineRuntimeSettings:
     values: Mapping[str, object]
     _declared_values: Mapping[str, object] = field(

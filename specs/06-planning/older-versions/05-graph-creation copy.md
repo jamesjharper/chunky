@@ -31,7 +31,7 @@ This is the evaluated plan after cache hits and already supplied inputs have bee
 
 ### 2.1 Stage Manifest Plan
 
-The planner starts from the configured stage manifest and builds a static candidate graph. This graph contains every stage that may be used for the current pipeline configuration, along with every artifact relationship those stages declare.
+The planner starts from the configured stage manifest and builds a static candidate graph. This graph contains every stage that may be used for the current runtime configuration, along with every artifact relationship those stages declare.
 
 In this graph:
 
@@ -413,11 +413,11 @@ Execution-plan finalization must also consult global cache management before all
 
 If the existing writer completes successfully, the waiting task re-checks the produced artifact, creates its own usage reservation, marks the artifact `available_cache_reserved`, and may skip the duplicate producer. If the existing writer fails or releases the write reservation without producing a valid artifact, the waiting task may attempt to acquire the write reservation itself and run the producer.
 
-Global cache coordination is defined in [Cache management](0x-Cache-management.md). Artifact fingerprinting is described in more detail in [Artifact caching and fingerprinting](#3-artifact-caching-and-fingerprinting). Cache-aware execution is described in [Cache and Execution](#5-cache-and-execution), and runtime orchestration is described in [Scheduling](04-scheduling.md).
+Global cache coordination is defined in [Cache management](../../03-bindings/02-cache-management.md). Artifact fingerprinting is described in more detail in [Artifact caching and fingerprinting](#3-artifact-caching-and-fingerprinting). Cache-aware execution is described in [Cache and Execution](#5-cache-and-execution), and runtime orchestration is described in [Scheduling](../../07-scheduling/eventing-and-task-control-model-spec.md).
 
 ## 3. Artifact caching and fingerprinting
 
-Fingerprint payload composition is centralized in [Fingerprint Spec](../03-fingerprinting/01-fingerprint-spec.md).
+Fingerprint payload composition is centralized in [Fingerprint Spec](../../04-fingerprinting/01-fingerprints.md).
 
 Planning owns only the selection side of fingerprinting:
 

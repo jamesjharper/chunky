@@ -37,13 +37,13 @@ changing the underlying service contracts.
 
 ## Task execution
 
-A configured pipeline supports local run-to-completion, detached local
+A configured runtime supports local run-to-completion, detached local
 execution, and submission to a durable task sub system:
 
 ```text
-pipeline.run_task(request: LocalRunRequest) -> terminal RunState
-pipeline.start_task(request: LocalRunRequest) -> RunHandle
-pipeline.submit_task(request: DurableRunRequest, active_ttl?: positive-whole-seconds) -> DurableSubmissionReceipt
+runtime.run_task(request: LocalRunRequest) -> terminal RunState
+runtime.start_task(request: LocalRunRequest) -> RunHandle
+runtime.submit_task(request: DurableRunRequest, active_ttl?: positive-whole-seconds) -> DurableSubmissionReceipt
 ```
 
 ### Shared execution contract
@@ -82,7 +82,7 @@ Local runs may be long-lived. Cancelling, timing out, or abandoning the completi
 This preserves task execution when a waiter is lost and allows requested output artifacts to complete.
 
 A caller that requires per-task cancellation authority MUST use `start_task(...)` and retain its `RunHandle`.
-Orderly pipeline shutdown remains manager-wide lifecycle control, not a substitute for per-task cancellation.
+Orderly runtime shutdown remains manager-wide lifecycle control, not a substitute for per-task cancellation.
 
 The `run_task(...)` method is semantically equivalent to
 
@@ -95,7 +95,7 @@ async def run_task(request):
 #### Expected usage
 
 ```python
-state = await pipeline.run_task(request)
+state = await runtime.run_task(request)
 
 match state:
     case Completed(result):
@@ -113,13 +113,13 @@ Callers use `start_task(...)` when they need intermediate observation, explicit 
 #### Expected usage
 
 ```python
-handle = pipeline.start_task(request)
+handle = runtime.start_task(request)
 terminal = await handle.await_to_completion()
 ```
 *or long polling for state updates*
 
 ```python
-handle = pipeline.start_task(request)
+handle = runtime.start_task(request)
 
 while True:
     await asyncio.sleep(2)
@@ -172,7 +172,7 @@ contains one immediate stable `a-task` locator for each requested output, sorted
 #### Expected usage
 
 ```python
-receipt = await pipeline.submit_task(request, active_ttl=3_600)
+receipt = await runtime.submit_task(request, active_ttl=3_600)
 
 # Save `receipt.task_id` for later status lookup.
 persist(receipt.task_id)
@@ -198,7 +198,7 @@ Local and durable tasks expose the same `RunState` family for polling and awaiti
 - Awaiting observes completion without consuming the handle, task ID, or result. Every successful wait returns an immutable terminal RunState representing the same terminal outcome.
 - No guarantee is made about the order in which concurrent awaiters resume, this maybe influenced by languages or runtime semantics of its specific async implementation.
 - Cancelling, timing out, dropping, or disconnecting one wait stops only that observation attempt. It does not cancel the task, change its lifetime, or affect other waiters.
-- A wait does not own or extend the lifetime of the pipeline instance. Local availability during shutdown or disposal follows Local task lifetime (#local-task-lifetime).
+- A wait does not own or extend the lifetime of the runtime instance. Local availability during shutdown or disposal follows Local task lifetime (#local-task-lifetime).
 
 ### `RunHandle`
 
@@ -228,12 +228,12 @@ returns the current `RunState`.
 **`await_to_completion()`**
 always returns a terminal state.
 
-> The handle does not own the task. Cloning or dropping a handle does not change the task lifetime. Once the handle observes a terminal state, it retains that state and remains inspectable and repeatedly awaitable after orderly pipeline shutdown.
+> The handle does not own the task. Cloning or dropping a handle does not change the task lifetime. Once the handle observes a terminal state, it retains that state and remains inspectable and repeatedly awaitable after orderly runtime shutdown.
 
 #### Expected usage
 
 ```python
-handle = pipeline.start_task(request)
+handle = runtime.start_task(request)
 
 while True:
     await asyncio.sleep(2)
@@ -253,8 +253,8 @@ Durable observation requires only the stable task ID.
 #### Operations
 
 ```text
-pipeline.get_task_state(task_id) -> RunState
-pipeline.await_task_to_completion(task_id) -> terminal RunState
+runtime.get_task_state(task_id) -> RunState
+runtime.await_task_to_completion(task_id) -> terminal RunState
 ```
 
 #### Observation and awaiting
@@ -266,10 +266,10 @@ An unknown task ID and an ID whose terminal record has been purged both produce 
 #### Expected usage
 
 ```python
-current = await pipeline.get_task_state(receipt.task_id)
+current = await runtime.get_task_state(receipt.task_id)
 
 if isinstance(current, InProgress):
-    terminal = await pipeline.await_task_to_completion(receipt.task_id)
+    terminal = await runtime.await_task_to_completion(receipt.task_id)
 ```
 
 ## Task cancellation
@@ -299,7 +299,7 @@ After `cancel()` returns `true`, a subsequent `get_state()` MUST observe either
 Durable cancellation authority exists through the service and stable task ID:
 
 ```text
-pipeline.cancel_task(task_id) -> boolean
+runtime.cancel_task(task_id) -> boolean
 ```
 
 The operation returns `true` only after the cancellation request is durably recorded and read-after-write visible to `get_state()`. It returns `false` when cancellation was already recorded, expiry won first, or the task was already terminal. A `true` acknowledgement survives service restart.
@@ -310,7 +310,7 @@ failure as durable observation.
 ### Expected usage
 
 ```python
-handle = pipeline.start_task(request)
+handle = runtime.start_task(request)
 
 if handle.cancel():
     # optionally wait until task cancellation is completed
@@ -369,7 +369,7 @@ Local and durable execution use the same `RunState` family, terminal `RunResult`
 
 ### `RunState`
 
-`RunState` is a data-only discriminated family. It contains no handles, callbacks, exceptions, runtime objects, provider clients, or live pipeline references.
+`RunState` is a data-only discriminated family. It contains no handles, callbacks, exceptions, runtime objects, provider clients, or live runtime references.
 
 #### Variants
 
@@ -392,7 +392,7 @@ Cancellation and expiry cleanup remain `InProgress`; `Cancelled` and `Expired` a
 #### Expected usage
 
 ```python
-handle = await pipeline.get_task_state(receipt.task_id)
+handle = await runtime.get_task_state(receipt.task_id)
 
 match handle.get_state():
     case InProgress(progress):
@@ -473,8 +473,8 @@ all independently reportable run issues in deterministic order:
   additional reportable problems occurred.
 
 Planning failure uses `UNPLANNABLE`. A previously accepted durable task that can
-no longer run against the available pipeline or environment uses
-`PIPELINE_INCOMPATIBLE`. Both are structured task failures, not call-level
+no longer run against the available runtime or environment uses
+`RUNTIME_INCOMPATIBLE`. Both are structured task failures, not call-level
 lookup failures.
 
 ### `OutputState`
@@ -631,7 +631,7 @@ An awaitable orderly shutdown completes only after every local task has reached
 a terminal state or safely released all task-owned resources. A task
 interrupted by that explicit path may produce `Interrupted(RunResult)`.
 
-Unawaited pipeline disposal provides only best-effort cleanup. If the task
+Unawaited runtime disposal provides only best-effort cleanup. If the task
 manager disappears before a terminal state is produced, later observation and
 awaiting fail with a `TASK_UNAVAILABLE` call-level failure; they do not invent
 `Interrupted` or `Failed`.
@@ -677,7 +677,7 @@ awaiting, and cancellation operations cross the `TASK_NOT_FOUND` boundary.
 
 ### Artifact retention boundary
 
-Retaining a local terminal state does not keep the pipeline, cache providers,
+Retaining a local terminal state does not keep the runtime, cache providers,
 or artifact query services alive. Provider-owned `a-task` resolution may expire
 independently.
 

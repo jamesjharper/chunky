@@ -229,7 +229,7 @@ nonterminal; terminal mappings are immutable until their history expires.
 
 Local tasks may use the same relation, but resolution lasts only as long as the
 provider's task history and entry. The default workspace provider does not make
-these locators survive pipeline shutdown.
+these locators survive runtime shutdown.
 
 ## Request cache modes
 

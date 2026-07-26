@@ -706,6 +706,8 @@ impl<'a> ManifestStageRegistration<'a> {
     }
 }
 
+// TODO(runtime-naming): Rename PipelineFeature to RuntimeFeature with the
+// runtime public-API rename; features configure a runtime, not a pipeline.
 pub trait PipelineFeature: Send + Sync {
     fn feature_id(&self) -> &str;
     fn configuration_fingerprint(&self) -> &str;

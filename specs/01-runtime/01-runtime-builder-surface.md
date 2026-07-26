@@ -1,26 +1,31 @@
-# Pipeline Builder
+# Runtime Builder
 
 ## Purpose
-`ChunkyPipelineBuilder` is the surface for bootstrapping a `ChunkyPipeline` instance with a stage manifest, configured runtime services and runtime settings.
+`ChunkyRuntimeBuilder` is the surface for bootstrapping a `ChunkyRuntime` instance with a stage manifest, configured runtime services and runtime settings.
 
 > *Design Note:* The builder should remain a thin composition surface. It is not intended to become a general dependency-injection container, and it should not treat runtime service location as a generic mutable service locator.
 
 ## Core Concepts
-1. A `ChunkyPipelineBuilder` installs programmatically configured pipeline features via a `ChunkyPipelineBuilder.install(feature)` construct
-2. ChunkyPipelineBuilder exposes 3 key builder delegates to the feature installer
- - 1: `StageManifestBuilder`: Used for collecting stage registrations 
- - 2: `PipelineRuntimeServicesBuilder`: Used to allow internal pipeline services to be overridden 
- - 3: `PipelineRuntimeSettingsBuilder` Used to allow stages to registered runtime settings spec and custom setting providers
-3. Using the builder delegates, a feature may install none, one or more 
-    - artifact declarations
-    - stage registrations 
-    - runtime setting sources,
-    - required runtime setting specs
-    - runtime services
-4. A configured `ChunkyPipeline` is finalize once `ChunkyPipelineBuilder.build()` is called. The resulting output is a `ChunkyPipeline`, which contains the configurations accumulated during the `ChunkyPipelineBuilder` bootstrap procedure, manifested as
- - `StageManifest` a baseline immutable collections of stages registered
- - `PipelineRuntimeServices` which contains the pipeline runtime services 
- - `PipelineRuntimeSettings` which  runtime settings.
+`ChunkyRuntime` is the configured runtime: an immutable collection of the
+stage manifest, runtime services, and runtime settings required to plan and
+execute runs. It is not an individual run or a second service shape.
+
+`ChunkyRuntimeBuilder.install(feature)` installs programmatically configured
+`RuntimeFeature` values. The builder exposes three delegates to each feature
+installer:
+
+- `StageManifestBuilder`, which collects artifact declarations and stage
+  registrations;
+- `RuntimeServicesBuilder`, which configures the runtime's internal service
+  slots; and
+- `RuntimeSettingsBuilder`, which declares runtime-setting specifications and
+  setting sources.
+
+A feature may use any combination of those delegates to install artifact
+declarations, stage registrations, runtime-setting sources, required setting
+specifications, and runtime services. `build()` finalizes the configuration and
+returns a `ChunkyRuntime` containing an immutable `StageManifest`,
+`RuntimeServices`, and `RuntimeSettings`.
 
 ## Builder
 The builder is responsible for:
@@ -30,40 +35,40 @@ The builder is responsible for:
 - freezing the underlying `StageManifestBuilder`;
 - collecting known runtime service slots installed by features;
 - rejecting conflicting runtime service slots;
-- creating the configured runtime pipeline;
+- creating the configured runtime;
 - rejecting mutation after `build()`.
 
 *Conceptual shape:*
 
 ```python
-class ChunkyPipelineBuilder:
-    def install(self, feature: PipelineFeature) -> "ChunkyPipelineBuilder":
+class ChunkyRuntimeBuilder:
+    def install(self, feature: RuntimeFeature) -> "ChunkyRuntimeBuilder":
         pass
 
-    ## use_{feature_name}() -> "ChunkyPipelineBuilder":
+    ## use_{feature_name}() -> "ChunkyRuntimeBuilder":
     # languages which mechanism like monkey patching, extension methods or traits may provide optional helper methods for a more declarative bootstrapping procedure
 
-    def build(self) -> "ChunkyPipeline":
+    def build(self) -> "ChunkyRuntime":
         pass
 ```
 
 
-## Pipeline Features
-A pipeline feature is the bootstrap-time installation unit for a coherent slice of pipeline configuration.
+## Runtime Features
+A runtime feature is the bootstrap-time installation unit for a coherent slice of runtime configuration.
 Feature installation makes capabilities available for planning and execution.
 
-> *Design Note:* It remains the planner's responsibility to decide how and if stages are configured into a task graph. *With the one exception that a integrator may elect to override the planners implementation via the `PipelineRuntimeServicesBuilder`*
+> *Design Note:* It remains the planner's responsibility to decide how and if stages are configured into a task graph. *With the one exception that a integrator may elect to override the planners implementation via the `RuntimeServicesBuilder`*
 
 ```python
-class PipelineFeature(Protocol):
+class RuntimeFeature(Protocol):
     feature_id: str
 
 
     def install(
         self,
         manifest_builder: StageManifestBuilder,
-        service_locator: PipelineRuntimeServicesBuilder,
-        env_settings: PipelineRuntimeSettingsBuilder,
+        service_locator: RuntimeServicesBuilder,
+        env_settings: RuntimeSettingsBuilder,
     ) -> None: ...
 ```
 
@@ -74,7 +79,7 @@ __Artifact declarations:__
 
 ```python
 class AsrArtifactStageFeature:
-    def install(self,manifest_builder: StageManifestBuilder, service_locator: PipelineRuntimeServicesBuilder, env_settings PipelineRuntimeSettingsBuilder) -> None:
+    def install(self,manifest_builder: StageManifestBuilder, service_locator: RuntimeServicesBuilder, env_settings RuntimeSettingsBuilder) -> None:
         manifest_builder.add_artifact(TIMED_WORDS_TARGET)
 ```
 
@@ -84,7 +89,7 @@ __Stage registrations:__
 
 ```python
 class AsrStageFeature:
-    def install(self,manifest_builder: StageManifestBuilder, service_locator: PipelineRuntimeServicesBuilder, env_settings PipelineRuntimeSettingsBuilder) -> None:
+    def install(self,manifest_builder: StageManifestBuilder, service_locator: RuntimeServicesBuilder, env_settings RuntimeSettingsBuilder) -> None:
         manifest_builder.add_stage(ASR_STAGE)
 ```
 
@@ -95,7 +100,7 @@ class SetSettingsFeature:
     def __init__(self, *, provider_name: str | None = None) -> None:
         self._provider_name=provider_name
 
-    def install(self,manifest_builder: StageManifestBuilder, service_locator: PipelineRuntimeServicesBuilder, env_settings PipelineRuntimeSettingsBuilder) -> None:
+    def install(self,manifest_builder: StageManifestBuilder, service_locator: RuntimeServicesBuilder, env_settings RuntimeSettingsBuilder) -> None:
         if self._provider_name is not None:
             env_settings.set(ASR_PROVIDER_NAME_SETTING, self._provider_name)
 ```
@@ -106,7 +111,7 @@ __Runtime Setting Source:__
 
 ```python
 class EnvironmentVariableRuntimeSettingSourceFeature:
-    def install(self,manifest_builder: StageManifestBuilder, service_locator: PipelineRuntimeServicesBuilder, env_settings PipelineRuntimeSettingsBuilder) -> None:
+    def install(self,manifest_builder: StageManifestBuilder, service_locator: RuntimeServicesBuilder, env_settings RuntimeSettingsBuilder) -> None:
         env_settings.install_source(EnvironmentVariableRuntimeSettingSource())
 ```
 
@@ -118,31 +123,31 @@ class FileCacheFeature:
         self._root = Path(root)
         self.config=config
 
-    def install(self, manifest_builder: StageManifestBuilder, service_locator: "PipelineRuntimeServicesBuilder", env_settings: PipelineRuntimeSettingsBuilder) -> None:
+    def install(self, manifest_builder: StageManifestBuilder, service_locator: "RuntimeServicesBuilder", env_settings: RuntimeSettingsBuilder) -> None:
         service_locator.set_artifact_cache(FileCacheProvider(self._root, config=config))
 ```
 
 
-## `class PipelineRuntimeServicesBuilder`
-`PipelineRuntimeServicesBuilder` is a narrow mutable collector for a pre-declared set of runtime services. It is not a general registry keyed by arbitrary strings or types. This interface can be used for providing system implementations of pipeline operation such as resolving cached files, or orchestration of the planned stage graph.
+## `class RuntimeServicesBuilder`
+`RuntimeServicesBuilder` is a narrow mutable collector for a pre-declared set of runtime services. It is not a general registry keyed by arbitrary strings or types. This interface can be used for providing system implementations of runtime operation such as resolving cached files, or orchestration of the planned stage graph.
 
 ```python
 @dataclass(frozen=True)
-class PipelineRuntimeServices:
+class RuntimeServices:
     artifact_cache: ArtifactCache
     artifact_bindings_provider_factory: ArtifactBindingsProviderFactory
     planner_factory: PlannerFactory
     runner_factory: RunnerFactory
 
-    def set_artifact_cache(self, artifact_cache: ArtifactCache,) -> "PipelineRuntimeServicesBuilder":
+    def set_artifact_cache(self, artifact_cache: ArtifactCache,) -> "RuntimeServicesBuilder":
         pass
 
-    def set_artifact_bindings_provider_factory(self, factory: ArtifactBindingsProviderFactory) -> "PipelineRuntimeServicesBuilder":
+    def set_artifact_bindings_provider_factory(self, factory: ArtifactBindingsProviderFactory) -> "RuntimeServicesBuilder":
         pass
 
     # ...
 
-    def freeze(self) -> PipelineRuntimeServices:
+    def freeze(self) -> RuntimeServices:
         pass
 ```
 
@@ -150,47 +155,47 @@ __Expected behavior:__
 - each service may be configured at most once, ensuring configured behavior is self describing without ambiguous service assignment;
 - if two features try to install the same service, installation/build fails with a hard configuration error;
 - if a service is never configured by any feature, `freeze()` supplies the runtime's default implementation for that slot where a default is defined;
-- the frozen `PipelineRuntimeServices` object exposes the resolved service set as an immutable runtime dependency bundle.
+- the frozen `RuntimeServices` object exposes the resolved service set as an immutable runtime dependency bundle.
 
 The artifact-cache slot always has a resolved provider. When none is installed,
-the builder creates a pipeline-scoped workspace provider. If the caller did not
+the builder creates a runtime-scoped workspace provider. If the caller did not
 
-(TODO: MOVE TO  02-pipeline-builder-inbuilts.md), the pipeline owns a private temporary workspace and deletes
+(TODO: MOVE TO  02-runtime-builder-inbuilts.md), the runtime owns a private temporary workspace and deletes
 it on close after releasing active handles. This default supports reuse across
-local runs on the pipeline but does not satisfy durable-submission requirements; operations
+local runs on the runtime but does not satisfy durable-submission requirements; operations
 that require durable retention must fail capability validation unless a suitable
 provider is configured.
 
 This keeps service composition deterministic: features may replace a default by explicitly installing a service, but they may not silently override one another.
 
-## `class PipelineRuntimeSettingsBuilder`
-`PipelineRuntimeSettingsBuilder` is the configuration surface for managing runtime settings such as Credentials, endpoint URLs, concurrency limits, and retry/transport. These setting must not influence the semantic output of the pipeline as this would undermine the artifact caching behaver. Settings which influence the semantic output, MUST be passed as a setting artifact when configuring a task.
+## `class RuntimeSettingsBuilder`
+`RuntimeSettingsBuilder` is the configuration surface for managing runtime settings such as Credentials, endpoint URLs, concurrency limits, and retry/transport. These setting must not influence the semantic output of the runtime as this would undermine the artifact caching behaver. Settings which influence the semantic output, MUST be passed as a setting artifact when configuring a task.
 
 *Conceptual shape:*
 ```python
-class PipelineRuntimeSettingsBuilder:
+class RuntimeSettingsBuilder:
 
-    def set(self, key: str, value: object) -> "PipelineRuntimeSettingsBuilder":
+    def set(self, key: str, value: object) -> "RuntimeSettingsBuilder":
         pass
         
-    def install_source(self, source: RuntimeSettingSource) -> "PipelineRuntimeSettingsBuilder":
+    def install_source(self, source: RuntimeSettingSource) -> "RuntimeSettingsBuilder":
         pass
 
-    def install_stage_settings(self, stage_id: str, settings: Iterable[RuntimeStageSetting]) -> "PipelineRuntimeSettingsBuilder":
+    def install_stage_settings(self, stage_id: str, settings: Iterable[RuntimeStageSetting]) -> "RuntimeSettingsBuilder":
         pass
 
-    def freeze(self) -> PipelineRuntimeSettings:
+    def freeze(self) -> RuntimeSettings:
         pass
 
 ```
 
 __Configuring setting to Stage dependency:__
-Configuring a dependency relationship between a state and RuntimeSettings is performed by proxy of calling `manifest_builder.add_stage(STAGE_REG)`. Upon finalizing `ChunkyPipelineBuilder` is expected to call PipelineRuntimeSettingsBuilder.install_stage_settings(...) for each stage registration.
+Configuring a dependency relationship between a state and RuntimeSettings is performed by proxy of calling `manifest_builder.add_stage(STAGE_REG)`. Upon finalizing `ChunkyRuntimeBuilder` is expected to call RuntimeSettingsBuilder.install_stage_settings(...) for each stage registration.
 
 *Conceptual shape:*
 
 ```python
-class ChunkyPipelineBuilder:
+class ChunkyRuntimeBuilder:
     def build(self):
         manifest = self._manifest_builder.freeze()
         for registration in manifest.stages.values():
@@ -201,12 +206,12 @@ class ChunkyPipelineBuilder:
 ```
 
 __Configuring a setting value:__
-A feature may pass an explicit runtime-setting value using `PipelineRuntimeSettingsBuilder.set(key, value)`. This maybe performed before the setting is registered.
+A feature may pass an explicit runtime-setting value using `RuntimeSettingsBuilder.set(key, value)`. This maybe performed before the setting is registered.
 
 __Configuring a setting source:__
-A feature may register a `RuntimeSettingSource` by calling `PipelineRuntimeSettingsBuilder.install_source(source)`. Custom `RuntimeSettingSource` can be used to enable reading settings from a file, secretes provider or environment variables.
+A feature may register a `RuntimeSettingSource` by calling `RuntimeSettingsBuilder.install_source(source)`. Custom `RuntimeSettingSource` can be used to enable reading settings from a file, secretes provider or environment variables.
 
-Sources are frozen into the configured pipeline and are consulted later when the run resolves settings for the active stages. Source lookup happens only for active settings that are still unset. Declared values and defaults are applied before sources are consulted, so a source does not override an explicit value or a declared default.
+Sources are frozen into the configured runtime and are consulted later when the run resolves settings for the active stages. Source lookup happens only for active settings that are still unset. Declared values and defaults are applied before sources are consulted, so a source does not override an explicit value or a declared default.
 
 
 *Conceptual shape:*
@@ -238,13 +243,13 @@ class CustomRuntimeSettingLocatorFeature:
 
 
 ### Expected behavior:
-Required runtime settings are validated after planning determines the concrete graph shape and therefore which stage registrations are actually active for the run, at which point an error is raised before task execution begins. This ensures the pipeline fails fast rather than discovering the missing setting deep into execution.
+Required runtime settings are validated after planning determines the concrete graph shape and therefore which stage registrations are actually active for the run, at which point an error is raised before task execution begins. This ensures the runtime fails fast rather than discovering the missing setting deep into execution.
 
 This keeps operational configuration validation aligned with the true execution graph: missing credentials for an unplanned provider stage do not block unrelated runs, while missing credentials for a planned stage still fail before that stage executes.
 
 ## `class StageManifestBuilder`
 
-`StageManifestBuilder` is the configuration surface for registering available stages for performing data transformations within the pipeline. Stages are statically registered capabilities which are dynamically composed to meet a `LocalRunRequest`'s requirements.
+`StageManifestBuilder` is the configuration surface for registering available stages for performing data transformations within the runtime. Stages are statically registered capabilities which are dynamically composed to meet a `LocalRunRequest`'s requirements.
 
 Stages are installed by calling `manifest_builder.add_stage(registration)` from a feature's `install(...)` method.
 
@@ -310,9 +315,9 @@ The important builder-time implications are:
 > 3: should `input_capabilities` be renamed to input_requirements? 
 
 
-## Configured Pipeline
+## Configured Runtime
 
-A configured pipeline owns:
+A configured runtime owns:
 
 - one baseline immutable `StageManifest`;
 - configured runtime services for cache, artifact bindings, planning, running, diagnostics, and related orchestration;
@@ -321,12 +326,12 @@ A configured pipeline owns:
 Conceptual shape:
 
 ```python
-class ChunkyPipeline:
+class ChunkyRuntime:
     def __init__(
         self,
         *,
         stage_manifest: StageManifest,
-        runtime_services: PipelineRuntimeServices,
-        runtime_settings: PipelineRuntimeSettings,
+        runtime_services: RuntimeServices,
+        runtime_settings: RuntimeSettings,
     ) -> None: ...
 ```

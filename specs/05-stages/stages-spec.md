@@ -1,9 +1,13 @@
 # Stage Model
-A **stage** is a deterministic unit of pipeline behavior that reads already-bound semantic artifacts and writes already-bound semantic artifacts.
+A **stage** is a deterministic unit of runtime behavior that reads already-bound semantic artifacts and writes already-bound semantic artifacts.
 
-This specification defines the stage-facing contract: what a stage registration must declare, what an executor may do at runtime, and which boundaries must remain owned by pipeline planning and orchestration.
+This specification defines the stage-facing contract: what a stage registration must declare, what an executor may do at runtime, and which boundaries must remain owned by runtime planning and orchestration.
 
-Pipeline bootstrap, manifest ownership, run requests, planning lifecycle, and runner orchestration are defined in [pipeline-spec.md](../04-pipeline/pipeline-spec.md). This document intentionally does not restate those pipeline-level mechanics except where a stage contract depends on them.
+Runtime bootstrap, manifest ownership, run requests, planning lifecycle, and
+runner orchestration are defined across the
+[Runtime specifications](../01-runtime/00-design-principles.md). This document
+intentionally does not restate those runtime-level mechanics except where a
+stage contract depends on them.
 
 ## Core Stage Concepts
 This specification adopts the following concepts:
@@ -40,9 +44,10 @@ A stage registration is responsible for declaring:
 - explicit producer-selection metadata where needed;
 - the executor factory used by the scheduler.
 
-### Pipeline-Owned Responsibilities
+### Runtime-Owned Responsibilities
 
-The following remain pipeline concerns and are specified in [pipeline-spec.md](../04-pipeline/pipeline-spec.md):
+The following remain runtime concerns and are specified across the
+[Runtime specifications](../01-runtime/00-design-principles.md):
 
 - feature installation and manifest freezing;
 - producer selection and graph creation;
@@ -218,11 +223,11 @@ class OpenAiAsrFeature:
         )
 ```
 
-The corresponding pipeline setup is explicit:
+The corresponding runtime setup is explicit:
 
 ```python
-pipeline = (
-    ChunkyPipeline.builder()
+runtime = (
+    ChunkyRuntime.builder()
     .install(ArtifactCacheFeature(cache))
     .install(OpenAiAsrFeature(api_key=env["OPENAI_API_KEY"]))
     .build()
@@ -231,7 +236,7 @@ pipeline = (
 
 The API key is operational runtime configuration. It must not be modeled as a semantic artifact input unless the artifact contract explicitly intends credential identity to affect semantic output identity.
 
-`FingerprintProvider` is also a pipeline-level injectable dependency, but it belongs on planning and artifact-binding collaborators rather than on stage executors. Stages consume already-bound artifacts and resolved planning results; they do not calculate canonical artifact fingerprints themselves.
+`FingerprintProvider` is also a runtime-level injectable dependency, but it belongs on planning and artifact-binding collaborators rather than on stage executors. Stages consume already-bound artifacts and resolved planning results; they do not calculate canonical artifact fingerprints themselves.
 
 Credential values are runtime provider configuration. They must not be copied into the serializable manifest description or semantic fingerprints unless the corresponding artifact contract explicitly requires that behavior.
 
@@ -264,13 +269,13 @@ A stage should check cancellation:
 context.cancellation.raise_if_cancelled()
 ```
 
-Cache waits and scheduler resource waits happen before `execute(...)` and are cancellation-aware pipeline operations. Cancelling a task waiting for another task's cache writer cancels only the local wait; it does not cancel or modify the other task's reservation.
+Cache waits and scheduler resource waits happen before `execute(...)` and are cancellation-aware runtime operations. Cancelling a task waiting for another task's cache writer cancels only the local wait; it does not cancel or modify the other task's reservation.
 
 ## Stage Registration
 
 ### Registration Model
 
-A stage registration contains the data needed to validate the pipeline and plan concrete invocations.
+A stage registration contains the data needed to validate the runtime and plan concrete invocations.
 
 Illustrative Python shape:
 
@@ -564,11 +569,14 @@ Two graph paths may share one invocation when all identity-affecting values are 
 
 The planner creates separate invocations when these values differ.
 
-## Pipeline Integration
+## Runtime Integration
 
 ### Bootstrap and Manifest Creation
 
-The full bootstrap model lives in [pipeline-spec.md](../04-pipeline/pipeline-spec.md). From the stage model's perspective, bootstrap must guarantee only these stage-specific properties before any run begins:
+The full bootstrap model lives in the
+[Runtime Builder](../01-runtime/01-runtime-builder-surface.md). From the stage
+model's perspective, bootstrap must guarantee only these stage-specific
+properties before any run begins:
 
 1. Every stage registration in the frozen manifest has a unique `stage_id`.
 2. Every registration has non-empty `registration_version` and `behavior_version`.
@@ -581,7 +589,9 @@ This stage spec does not redefine builder APIs, feature dependency rules, manife
 
 ### Planning Integration
 
-The full planning lifecycle also lives in [pipeline-spec.md](../04-pipeline/pipeline-spec.md). The stage-specific planning contract is:
+The full planning lifecycle is defined in
+[Task Planning](../06-planning/01-task-planning.md). The stage-specific
+planning contract is:
 
 - planning hooks are deterministic and side-effect free;
 - requirement resolution depends only on `StagePlanningContext`;
@@ -598,9 +608,11 @@ Planning hooks must not:
 - allocate task-owned cache or resource leases;
 - depend on wall-clock time or random values.
 
-### Runtime Integration
+### Execution Integration
 
-The full runner and scheduler flow is defined in [pipeline-spec.md](../04-pipeline/pipeline-spec.md). The stage-facing runtime boundary is:
+The full runner and scheduler flow is defined in
+[Run Binding and Execution](../01-runtime/99-internals/05-run-binding-and-execution.md).
+The stage-facing runtime boundary is:
 
 - the runner waits for prerequisites, resolves cache state, and binds readers and writers before `execute(...)`;
 - the executor never receives caller materialization targets directly;
@@ -825,9 +837,9 @@ A Rust implementation might store an `Arc<dyn StageFactory>` and `Arc<dyn Requir
 10. The executor receives already-bound readers and writers and never performs cache lookup or reservation acquisition.
 11. The executor writes every bound planned output exactly once or fails.
 12. Produced instances are derived from committed bound writers, not a competing stage return value.
-13. Cache waits and resource waits are pipeline concerns and occur outside stage execution.
+13. Cache waits and resource waits are runtime concerns and occur outside stage execution.
 14. Caller materialization targets are handled after semantic artifact availability and are not passed to the producing stage.
-15. Enabling a pipeline feature makes stages available; it does not force them into every task graph.
+15. Enabling a runtime feature makes stages available; it does not force them into every task graph.
 
 ## Required Follow-On Alignment
 

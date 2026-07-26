@@ -7,7 +7,7 @@ active/recovery lifetime, recovery attempts, cancellation persistence, terminal
 record retention, and deletion.
 
 The public submission, receipt, service operations, and `RunState` data shapes
-are defined by the [Run Surface](../01-pipeline/04-run-surface.md). Live
+are defined by the [Run Surface](../01-runtime/04-run-surface.md). Live
 scheduler state and attempt transitions are defined by the
 [Eventing and Task Control Model](eventing-and-task-control-model-spec.md).
 
@@ -87,7 +87,7 @@ Recovery before active expiry creates a fresh execution attempt:
 - no in-memory plan, stage, reservation, or progress state is resumed.
 
 Recovery rebinds the immutable canonical request against the current compatible
-pipeline environment. It may reuse committed artifacts under the request cache
+runtime environment. It may reuse committed artifacts under the request cache
 policy and task-instance rules.
 
 A same-task committed instance may be reused even when the request's cache mode
@@ -96,9 +96,9 @@ artifact identity, fingerprint, and cache metadata. While the task remains
 nonterminal, a stale task-instance relation may be removed or replaced.
 Terminal mappings are immutable until the terminal record is deleted.
 
-If the accepted request cannot run against the available pipeline or
+If the accepted request cannot run against the available runtime or
 environment during recovery, the known task terminalizes as
-`Failed(RunResult)` with a `PIPELINE_INCOMPATIBLE` issue. This is distinct from
+`Failed(RunResult)` with a `RUNTIME_INCOMPATIBLE` issue. This is distinct from
 `UNPLANNABLE`, which means the task's requested work could not be planned in the
 environment in which that attempt began.
 

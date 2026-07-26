@@ -5,10 +5,10 @@ This document consolidates the domain terminology defined in the `specs/01-artif
 ## Core Terms
 
 ### Artifact
-A typed value that enters, moves through, or leaves the pipeline. Artifacts include source inputs, settings, intermediate results, final outputs, diagnostics, and output requests.
+A typed value that enters, moves through, or leaves the runtime. Artifacts include source inputs, settings, intermediate results, final outputs, diagnostics, and output requests.
 
 ### Artifact Model
-The semantic model that lets the pipeline reason consistently about artifact identity, compatibility, reuse, and materialization across stages.
+The semantic model that lets the runtime reason consistently about artifact identity, compatibility, reuse, and materialization across stages.
 
 ### Artifact Role
 The single role assigned to an artifact. The defined roles are `source`, `settings`, `intermediate`, `target`, and `diagnostic`.

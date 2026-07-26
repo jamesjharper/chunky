@@ -1,5 +1,5 @@
 # Artifact Model
-An **artifact** is any typed value that enters, moves through, or leaves the pipeline. Artifacts include:
+An **artifact** is any typed value that enters, moves through, or leaves the runtime. Artifacts include:
 
 - source inputs, such as audio files;
 - settings, such as speaker detection settings;
@@ -8,7 +8,7 @@ An **artifact** is any typed value that enters, moves through, or leaves the pip
 - diagnostic outputs, such as logs, metrics, or inspection CSVs;
 - target output requests, such as transcript or embedding outputs.
 
-The artifact model gives the pipeline a stable way to reason about identity, compatibility, reuse, and materialization across stages.
+The artifact model gives the runtime a stable way to reason about identity, compatibility, reuse, and materialization across stages.
 
 ## Artifact Identity
 Artifact IDs are stable semantic identifiers. An artifact ID describes **what the artifact means**, not where it is stored or how it was produced.
@@ -276,7 +276,7 @@ settings value is treated as a supplied graph-root value after it is resolved,
 even when the caller did not explicitly provide it. This does not imply
 publication of caller-supplied or defaulted settings.
 
-A cached settings root may be provided as an `a-instance` locator. The pipeline may bind and read that cached settings value before graph planning so settings-dependent planning hooks see the same value they would see from an ordinary supplied settings source.
+A cached settings root may be provided as an `a-instance` locator. The runtime may bind and read that cached settings value before graph planning so settings-dependent planning hooks see the same value they would see from an ordinary supplied settings source.
 
 __Examples:__
 ```text

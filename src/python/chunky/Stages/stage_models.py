@@ -604,6 +604,8 @@ class ManifestStageRegistration:
         return result
 
 
+# TODO(runtime-naming): Rename PipelineFeature to RuntimeFeature with the
+# runtime public-API rename; features configure a runtime, not a pipeline.
 class PipelineFeature(Protocol):
     feature_id: str
 

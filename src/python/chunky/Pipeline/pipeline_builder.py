@@ -6,6 +6,8 @@ from .env_settings_features import PipelineRuntimeSettingsBuilder
 from .service_features import PipelineRuntimeServicesBuilder
 
 
+# TODO(runtime-naming): Rename ChunkyPipelineBuilder to ChunkyRuntimeBuilder
+# with the coordinated public runtime naming refactor.
 class ChunkyPipelineBuilder:
     def __init__(self) -> None:
         self._manifest_builder = StageManifestBuilder()

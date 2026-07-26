@@ -6,7 +6,7 @@ This specification defines scheduler-owned task and attempt transitions,
 fail-fast coordination, cooperative stopping, run-policy enforcement, and the
 stage-level scheduling progress used by the public run state.
 
-The [Run Surface](../01-pipeline/04-run-surface.md) owns `run`, `start`,
+The [Run Surface](../01-runtime/04-run-surface.md) owns `run`, `start`,
 `RunHandle`, durable service methods, cancellation acknowledgements, and the
 canonical `RunState`, `Progress`, and `RunResult` shapes.
 
@@ -114,7 +114,7 @@ stages, progress reporters, and callbacks MUST NOT directly terminalize a task.
 
 `RunPolicy` controls admission and scheduling only. Implementations may use it
 for resource classes, concurrency limits, fairness, or other execution
-constraints, subject to pipeline-wide capacity.
+constraints, subject to runtime-wide capacity.
 
 It MUST NOT change graph topology, producer selection, artifact identity,
 fingerprints, requested outputs, cache behavior, or target delivery.
@@ -145,7 +145,7 @@ task does not invalidate a successful committed artifact or change its
 `OutputState` from `SUCCEEDED`.
 
 All detailed causes are aggregated into the single universal failure envelope
-defined by the [Failure Contract](../00-overview/02-failure-contract.md).
+defined by the [Failure Surface](../01-runtime/07-failure-surface.md).
 
 ## Cooperative stopping
 

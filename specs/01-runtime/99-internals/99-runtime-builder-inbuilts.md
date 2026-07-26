@@ -1,15 +1,15 @@
-# Pipeline Builder Inbuilts
+# Runtime Builder Inbuilts
 
 ## Purpose
 
-`ChunkyPipelineBuilder` should ship with a set of inbuilt feature types that cover the common bootstrap concerns:
+`ChunkyRuntimeBuilder` should ship with a set of inbuilt feature types that cover the common bootstrap concerns:
 
 - installing a durable file based artifact cache;
 - installing runtime-setting sources for reading from environment variables;
 - default installing a complete set of core set of core services. 
 - installing sets of required stages for common ASR activities 
 
-These are convenience capabilities, not a second plugin system. They exist so a caller can compose a usable pipeline without re-implementing common bootstrap code.
+These are convenience capabilities, not a second plugin system. They exist so a caller can compose a usable runtime without re-implementing common bootstrap code.
 
 > Note to Agent: Many of these inbuilt capabilities are late stage development activities, expect this document to be become more fleshed out in the future. 
 
@@ -17,7 +17,7 @@ These are convenience capabilities, not a second plugin system. They exist so a 
 
 ### `FileCacheFeature`
 
-`FileCacheFeature` installs the pipeline's artifact-cache runtime service using `FileCacheProvider`. This is the standard way to give a pipeline a durable cache root for artifact reads and writes.
+`FileCacheFeature` installs the runtime's artifact-cache runtime service using `FileCacheProvider`. This is the standard way to give a runtime a durable cache root for artifact reads and writes.
 
 *Conceptual shape:*
 
@@ -41,8 +41,8 @@ Configuration rules:
 Typical usage:
 
 ```python
-pipeline = (
-    ChunkyPipeline.builder()
+runtime = (
+    ChunkyRuntime.builder()
     .install(FileCacheFeature("./.chunky-cache"))
     .build()
 )
@@ -78,8 +78,8 @@ Behavior:
 Example:
 
 ```python
-pipeline = (
-    ChunkyPipeline.builder()
+runtime = (
+    ChunkyRuntime.builder()
     .install(
         EnvironmentVariableRuntimeSettingSourceFeature(
             dotenv_files=(".env", ".env.local"),

@@ -1,17 +1,21 @@
-# Pipeline External Design Principles
+# Runtime External Design Principles
 
 ## Purpose
 
-These principles govern the pipeline's externally observable surfaces. Detailed
+These principles govern the runtime's externally observable surfaces. Detailed
 surface specifications remain authoritative for exact types and behavior.
 
 ## Principles
 
-### 1. One semantic pipeline
+### 1. One execution model
 
 Local and durable execution are different ways to supply, retain, and observe a
 run, not different meanings of a run. After mode-specific binding, both paths
 must use the same planning and execution semantics.
+
+The runtime is the configured collection of services that provides those
+semantics. A run is one execution requested from that runtime; it is not a
+second kind of runtime or a separately configured execution service.
 
 ### 2. Durable processing is data-only
 

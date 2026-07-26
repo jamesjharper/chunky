@@ -1,0 +1,78 @@
+specs/07-scheduling/eventing-and-task-control-model-spec.md
+  h_6046a6be1688c0 255,362,397
+  s_3e9fdab2b605a4::t_59c02bf66545c5 5-7,9-11,13-15,17,21-30,34-39,41-42,44-46,48,50-52,54,56-58,60-61,63,66-74,77,79,81,84-87,90-92,94-96,98,101-103,106-108,110-111,113,115-117,119-122,124,126-127,131-136,140-141,143-145,147-148,150,152,154,156-161,164-166,168,171,173,176,178,180,183-184,186,188,190,193-194,196,198,200-208,210-213,215,217-218,220-225,227,229,231-232,234-241,243-244,246,248,250-253,256-257,259,261,263-267,269-270,272,280-281,283-285,287-288,290,292-293,303-307,331-333,335,337,351,353-356,358,374,384-396,398-433
+  s_608e7417bb6a30::t_db147dbe9a5b88 137-139
+specs/07-scheduling/02-persisted-task-lifecycle.md
+  s_608e7417bb6a30::t_1d69f9ab5ef382 28-30,33-35
+  s_3e9fdab2b605a4::t_67454819d9109a 1-15,17-27,31-32,36-193
+  s_3e9fdab2b605a4::t_c840e50fcfcfbb 16
+specs/01-pipeline/07-failure-surface.md
+  s_608e7417bb6a30::t_0b04f3e209e34b 4
+  s_608e7417bb6a30::t_1d69f9ab5ef382 309-310,312
+  h_6046a6be1688c0 1-3,5-308,311,313-344
+specs/02-artifacts/02-artifact-io-surface.md
+  s_b6e60552101b96::t_9f5c830bc05900 80-85,432-434,454-458,467-468
+specs/03-bindings/01-bindings.md
+  s_b6e60552101b96::t_1b090c8b9d5361 34-35,65-68,74,299,354,357-358
+specs/03-bindings/02-cache-management.md
+  s_b6e60552101b96::t_dce8522e4733c8 27,168,170-174,193-201,207-251,417-420,1441-1442,1449-1450
+specs/02-artifacts/99-terminology.md
+  s_4b86a961766c62::t_ace2e62a12f226 52,63-65
+specs/03-bindings/99-terminology.md
+  s_4b86a961766c62::t_c965e3c4acab09 52,63-65
+specs/06-planning/01-task-planning.md
+  s_d03f53d40f82e6::t_8e55cdaadffba7 9,31,47,49-51,174,205,317-319,321-323,325-327,555-557,560,563-565,740,748-750,836-838,907,974-975
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "4dd1357d7038eaa33b2857c4fd52d2db4608aa99",
+  "prompts": {},
+  "humans": {
+    "h_6046a6be1688c0": {
+      "author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  },
+  "sessions": {
+    "s_3e9fdab2b605a4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8e72-0ced-7ee1-9a9a-98851c4ee987",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_4b86a961766c62": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8326-2be1-7782-a187-e1ba5db5dc8b",
+        "model": "unknown"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_608e7417bb6a30": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9254-9edc-7cd0-aa64-d10dec6e4c17",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_b6e60552101b96": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "473530f2-afee-44d3-97f5-2c4438bb99ba",
+        "model": "composer-2.5"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_d03f53d40f82e6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f83d7-2cbb-7702-af2b-0cad41f6e0eb",
+        "model": "unknown"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}

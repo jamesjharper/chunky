@@ -1,0 +1,24 @@
+specs/01-pipeline/00-design-principles.md
+  s_043343ce2d7da1::t_a7ef4582dbcd07 1-136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "d5783c5e21b71036a81e528bdc235589f35a7b52",
+  "prompts": {},
+  "humans": {
+    "h_6046a6be1688c0": {
+      "author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  },
+  "sessions": {
+    "s_043343ce2d7da1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9c7c-b1bd-7bb0-95ee-4e527cfedff2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}

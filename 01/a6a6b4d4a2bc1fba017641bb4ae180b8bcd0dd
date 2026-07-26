@@ -1,0 +1,100 @@
+specs/99-stage-implementations/02-expected_stages.md
+  s_77222657b4f06e::t_f047611448d440 1,3,17,596,600,613
+specs/01-runtime/03-durable-artifacts-upload-surface.md
+  s_77222657b4f06e::t_f047611448d440 1-69
+specs/01-runtime/04-run-surface.md
+  s_77222657b4f06e::t_f047611448d440 1-476,478-705
+  s_77222657b4f06e::t_2bfbb6b7e652c7 477
+specs/06-planning/older-versions/05-graph-creation.md
+  s_77222657b4f06e::t_691045fca02c9f 487
+  s_77222657b4f06e::t_f047611448d440 34
+src/python/chunky/Pipeline/pipeline_builder.py
+  s_77222657b4f06e::t_b529b2a0b6dc02 9-10
+specs/01-runtime/00-design-principles.md
+  s_77222657b4f06e::t_f047611448d440 1-9,11-14,19-140
+  s_77222657b4f06e::t_46876a6c5aa3cb 10,15-17
+  s_77222657b4f06e::t_41c13206fb1bd6 18
+specs/03-bindings/99-terminology.md
+  s_77222657b4f06e::t_f047611448d440 8,11
+"specs/06-planning/older-versions/05-graph-creation copy.md"
+  s_77222657b4f06e::t_f047611448d440 34
+  s_77222657b4f06e::t_691045fca02c9f 416,420
+"specs/99-stage-implementations/02-expected_stages copy.md"
+  s_77222657b4f06e::t_f047611448d440 1,3,17,602,606,619
+specs/01-runtime/02-run-request-building-surface.md
+  s_77222657b4f06e::t_f047611448d440 1-22,24-124,126-372,374-555,558-816,818-927,929-991
+  s_77222657b4f06e::t_2bfbb6b7e652c7 817
+  s_77222657b4f06e::t_9d9e494d202ea7 556-557
+  s_77222657b4f06e::t_8dfb41cead39a2 125
+  s_77222657b4f06e::t_691045fca02c9f 23,373,928
+specs/02-artifacts/99-terminology.md
+  s_77222657b4f06e::t_f047611448d440 8,11
+specs/04-fingerprinting/01-fingerprints.md
+  s_77222657b4f06e::t_f047611448d440 44
+src/rust/crates/chunky/src/Stages/stage_models.rs
+  s_77222657b4f06e::t_b529b2a0b6dc02 709-710
+specs/05-stages/stages-spec.md
+  s_77222657b4f06e::t_f047611448d440 2,4,47,226,229-230,239,272,278,572,840,842
+  s_77222657b4f06e::t_9d9e494d202ea7 6-10,49-50,576-579,592-594,611,613-615
+src/python/chunky/Pipeline/pipeline.py
+  s_77222657b4f06e::t_b529b2a0b6dc02 56-57
+specs/01-runtime/99-internals/05-run-binding-and-execution.md
+  s_77222657b4f06e::t_f047611448d440 1-83
+src/python/chunky/Pipeline/env_settings_features.py
+  s_77222657b4f06e::t_b529b2a0b6dc02 19-20
+src/rust/crates/chunky/src/pipeline.rs
+  s_77222657b4f06e::t_b529b2a0b6dc02 72-73,147-148
+specs/01-runtime/07-failure-surface.md
+  s_77222657b4f06e::t_2bfbb6b7e652c7 82
+  s_77222657b4f06e::t_f047611448d440 1-16,19-81,83-344
+  s_77222657b4f06e::t_9d9e494d202ea7 17-18
+specs/06-planning/01-task-planning.md
+  s_77222657b4f06e::t_f047611448d440 618
+specs/01-runtime/99-internals/99-runtime-builder-inbuilts.md
+  s_77222657b4f06e::t_f047611448d440 1-92
+src/python/chunky/Pipeline/service_features.py
+  s_77222657b4f06e::t_b529b2a0b6dc02 121-122
+specs/01-runtime/01-runtime-builder-surface.md
+  s_77222657b4f06e::t_f047611448d440 1-8,29-37,39-337
+  s_77222657b4f06e::t_46876a6c5aa3cb 9-10,12-28
+  s_77222657b4f06e::t_41c13206fb1bd6 11
+  s_77222657b4f06e::t_8dfb41cead39a2 38
+specs/03-bindings/02-cache-management.md
+  s_77222657b4f06e::t_f047611448d440 232
+specs/07-scheduling/02-persisted-task-lifecycle.md
+  s_77222657b4f06e::t_2bfbb6b7e652c7 101
+  s_77222657b4f06e::t_f047611448d440 10,90,99
+src/python/chunky/Stages/stage_models.py
+  s_77222657b4f06e::t_b529b2a0b6dc02 607-608
+specs/07-scheduling/eventing-and-task-control-model-spec.md
+  s_77222657b4f06e::t_9d9e494d202ea7 148
+  s_77222657b4f06e::t_f047611448d440 9,117
+src/rust/crates/chunky/src/runtime.rs
+  s_77222657b4f06e::t_b529b2a0b6dc02 223-224,506-507
+specs/05-stages/99-terminology.md
+  s_77222657b4f06e::t_f047611448d440 8,96,136,140,155
+  s_77222657b4f06e::t_46876a6c5aa3cb 132-135
+specs/02-artifacts/01-artifact-model-surface.md
+  s_77222657b4f06e::t_f047611448d440 2,11,279
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "01a6a6b4d4a2bc1fba017641bb4ae180b8bcd0dd",
+  "prompts": {},
+  "humans": {
+    "h_6046a6be1688c0": {
+      "author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  },
+  "sessions": {
+    "s_77222657b4f06e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9c8d-af1a-73b2-a2ec-f0bf42b71b87",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}

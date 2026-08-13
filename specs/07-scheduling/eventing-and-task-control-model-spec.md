@@ -203,7 +203,7 @@ After a stop event wins:
 4. waiting invocations receive the corresponding terminal status;
 5. running invocations observe their token;
 6. unwritten output handles are aborted;
-7. task-owned source handles and cache read reservations close;
+7. task-owned source handles and all cache or durable read reservations close;
 8. resource leases release as running work stops; and
 9. task control publishes the selected terminal state after cleanup.
 

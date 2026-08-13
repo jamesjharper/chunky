@@ -22,11 +22,12 @@ Acceptance is one atomic durable boundary. It commits:
 - the immutable canonical request;
 - one stable `a-task` identity per requested output;
 - the effective absolute `active_expires_at`;
-- the effective service-owned `terminal_retention_seconds`; and
-- any input-retention claims required to honor recovery.
+- the effective service-owned `terminal_retention_seconds`;
+- the effective request/default `artifact_retention_seconds`; and
+- active artifact claims for every validated durable input.
 
 Only after that commit may the public operation return a
-`DurableSubmissionReceipt`. Rejection before commit is a call-level `Failure`
+`DurableSubmissionReceipt`. Rejection before committing is a call-level `Failure`
 and creates no task.
 
 Caller cancellation, timeout, or disconnect may prevent acceptance only before
@@ -47,7 +48,9 @@ The stable record contains:
 - the requested output `a-task` identities;
 - `active_expires_at`;
 - `terminal_retention_seconds`;
-- durable input-retention claims;
+- `artifact_retention_seconds`;
+- active durable artifact claims for accepted inputs and committed requested
+  outputs;
 - an optional recorded cancellation or expiry control event; and
 - at most one immutable terminal state with `record_expires_at`.
 
@@ -72,7 +75,7 @@ At or after it:
 2. active attempt work receives an expiry cleanup request;
 3. public state remains `InProgress` while cleanup safely releases task-owned
    resources; and
-4. the task terminalizes as `Expired(RunResult)`.
+4. the task terminates as `Expired(RunResult)`.
 
 If the service recovers after the deadline, it begins at step 2 without
 creating a new attempt.
@@ -151,10 +154,19 @@ have no local target deliveries.
 Active/recovery lifetime, terminal-record lifetime, and artifact-instance
 retention are separate.
 
-Input instances are pinned for at least the promised active/recovery window.
-Newly committed requested outputs obey the artifact and cache retention
-contracts. Keeping task history queryable does not itself pin artifact
-instances.
+Accepted input instances and newly committed requested outputs are protected by
+active task artifact claims while the task is nonterminal. At terminalization,
+on success, failure, cancellation, or expiry, those claims become expiring
+claims:
+
+```text
+artifact_claim_expires_at =
+  terminalized_at + artifact_retention_seconds
+```
+
+Cache retention remains independent. Keeping task history queryable does not
+itself pin artifact instances, and deleting the task record does not delete
+still-claimed artifacts.
 
 Terminal-record retention begins only when the task actually terminalizes.
 At that transition:
@@ -174,7 +186,8 @@ public expiry tombstone solely to distinguish the two cases.
 
 ## Time representation
 
-`active_ttl` and `terminal_retention_seconds` are positive whole seconds.
+`active_ttl`, `terminal_retention_seconds`, and
+`artifact_retention_seconds` are positive whole seconds.
 `active_expires_at` and `record_expires_at` serialize as UTC RFC 3339 timestamps
 with millisecond precision.
 
@@ -191,3 +204,5 @@ with millisecond precision.
 8. Terminal retention begins at terminalization, not acceptance or active
    expiry.
 9. Task-record retention does not imply artifact-instance retention.
+10. Active readers prevent representation collection even after the final
+    artifact claim expires.

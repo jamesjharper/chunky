@@ -1,469 +1,430 @@
 # Artifact IO
 
+## Purpose
+
+Artifact I/O presents one semantic artifact abstraction to stages while giving
+runtime infrastructure a separate transfer plane for canonical encoded content.
+
+The two views are:
+
+- typed value capabilities used by stages and local callers; and
+- provider-neutral representation transfer used by persistence, cache, files,
+  and transport adapters.
+
+Stages do not know whether a selected source is backed by memory, cache, durable
+persistence, a file, SMB, S3-like storage, or another provider.
+
 ## Artifact Handles
-An `ArtifactHandle` is an execution-time binding for one concrete artifact instance. The execution planner or runner creates an artifact handle once after the artifact fingerprint is known and the required source or target handles have been resolved.
 
-Stage-produced outputs receive their fingerprint from the planner-provided production pedigree before cache or publication targets are bound.
-
-```python
-@dataclass(frozen=True)
-class ArtifactHandle(Generic[T]):
-    declaration: ArtifactDeclaration[T]
-    fingerprint: str
-    source: ArtifactSourceHandle[T] | None = None
-    targets: tuple[ArtifactTargetHandle[T], ...] = ()
-
-    @property
-    def instance_locator(self) -> ArtifactInstanceLocator:
-        return ArtifactInstanceLocator(
-            artifact_key=self.declaration.artifact_id,
-            fingerprint=self.fingerprint,
-        )
-```
-
-The structure represents both input and output bindings:
-
-- `declaration.artifact_id` represents the fully resolved artifact ID. Any phase selection or terminal remapping is completed before the handle is created;
-- `fingerprint` is the final artifact fingerprint and, together with the resolved artifact ID, derives the concrete `a-instance` locator for this handle;
-- an input binding has one resolved `source` and normally no `targets`;
-- a cache-hit output has a cache-reserved `source` and no `targets`, allowing the producing stage to be skipped;
-- an output that must be produced has one or more pre-resolved `targets` and normally an in-memory `source` that becomes readable after the write commits;
-- a materialization binding may reuse an existing semantic `source` and add one caller-provided target.
-
-A handle is immutable after bootstrap. Runtime state, such as a pending write or held reservation, belongs to the source and target handle instances referenced by it.
-
-An `ArtifactInstance` is the available semantic artifact associated with one resolved handle:
-
-```python
-@dataclass(frozen=True)
-class ArtifactInstance(Generic[T]):
-    handle: ArtifactHandle[T]
-
-    @property
-    def fingerprint(self) -> str:
-        return self.handle.fingerprint
-
-    @property
-    def locator(self) -> ArtifactInstanceLocator:
-        return self.handle.instance_locator
-```
-
-## Artifact Source Handle
-An `ArtifactSourceHandle` represents one already-selected source for a concrete artifact value. Examples include:
-
-- a caller-supplied file;
-- a caller-supplied in-memory object;
-- an in-memory value produced earlier in the same task;
-- a cache entry with an active read reservation, including one opened from a concrete cached-instance reference.
-
-```python
-class ArtifactSourceHandle(Protocol[T]):
-    kind: str
-
-    async def get_value(self, codec: Codec[T]) -> T: ...
-    async def get_content_fingerprint(self, codec: Codec[T]) -> str: ...
-    async def close(self) -> None: ...
-```
-
-### `get_value(codec)`
-Returns the typed artifact value. The handle decides whether the codec is needed:
-
-- a file or cache source normally reads bytes and calls `codec.deserialize`;
-- an in-memory source returns the existing object directly without serialization;
-- a specialized source may decode the value using provider-specific behavior.
-
-`ArtifactReader` delegates to this method. It does not inspect the concrete handle type.
-
-### `get_content_fingerprint(codec)`
-`get_content_fingerprint(codec)` returns the content contribution for a supplied source handle. It does not return the final artifact fingerprint.
-
-A source handle should represent one stable logical snapshot, and a separately
-reported content fingerprint should describe the same content returned to
-execution. This is a soft integrity expectation: implementations should use
-inexpensive consistency checks where practical, but need not spool or reread
-every source solely to prove snapshot stability.
-
-The method remains valid for every source-handle type:
-
-- a caller-supplied file, object, or stream returns a stable digest of its semantic content;
-- a synthesized settings handle returns a digest of the resolved effective settings value;
-- a stage-produced in-memory handle returns an empty string because its identity comes from production pedigree;
-- a cache-backed source handle returns an empty string because the expected final fingerprint is already the cache key validated before the handle was created.
-
-The handle decides what content equality means. It may use the declaration codec, but it is not required to hash the codec's raw serialized bytes. For example:
-
-- a JSON settings handle may hash canonical serialized JSON;
-- an audio handle may hash decoded canonical PCM plus relevant sample metadata;
-- a raw file handle may hash file bytes when byte identity is the desired contract;
-- a derived handle returns `""` without reading or serializing its value.
-
-If a canonicalization algorithm or provider version affects the returned digest, that version must be represented in the returned content fingerprint or final structured payload.
-
-### `close()`
-Releases resources owned by the source handle. For a cache source, this releases its read reservation. For supplied files and in-memory values it may be a no-op.
-
-Source-handle lifetime is owned by the runner or task executor, not by an individual `ArtifactReader`. A task-level cache read reservation can therefore remain active while several downstream stages consume the same artifact.
-
-The example routes raw content digests through the same hashing seam via `stable_hash_bytes(raw)`.
-
-__Example provided source handles:__
-
-```python
-class FileSource(Generic[T]):
-    def __init__(self, path: str | Path):
-        self.path = Path(path)
-
-    async def get_value(self, codec: Codec[T]) -> T:
-        raw = await asyncio.to_thread(self.path.read_bytes)
-        return await codec.deserialize(raw)
-
-    async def get_content_fingerprint(self, _codec: Codec[T]) -> str:
-        raw = await asyncio.to_thread(self.path.read_bytes)
-        return stable_hash_bytes(raw)
-
-    async def close(self) -> None:
-        return None
-```
-
-```python
-class SummarySettingsSource:
-    def __init__(self, value: dict[str, object]):
-        self.value = value
-
-    async def get_value(
-        self,
-        _codec: Codec[dict[str, object]],
-    ) -> dict[str, object]:
-        return self.value
-
-    async def get_content_fingerprint(
-        self,
-        codec: Codec[dict[str, object]],
-    ) -> str:
-        raw = await codec.serialize(self.value)
-        return stable_hash_bytes(raw)
-
-    async def close(self) -> None:
-        return None
-```
-
-__Example cache source handles:__
-
-```python
-class CacheFileSourceHandle(Generic[T]):
-    """Example cache-hit source with simplified reservation behavior."""
-
-    def __init__(self, data_path: Path):
-        self._data_path = data_path
-        self._closed = False
-
-    async def get_value(self, codec: Codec[T]) -> T:
-        if self._closed:
-            raise RuntimeError("cache read handle is closed")
-        raw = await asyncio.to_thread(self._data_path.read_bytes)
-        return await codec.deserialize(raw)
-
-    async def get_content_fingerprint(self, _codec: Codec[T]) -> str:
-        # Cache entries already have their final semantic fingerprint.
-        return ""
-
-    async def close(self) -> None:
-        self._closed = True
-```
-
-A production cache source handle should be created only after the cache coordinator has validated the cache entry and acquired its read reservation, and `close()` should release that reservation. The executable example deliberately mocks this part: it validates cache metadata but only records local closed state and does not implement a durable read reservation.
-
-## Concrete Artifact Instance Locators
-
-A concrete artifact instance locator is not a source handle by itself. It is a structured pointer to one deterministic artifact instance and serializes as `a-instance`:
-
-```python
-@dataclass(frozen=True)
-class ArtifactInstanceLocator:
-    artifact_key: ArtifactKey
-    fingerprint: str
-    projection_context: str = "global"
-```
-
-Before a stage or planner can use an externally supplied `a-instance`, artifact binding must validate the locator against the manifest declaration and cache metadata, acquire a cache read reservation, and turn it into an `ArtifactInstance` whose source is a cache-backed `ArtifactSourceHandle`.
-
-For settings artifacts, this binding may happen before normal graph planning so settings values can participate in deterministic requirement and output-capability resolution. For other root types, the rebound cache source behaves like any other supplied artifact root.
-
-Internally, every handle can derive an `a-instance` locator from its resolved declaration and final fingerprint, including non-cacheable in-memory instances. Externally exposed `a-instance` locators are limited to durably retrievable artifacts. A non-cacheable handle may have a valid internal locator while still being ineligible for public retrieval.
-
-The locator answers *which concrete artifact instance* is meant. It does not encode whether that instance has been committed, is durably retrievable, or is currently readable by the caller. Those are execution and retrieval state fields.
-
-## Artifact Target Handle
-
-An `ArtifactTargetHandle` represents one already-selected and, when necessary, already-reserved destination for an artifact value. Examples include:
-
-- an in-memory publication handle for direct stage-to-stage passing;
-- an exclusively reserved cache entry;
-- a caller-provided file or object sink;
-- a diagnostic or streaming sink.
-
-A single `set_value` method is not sufficient for cache-safe orchestration because a write reservation must also be released when a stage fails before producing its output. The target contract should therefore expose a small lifecycle:
-
-```python
-class ArtifactTargetHandle(Protocol[T]):
-    kind: str
-
-    async def prepare(
-        self,
-        value: T,
-        codec: Codec[T],
-        fingerprint: str,
-    ) -> None: ...
-
-    async def commit(self) -> None: ...
-    async def abort(self) -> None: ...
-```
-
-A target follows this state model:
+An `ArtifactHandle` is the execution-time binding for one concrete semantic
+artifact instance:
 
 ```text
-reserved -> prepared -> committed
-    |           |
-    +-----------+-> aborted
+ArtifactHandle<T>
+  declaration: ArtifactDeclaration<T>
+  fingerprint
+  source?: ArtifactSourceHandle<T>
+  targets: ordered list<ArtifactTargetHandle<T>>
 ```
 
-### `prepare(value, codec, fingerprint)`
+The resolved artifact ID and fingerprint derive the location-independent
+`a-instance` locator. Any phase selection or terminal remapping is complete
+before a planned stage input/output handle is created.
 
-Stages the value without making it visible as a completed artifact. A file-backed target should serialize into a temporary path. A cache target keeps its exclusive write reservation while preparing.
+The handle is immutable after binding. Resource state belongs to the referenced
+source and target handles.
 
-### `commit()`
+An input normally has one source. A stage-produced output has one or more
+targets selected by the runtime publication plan. A materialization binding
+reuses an existing semantic source and adds an external target.
 
-Atomically publishes the prepared value where possible and releases any write reservation. A cache entry must not become visible as a hit before this operation succeeds.
+Supplied-content upload is different: its final fingerprint may be unknown
+until representation validation completes. Upload therefore creates an
+artifact instance; it does not require a pre-bound planned output handle.
 
-### `abort()`
+## Artifact Instance
 
-Discards temporary output and releases any held write reservation. The runner calls this when:
+An `ArtifactInstance` identifies an available semantic artifact:
 
-- the stage fails or is cancelled;
-- the stage does not produce a requested output;
-- another output target fails during preparation.
+```text
+ArtifactInstance<T>
+  handle: ArtifactHandle<T>
 
-`commit()` and `abort()` should be idempotent after the target reaches a terminal state.
-
-
-__Example supplied target handles:__
-
-```python
-class AtomicFileTargetHandle(Generic[T]):
-
-    def __init__(self, path: str | Path):
-        self.path = Path(path)
-        self._temporary_path: Path | None = None
-        self._committed = False
-        self._aborted = False
-
-    async def prepare(
-        self,
-        value: T,
-        codec: Codec[T],
-        _fingerprint: str,
-    ) -> None:
-        if self._committed or self._aborted:
-            raise RuntimeError("target is already terminal")
-        if self._temporary_path is not None:
-            raise RuntimeError("target is already prepared")
-
-        await asyncio.to_thread(
-            self.path.parent.mkdir,
-            parents=True,
-            exist_ok=True,
-        )
-        raw = await codec.serialize(value)
-        temporary = self.path.with_name(
-            f".{self.path.name}.{uuid4().hex}.tmp"
-        )
-        await asyncio.to_thread(temporary.write_bytes, raw)
-        self._temporary_path = temporary
-
-    async def commit(self) -> None:
-        if self._committed or self._aborted:
-            return
-        if self._temporary_path is None:
-            raise RuntimeError("target has not been prepared")
-
-        await asyncio.to_thread(os.replace, self._temporary_path, self.path)
-        self._temporary_path = None
-        self._committed = True
-
-    async def abort(self) -> None:
-        if self._committed or self._aborted:
-            return
-        if self._temporary_path is not None:
-            await asyncio.to_thread(
-                self._temporary_path.unlink,
-                missing_ok=True,
-            )
-        self._temporary_path = None
-        self._aborted = True
+  locator -> a-instance
+  fingerprint
 ```
 
-__Example in-memory target/source handle:__
+Availability asserts semantic identity, not storage location or retention
+forever.
 
-```python
-class IntermediateArtifactHandle(Generic[T]):
+## Representation Descriptor
 
-    def __init__(self) -> None:
-        self._pending: T | object = _UNSET
-        self._value: T | object = _UNSET
-        self._committed = False
-        self._aborted = False
+Each artifact declaration owns one canonical transferable representation:
 
-    async def prepare(
-        self,
-        value: T,
-        _codec: Codec[T],
-        _fingerprint: str,
-    ) -> None:
-        if self._committed or self._aborted:
-            raise RuntimeError("publication handle is already terminal")
-        if self._pending is not _UNSET:
-            raise RuntimeError("publication handle is already prepared")
-        self._pending = value
-
-    async def commit(self) -> None:
-        if self._committed or self._aborted:
-            return
-        if self._pending is _UNSET:
-            raise RuntimeError("publication handle has not been prepared")
-        self._value = self._pending
-        self._pending = _UNSET
-        self._committed = True
-
-    async def abort(self) -> None:
-        if self._committed or self._aborted:
-            return
-        self._pending = _UNSET
-        self._aborted = True
-
-    async def get_value(self, _codec: Codec[T]) -> T:
-        if not self._committed:
-            raise RuntimeError("artifact is not committed")
-        return self._value  # type: ignore[return-value]
-
-    async def get_content_fingerprint(
-        self,
-        _codec: Codec[T]
-    ) -> str:
-        return ""
-
-    async def close(self) -> None:
-        return None
+```text
+RepresentationDescriptor
+  codec_id
+  codec_version
+  mime_type
+  preferred_extension
 ```
 
-## Artifact Target/Source Handles
+Codec identity and version are authoritative. MIME type and extension are
+descriptive.
 
-The `IntermediateArtifactHandle` shown above implements both source and target contracts. It is prepared as an output target, becomes readable only after commit, and is then used as the source for downstream stages.
+The canonical representation is one finite ordered logical byte sequence.
+Compound artifacts use a codec-defined streamable container or manifest.
+Directory entries, symlinks, sparse extents, and multiple object-store objects
+are not core artifact-transfer primitives.
 
+Representation identity is separate from semantic artifact identity:
 
-## Artifact Reader Writers
+- artifact fingerprints describe semantic content or production pedigree;
+- representation length and digest describe exact canonical bytes; and
+- chunk boundaries never affect either identity.
 
-### Reader
+## Capability Separation
 
-`ArtifactReader` is bootstrapped with a complete `ArtifactHandle` containing its source.
+Typed value I/O and encoded transfer are separate capabilities. A concrete
+artifact handle may compose either or both:
 
-```python
-class ArtifactReader(Generic[T]):
-    def __init__(self, handle: ArtifactHandle[T]):
-        if handle.source is None:
-            raise ValueError("input artifact has no bound source")
-        self.handle = handle
-        self._value: T | object = _UNSET
+```text
+ArtifactSourceHandle<T>
+  value_source?: ArtifactValueSource<T>
+  transfer_source?: ArtifactTransferSource
+  close()
 
-    async def read(self) -> T:
-        if self._value is _UNSET:
-            assert self.handle.source is not None
-            self._value = await self.handle.source.get_value(
-                self.handle.declaration.codec
-            )
-        return cast(T, self._value)
+ArtifactTargetHandle<T>
+  value_target?: ArtifactValueTarget<T>
+  transfer_target?: ArtifactTransferTarget
 ```
 
-The reader may memoize the typed object for the invocation. It does not own the lifetime of the underlying source reservation; the task executor closes the source handle when the task no longer needs it.
+Examples:
 
-> Special Note: memoization might need revisiting, languages like rust will require this to become a mutable method which might be cumbersome, might be needed to read object into memory in the planner and pass to stage 
+- an in-memory stage value may initially expose only a value source;
+- a cache or durable source normally exposes both through a codec adapter;
+- a live HTTP request body may be transfer-only because it is upload input, not
+  yet a committed stage-readable artifact;
+- an in-memory publication target may be value-only; and
+- cache, durable, and file targets normally accept transfer sources.
 
-### Writer
+The capability interfaces are distinct, so implementations do not pretend that
+every typed value is naturally streamable or that every byte stream is already
+a valid typed artifact.
 
-`ArtifactWriter` is bootstrapped with a complete `ArtifactHandle` containing all required targets. 
+## Typed Value Source
 
-```python
-class ArtifactWriter(Generic[T]):
-    def __init__(self, handle: ArtifactHandle[T]):
-        if not handle.targets:
-            raise ValueError("output artifact has no bound targets")
-        self.handle = handle
-        self.written = False
+A typed source returns the stage-facing value:
 
-    async def write(self, value: T) -> ArtifactInstance[T]:
-        if self.written:
-            raise RuntimeError("artifact may be written only once")
-
-        prepared: list[ArtifactTargetHandle[T]] = []
-        try:
-            for target in self.handle.targets:
-                await target.prepare(
-                    value,
-                    self.handle.declaration.codec,
-                    self.handle.fingerprint,
-                )
-                prepared.append(target)
-
-            for target in self.handle.targets:
-                await target.commit()
-        except BaseException:
-            for target in reversed(prepared):
-                await target.abort()
-            raise
-
-        self.written = True
-        return ArtifactInstance(self.handle)
-
-    async def abort_if_unwritten(self) -> None:
-        if not self.written:
-            for target in reversed(self.handle.targets):
-                await target.abort()
+```text
+ArtifactValueSource<T>
+  read(codec) -> T
 ```
 
-Explicit artifact publication and canonicalization use the same target lifecycle
-when committing supplied content into cache. Live execution does not publish a
-supplied source merely because it was selected as a graph root.
+It may:
 
-For a cacheable artifact that must be produced, the runner binds two semantic output targets:
+- return an existing in-memory object;
+- decode a canonical transfer source through the declaration codec; or
+- use provider-specific typed access while preserving the same value semantics.
 
-1.  the reserved durable cache target;
-2.  an in-memory publication target, when downstream stages need the value during the current task.
+`ArtifactReader` delegates to this capability. It never switches on concrete
+provider type.
 
-Caller-provided file, object, or stream targets are not included in the producing stage's `ArtifactWriter`. They are materialization targets and are written separately after the semantic artifact has become available.
+Constructing `T` may inherently require buffering. The bounded-memory guarantee
+applies to representation transfer, not to every possible typed value.
 
-All semantic targets are prepared before any target is committed. The durable cache target is committed first. The in-memory publication target is committed last so that downstream stages cannot observe the value before the durable cache entry has been successfully published.
+## Transfer Source
 
-If the durable cache commit fails:
+An `ArtifactTransferSource` exposes canonical representation bytes:
 
--   the in-memory target is aborted and remains unreadable;
--   the cache write reservation is released;
--   the artifact is not marked available;
--   caller-provided materialization targets are not attempted.
+```text
+ArtifactTransferSource
+  representation_descriptor
+  replayability
+  ownership_disposition
+  byte_length?
+  byte_digest?
+  open_stream(byte_range?) -> asynchronous byte stream
+  native_offers()
+  close()
+```
 
-If the semantic artifact commits successfully but a later caller-provided materialization fails, the semantic cache entry remains valid. A subsequent run may reuse the cached artifact and retry materialization without rerunning the producing stage.
+The portable fallback is a pull-based asynchronous byte stream. The consumer
+controls backpressure. Chunk sizes and boundaries are implementation details.
 
-For targetless requested outputs there are no caller materialization targets.
-The runner reports availability only after the semantic artifact has committed,
-and exposes an `a-instance` only for that real readable cache entry. The
-provider's lifetime determines whether a live result is durable; canonical
-tasks require the stronger persisted-task retention contract.
+### Snapshot stability
 
+Every source represents one stable encoded snapshot for its lifetime. Length,
+digest, semantic fingerprinting, and transferred bytes must describe that same
+snapshot.
 
+A source declares:
 
-## Recommended Invariants
+- `ONE_SHOT`: at most one stream may be opened; or
+- `REOPENABLE`: every open yields byte-for-byte identical content.
 
-1. `ArtifactHandle.declaration.artifact_id` is the resolved semantic artifact ID.
-2. Concrete cached-instance references must be rebound into cache source handles before use.
-3. A cache source handle owns an active read reservation from binding until close.
-4. Explicit cache publication uses the same prepare/commit/abort target
-   lifecycle as stage-produced cache publication.
-5. Settings roots opened from cache may be read before planning; other opened roots behave like supplied graph roots after binding.
+A mutable file path may claim `REOPENABLE` only when its wrapper enforces or
+validates snapshot stability. Otherwise it is one-shot and must be staged before
+a second pass, retry, or multiple destinations.
+
+### Ownership disposition
+
+A source is:
+
+- `PRESERVE`: successful transfer must leave its backing content usable; or
+- `CONSUMABLE`: a compatible target may adopt its exclusive backing resource.
+
+Possession of a source never implies destructive permission. Caller files,
+cache hits, and durable objects are normally preserve-only. Chunky-owned
+temporary files may be consumable.
+
+### Native offers
+
+Native offers are opaque provider capabilities. Compatible targets may use
+rename, reflink, block clone, provider-side copy, metadata attachment, or
+another optimized path.
+
+The common contract does not expose paths, bucket keys, SMB handles, signed
+URLs, or credentials. Unknown offers are ignored and streaming remains the
+universal fallback.
+
+Native operations must preserve exact bytes, ownership, mutation isolation,
+transactional visibility, integrity, cancellation, and failure semantics.
+
+### Ranges
+
+Sequential full streaming is required. A source may support one zero-based
+half-open byte range `[start, end)`.
+
+Invalid ranges fail before streaming. Multipart range framing uses several
+independently opened sources and belongs to a transport adapter.
+
+## Typed Value Target
+
+A typed target accepts a stage-facing value:
+
+```text
+ArtifactValueTarget<T>
+  prepare(value, codec, fingerprint)
+  commit()
+  abort()
+```
+
+In-memory publication is the primary example. A target that persists canonical
+bytes should use a transfer target through a codec adapter rather than
+serializing independently.
+
+## Transfer Target
+
+A transactional transfer target accepts a canonical source:
+
+```text
+ArtifactTransferTarget
+  prepare_from(source, expected_instance?)
+  commit()
+  abort()
+```
+
+The target owns ingestion. It may use a recognized native offer or pull bounded
+chunks according to its own block, multipart, and memory policy.
+
+The state machine is:
+
+```text
+OPEN -> PREPARED -> COMMITTED
+                  \-> ABORTED
+```
+
+Preparation succeeds at most once. Commit and abort are idempotent:
+
+- repeated commit returns the same committed outcome;
+- repeated abort safely completes cleanup;
+- abort never rolls back a committed artifact; and
+- commit after confirmed abort fails as terminally aborted.
+
+For a consumable backing resource, ownership transfers when
+`prepare_from(source)` succeeds. Before success the source owns it; afterward
+the target owns staging. A provider unable to preserve unambiguous ownership
+uses a preserving transfer.
+
+## Codec
+
+The authoritative codec contract operates on transfer sources rather than
+complete `bytes`:
+
+```text
+Codec<T>
+  representation_descriptor
+  encode(value) -> ArtifactTransferSource
+  decode(source) -> T
+  validate_and_fingerprint(source) -> semantic content contribution
+  buffering_capabilities
+```
+
+The codec:
+
+- defines the declaration's canonical representation;
+- converts between typed and transfer views;
+- validates canonical representation content;
+- defines supplied-content semantic equality; and
+- declares whether encode, decode, and validation are incremental or buffering.
+
+Bindings may provide private small-value byte helpers. Complete `bytes` are not
+the cross-module artifact I/O contract.
+
+An incoming representation descriptor is an assertion, not proof. Upload
+validates content through the codec or a declaration-owned validator before
+commit.
+
+Raw byte/file artifacts may define semantic content equality as the canonical
+byte digest. Structured formats may parse incrementally. A format requiring
+full typed materialization must declare that behavior rather than claiming a
+bounded-memory conversion.
+
+## Semantic Fingerprints
+
+Supplied artifacts derive their final fingerprint from:
+
+```text
+hash(
+  resolved artifact identity,
+  declaration-defined semantic content contribution,
+)
+```
+
+The semantic content contribution may differ from the representation digest.
+For example, an audio declaration may fingerprint canonical decoded samples
+while retaining a distinct encoded byte digest.
+
+Stage-produced artifact fingerprints continue to derive from production
+pedigree. They are known before output target binding and are not created by
+serializing the produced value again.[^content-provenance-revisit]
+
+[^content-provenance-revisit]: **Design revisit:** Separate artifact content
+    identity from production provenance. Artifact fingerprints should likely
+    contain only content identity, for both supplied and stage-produced
+    artifacts, while declaration identity, stage pedigree, settings, and output
+    identity form a separate provenance/execution-cache key that resolves to
+    output content fingerprints. Under that model, upload is independent of
+    `a-ref`, may accept a caller-calculated expected content fingerprint that
+    the runtime verifies, and validates `a-ref` compatibility when the content
+    is used. This note records a coordinated redesign to revisit; the current
+    normative text has not yet been reconciled.
+
+A trusted committed cache or durable source may preserve its validated
+`a-instance` without re-decoding or re-fingerprinting when representation
+compatibility and exact-byte preservation are established.
+
+## Artifact Reader
+
+`ArtifactReader<T>` exposes the typed stage-facing view:
+
+```text
+ArtifactReader<T>
+  read() -> T
+```
+
+It requires a bound source with a typed value capability. If the concrete source
+is transfer-backed, binding composes the declaration codec adapter before the
+stage sees it.
+
+Reader disposal does not independently close a task-owned source handle. The
+runner owns source-handle lifetime so several downstream stages may consume one
+artifact while its cache or durable reservation remains active.
+
+## Artifact Writer and Publication Plan
+
+A stage writes a semantic value once. The runtime publication plan determines
+which value and transfer targets are required.
+
+For transfer targets:
+
+1. the codec exposes or creates one stable canonical representation source;
+2. if more than one target needs a one-shot representation, the runtime stages
+   it once into a reopenable source;
+3. every transfer target prepares from that same snapshot; and
+4. no target independently re-encodes the typed value.
+
+Value-only targets may receive the typed value directly.
+
+Target commit ordering and failure authority belong to the publication plan:
+
+- for a requested output of a durable task, durable commit plus its task claim
+  is the availability boundary;
+- cache publication is separate reusable execution state;
+- a cache failure does not invalidate an already committed durable output;
+- a cache entry alone is not a durable task output; and
+- local tasks follow their configured cache and materialization contracts.
+
+A cache hit selected for a durable output must be promoted or transferred into
+durable persistence before the output is reported available.
+
+## Materialization
+
+Caller file, object, stream, or diagnostic delivery is separate from semantic
+artifact publication.
+
+Materialization consumes the existing semantic source through either:
+
+- a typed value adapter; or
+- its canonical transfer source.
+
+For file targets, preparation occurs in target-controlled staging on the
+destination filesystem. Commit performs the strongest requested atomic
+create/replace operation. Existing destinations remain unchanged and new
+destinations remain absent until commit.
+
+Failure to materialize a caller target does not invalidate a committed durable
+artifact or valid cache entry.
+
+## Source and Target Ownership
+
+Source handles are explicitly closeable. Closing releases reservations and
+provider resources. Upload consumes and closes its supplied transfer-source
+handle for every terminal outcome; this does not delete preserve-only backing
+content.
+
+Targets own staging after successful preparation and must clean it on abort or
+recovery.
+
+Bindings without language-enforced moves must track consumed/terminal state and
+reject reuse.
+
+## Cancellation and Progress
+
+Streaming checks cancellation between bounded chunks. An issued native
+operation may finish physically when it cannot be interrupted, but cancellation
+prevents publication unless commit already won and schedules cleanup.
+
+Progress is phase-aware:
+
+- resolving/waiting;
+- transferring;
+- validating/canonicalizing;
+- committing;
+- cleaning up; and
+- completed.
+
+Byte counts and totals are reported when meaningful. Native operations may be
+indeterminate until completion. Block size, part size, and progress frequency
+are private implementation details.
+
+## Errors
+
+Artifact I/O exposes provider-neutral structured categories for malformed
+content, representation mismatch, length/digest mismatch, exhausted source,
+ownership violation, invalid range, cancellation, corruption, capacity failure,
+and storage/recovery failure.
+
+Provider-specific causes may be attached as diagnostics.
+
+## Invariants
+
+1. Stages consume one storage-independent typed artifact abstraction.
+2. Canonical representation transfer never requires whole-file buffering.
+3. Typed conversion declares when it buffers.
+4. One source handle denotes one stable semantic/representation snapshot.
+5. Reopenable transfer sources return identical bytes on every open.
+6. A native operation never weakens preservation or mutation isolation.
+7. Multiple persistence targets reuse one encoded snapshot.
+8. Semantic fingerprints and representation digests are never conflated.

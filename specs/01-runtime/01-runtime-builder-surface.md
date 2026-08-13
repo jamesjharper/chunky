@@ -14,11 +14,11 @@ execute runs. It is not an individual run or a second service shape.
 `RuntimeFeature` values. The builder exposes three delegates to each feature
 installer:
 
-- `StageManifestBuilder`, which collects artifact declarations and stage
+- `StageManifestBuilder` which collects artifact declarations and stage
   registrations;
-- `RuntimeServicesBuilder`, which configures the runtime's internal service
+- `RuntimeServicesBuilder` which configures the runtime's internal service
   slots; and
-- `RuntimeSettingsBuilder`, which declares runtime-setting specifications and
+- `RuntimeSettingsBuilder` which declares runtime-setting specifications and
   setting sources.
 
 A feature may use any combination of those delegates to install artifact
@@ -83,7 +83,7 @@ class AsrArtifactStageFeature:
         manifest_builder.add_artifact(TIMED_WORDS_TARGET)
 ```
 
-*Demonstration purposes only, a feature will likely install several artifacts and stages together*
+*For demonstration purposes only, a feature will likely install several artifacts and stages together*
 
 __Stage registrations:__
 
@@ -118,13 +118,26 @@ class EnvironmentVariableRuntimeSettingSourceFeature:
 __Runtime services:__
 
 ```python
-class FileCacheFeature:
+class SharedFileArtifactStorageFeature:
     def __init__(self, root: str | Path, *, config: FileCacheProviderConfig | None = None) -> None:
         self._root = Path(root)
         self.config=config
 
     def install(self, manifest_builder: StageManifestBuilder, service_locator: "RuntimeServicesBuilder", env_settings: RuntimeSettingsBuilder) -> None:
-        service_locator.set_artifact_cache(FileCacheProvider(self._root, config=config))
+        representations = FileRepresentationStore(
+            self._root / "objects",
+            config=self.config,
+        )
+        service_locator.set_representation_store(representations)
+        service_locator.set_artifact_cache(
+            FileCacheProvider(self._root / "cache", representations)
+        )
+        service_locator.set_artifact_persistence(
+            FileArtifactPersistenceProvider(
+                self._root / "artifacts",
+                representations,
+            )
+        )
 ```
 
 
@@ -134,12 +147,26 @@ class FileCacheFeature:
 ```python
 @dataclass(frozen=True)
 class RuntimeServices:
+    representation_store: RepresentationStore
     artifact_cache: ArtifactCache
+    artifact_persistence: ArtifactPersistenceProvider
     artifact_bindings_provider_factory: ArtifactBindingsProviderFactory
     planner_factory: PlannerFactory
     runner_factory: RunnerFactory
 
+    def set_representation_store(
+        self,
+        representation_store: RepresentationStore,
+    ) -> "RuntimeServicesBuilder":
+        pass
+
     def set_artifact_cache(self, artifact_cache: ArtifactCache,) -> "RuntimeServicesBuilder":
+        pass
+
+    def set_artifact_persistence(
+        self,
+        artifact_persistence: ArtifactPersistenceProvider,
+    ) -> "RuntimeServicesBuilder":
         pass
 
     def set_artifact_bindings_provider_factory(self, factory: ArtifactBindingsProviderFactory) -> "RuntimeServicesBuilder":
@@ -152,19 +179,45 @@ class RuntimeServices:
 ```
 
 __Expected behavior:__
-- each service may be configured at most once, ensuring configured behavior is self describing without ambiguous service assignment;
+- each service may be configured at most once, ensuring configured behavior is self-describing without ambiguous service assignment;
 - if two features try to install the same service, installation/build fails with a hard configuration error;
 - if a service is never configured by any feature, `freeze()` supplies the runtime's default implementation for that slot where a default is defined;
 - the frozen `RuntimeServices` object exposes the resolved service set as an immutable runtime dependency bundle.
 
-The artifact-cache slot always has a resolved provider. When none is installed,
-the builder creates a runtime-scoped workspace provider. If the caller did not
+Representation storage, artifact cache, and durable artifact persistence are
+separate service slots. Cache and persistence share physical objects only when
+they are explicitly composed with the same representation-store instance and
+namespace.
 
-(TODO: MOVE TO  02-runtime-builder-inbuilts.md), the runtime owns a private temporary workspace and deletes
-it on close after releasing active handles. This default supports reuse across
-local runs on the runtime but does not satisfy durable-submission requirements; operations
-that require durable retention must fail capability validation unless a suitable
-provider is configured.
+The builder must reject:
+
+- two independent representation coordinators claiming the same physical
+  namespace;
+- cache and persistence providers configured with incompatible representation
+  schemas;
+- ambiguous reference or garbage-collection ownership; and
+- workers configured with inconsistent shared-store identity.
+
+When no storage feature is installed, the builder creates a runtime-scoped
+workspace representation store and cache. It may also expose a local workspace
+artifact provider for non-durable use. The runtime owns this private workspace
+and deletes it on close after releasing active handles.
+
+Workspace defaults do not satisfy shared durable-task requirements. Durable
+artifact upload and durable task submission preflight the configured
+persistence provider's restart survival, cross-worker visibility, claim,
+reservation, recovery, and retention capabilities and fail before accepting
+content/work when they are insufficient.
+
+Artifact-persistence defaults define separately:
+
+- short upload-grace TTL and allowed bounds;
+- task artifact-retention TTL and allowed bounds;
+- object/artifact size and capacity limits; and
+- operation idempotency and reservation lease policy.
+
+These defaults are not inferred from cache TTL, task-record retention, or
+active/recovery deadlines.
 
 This keeps service composition deterministic: features may replace a default by explicitly installing a service, but they may not silently override one another.
 

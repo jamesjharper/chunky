@@ -4,7 +4,7 @@
 
 `ChunkyRuntimeBuilder` should ship with a set of inbuilt feature types that cover the common bootstrap concerns:
 
-- installing a durable file based artifact cache;
+- installing a persistent file-based artifact cache;
 - installing runtime-setting sources for reading from environment variables;
 - default installing a complete set of core set of core services. 
 - installing sets of required stages for common ASR activities 
@@ -17,7 +17,9 @@ These are convenience capabilities, not a second plugin system. They exist so a 
 
 ### `FileCacheFeature`
 
-`FileCacheFeature` installs the runtime's artifact-cache runtime service using `FileCacheProvider`. This is the standard way to give a runtime a durable cache root for artifact reads and writes.
+`FileCacheFeature` installs the runtime's artifact-cache runtime service using
+`FileCacheProvider`. This gives a runtime a persistent cache root for artifact
+reads and writes; it does not install durable artifact persistence.
 
 *Conceptual shape:*
 
@@ -89,4 +91,3 @@ runtime = (
     .build()
 )
 ```
-

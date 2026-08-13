@@ -708,6 +708,29 @@ class SummaryExecutor:
 
         context.cancellation.raise_if_cancelled()
         await outputs.get_artifact(SUMMARY_DOCUMENT).write(value)
+
+
+
+class AudioAnalysisExecutor:
+    async def execute(
+        self,
+        inputs: InputArtifacts,
+        outputs: OutputArtifacts,
+        context: StageExecutionContext,
+    ) -> None:
+        context.cancellation.raise_if_cancelled()
+
+        raw = await inputs.get_artifact(SOURCE_AUDIO).next().read()
+        value: AudioAnalysis = {
+            "byte_count": len(raw),
+            "first_8_hex": raw[:8].hex(),
+            "energy_hint": sum(raw) % 100,
+        }
+
+        context.cancellation.raise_if_cancelled()
+        await outputs.get_artifact(AUDIO_ANALYSIS).write(value)
+
+
 ```
 
 Neither executor exposes stage IDs, capabilities, resource metadata, or planning hooks.

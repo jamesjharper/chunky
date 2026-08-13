@@ -26,7 +26,7 @@ The main public planning interface is `TaskRunPlanner`.
 `TaskRunPlanner` owns the manifest-scoped planning services and exposes a single request-level entry point, `plan(...)`. 
 
 A caller gives `plan(...)` 
-- the artifacts already supplied or rebound from explicit cached-root references for this request, 
+- supplied artifact bindings, including identity-only uploaded-root bindings,
 - the semantic outputs the caller wants to make available, including any caller materialization targets, 
 - and the scheduling policy that will be attached to the completed graph.
 
@@ -36,13 +36,18 @@ The planner returns a `TaskRunGraph`: an immutable, request-specific graph of co
 
 ```python
 graph = planner.plan(
-    supplied_instances=supplied,
+    supplied_bindings=supplied,
     requested_outputs=set(output_targets),
     run_policy=request.run_policy,
 )
 ```
 
-__`supplied_instances`__ contains the request roots that are already available before planning starts. These may include source artifacts, settings artifacts, or intermediate artifacts supplied by the caller, plus artifacts rebound from explicit `a-instance` cached-root locators. Supplied instances are considered before producer paths, so a supplied or rebound artifact can satisfy a requirement without adding a producing stage invocation to the graph.
+__`supplied_bindings`__ contains request roots known before planning starts.
+Local bindings may carry readable artifact instances. Durable uploaded-root
+bindings may carry only an `a-ref` and fingerprint, even when the cache entry no
+longer exists. Supplied bindings are considered before producer paths, so their
+identity can satisfy graph construction and downstream fingerprint calculation
+without eagerly opening root bytes.
 
 __`requested_outputs`__ is the set of terminal artifact IDs the caller wants from this run. Each requested output may have local materialization targets or be targetless. Planning starts from these outputs and walks backward through the stage manifest until every required input is satisfied by either a supplied instance or a planned producer invocation.
 
@@ -188,11 +193,18 @@ The proposed request context is the immutable input context used to expand one r
 
 ```python
 @dataclass(frozen=True)
+class SuppliedArtifactBinding(Generic[T]):
+    artifact_id: ArtifactKey
+    fingerprint: str
+    instance: ArtifactInstance[T] | None
+
+
+@dataclass(frozen=True)
 class TaskRequestContext:
     manifest: StageManifest
     manifest_graph: StageManifestGraph
     requested_output_ids: tuple[ArtifactKey, ...]
-    supplied_instances: dict[ArtifactKey, ArtifactInstance[Any]]
+    supplied_bindings: dict[ArtifactKey, SuppliedArtifactBinding[Any]]
     policy: PlanningRunPolicy
     request_settings: PlannerRequestSettings
 ```
@@ -201,7 +213,7 @@ The request context records:
 - the frozen stage manifest;
 - the frozen manifest graph;
 - requested output artifact IDs;
-- supplied source, settings, and intermediate artifact instances;
+- supplied source, settings, and intermediate artifact bindings;
 - scheduling policy carried for post-graph admission;
 - request settings already read from supplied
 
@@ -605,17 +617,30 @@ If no inherited setting matches, normal supplied/producer resolution continues.
 
 If more than one inherited setting can satisfy the same settings requirement, planning fails because the planner cannot deterministically choose one.
 
-If an inherited setting is selected, the corresponding supplied/default settings artifact instance must exist in `TaskRequestContext.supplied_instances`.
+If an inherited setting is selected, the corresponding supplied/default
+settings artifact must be readable from
+`TaskRequestContext.supplied_bindings`; settings are needed during planning and
+cannot be identity-only placeholders.
 
 ### 3.4 Supplied Artifacts
 
-`ProducerSelector.select_supplied(...)` checks whether a supplied artifact instance can satisfy the requested artifact selector and phase-match mode.
+`ProducerSelector.select_supplied(...)` checks whether a supplied artifact
+binding can satisfy the requested artifact selector and phase-match mode. An
+uploaded binding may contain only its `a-ref` and fingerprint; planning does not
+require its bytes to be currently resident.
 
 For phased intermediate families, a concrete supplied phase may satisfy a bounded numeric requirement according to the requirement's phase-match mode. A phase-less supplied intermediate satisfies the completed-family requirement directly.
 
-A supplied artifact becomes an `ArtifactResolution` with no producer invocation key.
+A supplied artifact becomes an `ArtifactResolution` with no producer invocation
+key. Its fingerprint is sufficient to calculate the identities of downstream
+produced artifacts and probe their cache entries.
 
-A cached-root reference is resolved before this step by the runtime or binding layer. Once it becomes an `ArtifactInstance`, producer selection treats it exactly like an ordinary supplied root. Cache availability is not searched speculatively during planning; only roots explicitly selected by the request may enter this path.
+A cached-root fingerprint is not opened merely to enter this step. After
+downstream cache resolution determines which invocations will execute, the
+runtime resolves presence only for their selected input bindings. A missing
+root is valid when every path that would consume it is satisfied by downstream
+cache hits; it is an unavailable required input when any selected invocation
+must read it.
 
 ### 3.5 Producer Selection
 
@@ -696,7 +721,11 @@ The concrete instance identity is no longer an ad hoc request-graph string. It i
 a-instance:/global/{domain}/{content_kind}/{phase-or-none}/fingerprint/{fingerprint}
 ```
 
-This means planning finalization must calculate final supplied and produced artifact fingerprints early enough to populate every planned input and output binding with a real `a-instance` locator. Durability is not encoded into that locator. A planned-but-not-yet-committed artifact and the later durable cache entry share the same concrete instance identity.
+This means planning finalization must calculate final supplied and produced
+artifact fingerprints early enough to populate every planned input and output
+binding with a real `a-instance` locator. Durability is not encoded into that
+locator. A planned-but-not-yet-committed artifact and later cache or durable
+persistence records may share the same concrete semantic instance identity.
 
 ### 4.2 Invocation Deduplication
 

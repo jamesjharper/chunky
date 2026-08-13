@@ -1,0 +1,238 @@
+package chunky:runtime;
+
+/// A caller-owned, finite, one-shot source of artifact bytes.
+///
+/// The source provider returns non-empty chunks no larger than the runtime's
+/// positive `max-byte-length`, or `end-of-source` after the final byte. A
+/// source must not return `bytes` with an empty list. Dropping the source or
+/// returning an error before `end-of-source` fails the enclosing upload.
+interface artifact-byte-source {
+  record source-error {
+    /// Binding-neutral diagnostic text. The enclosing upload reports the
+    /// stable failure code through `failure-surface`.
+    message: string,
+  }
+
+  variant source-read {
+    bytes(list<u8>),
+    end-of-source,
+  }
+
+  resource artifact-byte-source {
+    read-up-to: func(
+      max-byte-length: u64,
+    ) -> result<source-read, source-error>;
+  }
+}
+
+/// Caller-facing publication of durable immutable artifact bytes.
+///
+/// This interface is the WIT expression of
+/// `03-durable-artifacts-upload-surface.md`. It covers direct publication,
+/// resumable fixed-part uploads, and ordered live capture. HTTP bindings,
+/// provider staging, task submission, and artifact download are outside this
+/// interface.
+interface durable-artifacts-upload {
+  use artifact-byte-source.{artifact-byte-source};
+  use failure-surface.{failure};
+  use time-formats.{absolute-time, duration};
+
+  /// A structurally valid durable upload fingerprint.
+  type fingerprint = string;
+
+  /// A BLAKE3 content digest encoded in the canonical form accepted by the
+  /// runtime.
+  type content-digest = string;
+
+  /// Effective immutable-publication result. A committed artifact is
+  /// identified by `fingerprint`; provisional session identities never become
+  /// artifact identities.
+  record durable-artifact-upload-result {
+    fingerprint: fingerprint,
+    grace-retained-until: absolute-time,
+    retention-deadline: absolute-time,
+    byte-length: u64,
+  }
+
+  // -------------------------------------------------------------------------
+  // DIRECT PUBLICATION
+
+  enum source-disposition {
+    /// Leave the source path caller-owned after publication.
+    preserve,
+    /// Remove the source or complete ownership transfer only after commit.
+    consume,
+  }
+
+  /// Publishes one already-materialized immutable byte sequence.
+  publish-artifact-bytes: func(
+    artifact-bytes: list<u8>,
+    desired-grace-ttl: duration,
+    desired-retention-ttl: option<duration>,
+    fingerprint: option<fingerprint>,
+    expected-content-digest: option<content-digest>,
+  ) -> result<durable-artifact-upload-result, failure>;
+
+  /// Consumes one finite sequential source. The caller MUST NOT read from or
+  /// reuse `byte-source` after transferring ownership.
+  publish-artifact-source: func(
+    byte-source: own<artifact-byte-source>,
+    total-byte-length: option<u64>,
+    desired-grace-ttl: duration,
+    desired-retention-ttl: option<duration>,
+    fingerprint: option<fingerprint>,
+    expected-content-digest: option<content-digest>,
+  ) -> result<durable-artifact-upload-result, failure>;
+
+  /// Publishes one stable local filesystem path. An absent disposition means
+  /// `preserve`, matching the source specification's default.
+  publish-artifact-file: func(
+    path: string,
+    source-disposition: option<source-disposition>,
+    desired-grace-ttl: duration,
+    desired-retention-ttl: option<duration>,
+    fingerprint: option<fingerprint>,
+    expected-content-digest: option<content-digest>,
+  ) -> result<durable-artifact-upload-result, failure>;
+
+  // -------------------------------------------------------------------------
+  // MULTIPART STREAM
+
+  /// Opaque identity of a resumable multipart upload session.
+  type upload-session-id = string;
+
+  enum artifact-upload-state {
+    reserved,
+    receiving,
+    received,
+    finalizing,
+    committed,
+    aborted,
+    timed-out,
+    failed,
+  }
+
+  record artifact-upload-plan {
+    upload-session-id: upload-session-id,
+    /// Authoritative length of every non-final part.
+    part-size: u64,
+    part-count: u32,
+    inactivity-timeout: duration,
+    inactivity-deadline: absolute-time,
+  }
+
+  record accepted-upload-part {
+    part-number: u32,
+  }
+
+  record artifact-upload-status {
+    upload-session-id: upload-session-id,
+    state: artifact-upload-state,
+    inactivity-timeout: duration,
+    inactivity-deadline: absolute-time,
+    expected-byte-length: u64,
+    received-byte-length: u64,
+    /// Authoritative one-based part numbers not yet accepted.
+    outstanding-parts: list<u32>,
+    /// Present exactly when `state` is `committed`.
+    publication-result: option<durable-artifact-upload-result>,
+  }
+
+
+  /// Creates a resumable fixed-part upload. `total-byte-length` MUST be
+  /// positive. The returned part geometry is authoritative for the session.
+  begin-artifact-upload: func(
+    total-byte-length: u64,
+    desired-inactivity-timeout: option<duration>,
+    desired-grace-ttl: duration,
+    desired-retention-ttl: option<duration>,
+    fingerprint: option<fingerprint>,
+    expected-content-digest: option<content-digest>,
+  ) -> result<artifact-upload-plan, failure>;
+
+  /// Durably accepts one complete one-based part. Parts may arrive out of
+  /// order or concurrently; retransmission must follow authoritative status.
+  upload-artifact-part: func(
+    upload-session-id: upload-session-id,
+    part-number: u32,
+    byte-source: own<artifact-byte-source>,
+    expected-content-digest: option<content-digest>,
+  ) -> result<accepted-upload-part, failure>;
+
+  /// Returns authoritative lifecycle and accepted-part status. A successful
+  /// status request refreshes the inactivity deadline while the session is
+  /// active.
+  get-artifact-upload: func(
+    upload-session-id: upload-session-id,
+  ) -> result<artifact-upload-status, failure>;
+
+  /// Assembles, verifies, and publishes a session whose complete part set has
+  /// been accepted. Compatible retries recover the same committed result.
+  commit-artifact-upload: func(
+    upload-session-id: upload-session-id,
+  ) -> result<durable-artifact-upload-result, failure>;
+
+  /// Terminates provisional multipart state. Re-aborting an aborted session is
+  /// successful and never removes an already committed artifact.
+  abort-artifact-upload: func(
+    upload-session-id: upload-session-id,
+  ) -> result<_, failure>;
+
+  // -------------------------------------------------------------------------
+  // LIVE CAPTURE STREAM
+
+  /// Opaque identity of an ordered live-capture session.
+  type capture-session-id = string;
+
+  record accepted-live-capture-segment {
+    capture-session-id: capture-session-id,
+    inactivity-deadline: absolute-time,
+    received-byte-length: u64,
+  }
+
+  record live-capture-status {
+    capture-session-id: capture-session-id,
+    state: artifact-upload-state,
+    inactivity-timeout: duration,
+    inactivity-deadline: absolute-time,
+    received-byte-length: u64,
+    /// Present exactly when `state` is `committed`.
+    publication-result: option<durable-artifact-upload-result>,
+  }
+
+  /// Creates an ordered live capture and optionally consumes its first
+  /// segment. The capture's total length is intentionally unknown at begin.
+  begin-live-capture: func(
+    initial-byte-source: option<own<artifact-byte-source>>,
+    desired-inactivity-timeout: option<duration>,
+    desired-grace-ttl: duration,
+    desired-retention-ttl: option<duration>,
+  ) -> result<accepted-live-capture-segment, failure>;
+
+  /// Appends one finite, non-empty segment to the accepted byte prefix.
+  /// Concurrent appends are rejected rather than reordered.
+  append-live-capture-segment: func(
+    capture-session-id: capture-session-id,
+    byte-source: own<artifact-byte-source>,
+  ) -> result<accepted-live-capture-segment, failure>;
+
+  /// Returns authoritative capture lifecycle and accepted-prefix status. A
+  /// successful status request refreshes the deadline while capture is active.
+  get-live-capture: func(
+    capture-session-id: capture-session-id,
+  ) -> result<live-capture-status, failure>;
+
+  /// Optionally accepts one final segment, seals the finite representation,
+  /// verifies the optional total length, and publishes it immutably.
+  complete-live-capture: func(
+    capture-session-id: capture-session-id,
+    final-byte-source: option<own<artifact-byte-source>>,
+    total-byte-length: option<u64>,
+  ) -> result<durable-artifact-upload-result, failure>;
+
+  /// Terminates provisional capture state. Re-aborting an aborted or known
+  /// timed-out capture is successful and never removes a committed artifact.
+  abort-live-capture: func(
+    capture-session-id: capture-session-id,
+  ) -> result<_, failure>;
+}

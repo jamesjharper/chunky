@@ -70,6 +70,20 @@ Durable submission has an equivalent public boundary at atomic acceptance:
 
 Rejection before durable acceptance is a call-level failure and creates no task. `submit_task(...)` returns a `DurableSubmissionReceipt` only after acceptance commits.
 
+Acceptance structurally validates and records every durable input's `a-ref` and
+upload fingerprint with the task record and requested-output bindings. It does
+not require every referenced cache entry to be present and does not eagerly
+claim every root. A fingerprint for a deleted upload is accepted because
+downstream cache hits may make that root unnecessary.
+
+After cache evaluation determines which stages will execute, the runtime
+atomically opens and claims only their required inputs. A required input that is
+missing, expired, corrupt, incompatible, or invalid becomes a task failure. An
+unneeded input is never opened or claimed and cannot fail the task. An
+upload-grace claim is not consumed by acceptance; it may expire or be released
+independently, and is superseded by a task-input claim only if the artifact is
+actually required.
+
 If acceptance commits but cancellation, disconnection, or transport failure prevents the caller from receiving the receipt, the call may fail with an indeterminate submission outcome even though the durable task exists; the commit is not rolled back. Once the caller has a receipt, later task failures are observed through the task's terminal `RunState`.
 
 ### Task run
@@ -157,17 +171,27 @@ DurableSubmissionReceipt
   task_id: durable-task-id
   output_artifacts: sorted list<a-task>
   completion_deadline: timestamp
-  retention_duration_seconds: positive-whole-seconds
+  task_record_retention_duration_seconds: positive-whole-seconds
+  artifact_retention_duration_seconds: positive-whole-seconds
 ```
 
 **`output_artifacts`:**
 contains one immediate stable `a-task` locator for each requested output, sorted by canonical locator representation.
 
-> Note: A locator will preserve an unresolved requested phase selector.  Only after planning determines *Completed Value* can a instance becomes available .
+> A locator preserves an unresolved requested phase selector. It resolves to an
+> `a-instance` only after planning chooses a completed value and that value is
+> durably published.
 
-**`completion_deadline`** is the effective absolute active/recovery deadline. After this deadline if the task is still active it should it is automatically canceled. Tasks will also not automatically resume after this deadline, but can be restarted until the task reaches its retention duration deadline.
+**`completion_deadline`** is the effective absolute active/recovery deadline.
+If the task is still active at this deadline, expiry cleanup begins and no new
+execution attempt may start.
 
-**`retention_duration_seconds`** is the effective duration for retaining the task record after terminalization. Terminalization of a task results in all traces of this task removed from the system persistence store, but does not remove artifact cache entries.
+**`task_record_retention_duration_seconds`** is the effective duration for
+retaining the terminal task record after terminalization.
+
+**`artifact_retention_duration_seconds`** is the effective request/default
+duration applied to the task's durable artifact claims at terminalization. It
+is independent of task-record and cache retention.
 
 #### Expected usage
 
@@ -490,10 +514,16 @@ OutputState
 ```
 
 **`task_artifact_locator`:**
-This value can be used to retrieve artifact from the cache without the knowledge of the exact `a-instance` locator. This value is knowable immediately, and therefore is always present. This value should always be a canonical a-task which may retain an unresolved phase selector as per the provided `a-ref`.
+This value can be used with durable artifact persistence without knowing the
+eventual exact `a-instance` locator. It is knowable immediately and therefore
+always present. It is a canonical `a-task` and may retain the unresolved phase
+selector from the requested `a-ref`.
 
 **`artifact_instance_locator`**
-This value can be used to retrieve artifact from the cache via the `a-instance` locator. This value only becomes present once planning resolves the complete output graph and therefore is contingent on the planning phase having completed. It may remain absent after cancellation, expiry, interruption, or planning failure.
+This value can be used to retrieve the exact artifact from durable artifact
+persistence. It becomes present only after planning resolves the output and
+the representation is durably committed. It may remain absent after
+cancellation, expiry, interruption, planning failure, or execution failure.
 
 **`artifact_status`**
 The current availability status of this artifact. Can be one of the following enum values
@@ -681,8 +711,23 @@ Retaining a local terminal state does not keep the runtime, cache providers,
 or artifact query services alive. Provider-owned `a-task` resolution may expire
 independently.
 
-Durable terminal-record retention also does not determine artifact retention.
-Artifacts remain governed by cache and artifact-lifecycle contracts.
+For a durable task, active task claims protect all accepted durable inputs and
+successfully published requested outputs while the task is nonterminal. On
+success, failure, cancellation, or expiry, each such claim becomes an expiring
+artifact claim with:
+
+```text
+expires_at = terminalized_at + artifact_retention_duration
+```
+
+This transition is independent of cache policy. Active read reservations also
+block representation collection, including after the last artifact claim
+expires.
+
+A successful `a-task` binding remains resolvable while its bound artifact claim
+remains live, even if the terminal task record has already been purged. A
+pending or unsuccessful binding has no artifact instance and remains
+observable only while the task record exists.
 
 ## Cross-cutting invariants
 

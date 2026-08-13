@@ -1,0 +1,310 @@
+package chunky:runtime;
+
+/// Failure types shared by Chunky runtime interfaces.
+///
+/// This interface is the WIT expression of `07-failure-surface.md`. It owns
+/// the data-only error definitions and the support types required to interpret
+/// their machine-readable issue contexts.
+///
+/// Definition provenance:
+/// - Universal envelope and retry rules come from `07-failure-surface.md`.
+/// - Request-validation definitions come from
+///   `02-run-request-building-surface.md`, section "Build validation and
+///   ownership".
+/// - Artifact-upload definitions come from
+///   `03-durable-artifacts-upload-surface.md`, section "Failures".
+///   Operation-specific causes and retry rules remain in that owning spec.
+interface failure-surface {
+  // Source: 07-failure-surface.md, sections "Envelope" and "Retry directive".
+  record retry-directive {
+    retryable: bool,
+    /// Minimum delay before retry. When present, this MUST be positive and
+    /// `retryable` MUST be true.
+    retry-after-milliseconds: option<u64>,
+  }
+
+  /// Root failure domain. Each case is owned by the source specification
+  /// identified in the corresponding section below.
+  enum failure-kind {
+    request-validation,
+    artifact-upload,
+  }
+
+  record quota-context {
+    quota-scope: string,
+  }
+
+  // -------------------------------------------------------------------------
+  // GENERAL
+  // Source: 07-failure-surface.md for OPERATION_CANCELLED and
+  //         03-durable-artifacts-upload-surface.md for transfer-source codes.
+  // Stable codes: OPERATION_CANCELLED, TRANSFER_SOURCE_INVALID, and
+  // TRANSFER_SOURCE_EXHAUSTED.
+
+  variant general-issue-context {
+    /// `OPERATION_CANCELLED`.
+    operation,
+    /// `TRANSFER_SOURCE_INVALID` or `TRANSFER_SOURCE_EXHAUSTED`.
+    transfer-source,
+  }
+
+  // -------------------------------------------------------------------------
+  // PRINCIPAL
+  // Source: 03-durable-artifacts-upload-surface.md, section "Failures".
+  // Stable codes: PRINCIPAL_MISSING_PERMISSIONS_FOR_ARTIFACT_PUBLICATION,
+  // PRINCIPAL_MISSING_PERMISSIONS_FOR_LIVE_CAPTURE, and
+  // PRINCIPAL_ARTIFACT_STORAGE_QUOTA_EXCEEDED.
+
+  variant principal-issue-context {
+    /// `PRINCIPAL_MISSING_PERMISSIONS_FOR_ARTIFACT_PUBLICATION` or
+    /// `PRINCIPAL_MISSING_PERMISSIONS_FOR_LIVE_CAPTURE`.
+    permission,
+    /// `PRINCIPAL_ARTIFACT_STORAGE_QUOTA_EXCEEDED`.
+    artifact-storage-quota(quota-context),
+  }
+
+  // -------------------------------------------------------------------------
+  // ARTIFACT_STORAGE
+  // Source: 03-durable-artifacts-upload-surface.md, section "Failures".
+  // Stable codes: ARTIFACT_STORAGE_PROVIDER_CAPACITY_EXCEEDED,
+  // ARTIFACT_STORAGE_FAILURE, and ARTIFACT_STORAGE_QUOTA_EXCEEDED.
+
+  variant artifact-storage-issue-context {
+    /// `ARTIFACT_STORAGE_PROVIDER_CAPACITY_EXCEEDED`.
+    provider-capacity,
+    /// `ARTIFACT_STORAGE_QUOTA_EXCEEDED`.
+    quota(quota-context),
+    /// `ARTIFACT_STORAGE_FAILURE`.
+    storage-operation,
+  }
+
+  // -------------------------------------------------------------------------
+  // REQUEST_VALIDATION
+  // Source: 02-run-request-building-surface.md,
+  //         section "Build validation and ownership".
+  // Update that owning section and this group together.
+
+  enum run-policy-field {
+    prevent-concurrency,
+    constraint-concurrency-limits,
+  }
+
+  enum cache-policy-scope {
+    task,
+    artifact,
+  }
+
+  enum cache-policy-field {
+    behavior,
+    desired-ttl,
+    max-ttl,
+  }
+
+  enum artifact-retention-field {
+    artifact-retention-ttl,
+  }
+
+  record unable-to-deserialize-request {
+    violation: string,
+    field-path: string,
+  }
+
+  record unable-to-build-run-policy-request {
+    field: option<run-policy-field>,
+    /// Canonical spelling when parsing succeeded; otherwise the original
+    /// supplied string.
+    resource-constraint: option<string>,
+  }
+
+  record unable-to-build-cache-policy-request {
+    scope: cache-policy-scope,
+    /// Canonical spelling when parsing succeeded; otherwise the original
+    /// supplied string.
+    artifact-reference: option<string>,
+    field: option<cache-policy-field>,
+  }
+
+  record unable-to-build-artifact-retention-request {
+    field: artifact-retention-field,
+  }
+
+  record unable-to-build-durable-inputs-request {
+    instance-reference: option<string>,
+  }
+
+  record unable-to-build-durable-outputs-request {
+    artifact-reference: option<string>,
+  }
+
+  record unable-to-build-inputs-request {
+    artifact-reference: option<string>,
+  }
+
+  record unable-to-build-outputs-request {
+    artifact-reference: option<string>,
+    /// Zero-based index in caller declaration order when relevant.
+    target-index: option<u32>,
+  }
+
+  /// The variant discriminant is the WIT equivalent of the specification's
+  /// `context-type` field; its payload is the corresponding context object.
+  variant request-validation-context {
+    unable-to-deserialize-request(unable-to-deserialize-request),
+    unable-to-build-run-policy-request(unable-to-build-run-policy-request),
+    unable-to-build-cache-policy-request(unable-to-build-cache-policy-request),
+    unable-to-build-artifact-retention-request(unable-to-build-artifact-retention-request),
+    unable-to-build-durable-inputs-request(unable-to-build-durable-inputs-request),
+    unable-to-build-durable-outputs-request(unable-to-build-durable-outputs-request),
+    unable-to-build-inputs-request(unable-to-build-inputs-request),
+    unable-to-build-outputs-request(unable-to-build-outputs-request),
+  }
+
+  // Stable request-validation `failure-issue.code` values are:
+  // `invalid_request_shape`, `unsupported_request_version`,
+  // `invalid_artifact_reference`, `invalid_fingerprint`, `duplicate_input`,
+  // `mixed_output_form`, `duplicate_run_policy`,
+  // `invalid_resource_constraint`, `invalid_concurrency_limit`,
+  // `duplicate_artifact_retention_ttl`, `duplicate_task_cache_policy`,
+  // `duplicate_artifact_cache_policy`, `invalid_cache_behavior`,
+  // `invalid_ttl`, `ttl_requires_writing_cache`, `no_outputs`, and
+  // `targetless_output_requires_cache_write`.
+
+  // -------------------------------------------------------------------------
+  // ARTIFACT_UPLOAD
+  // Source: 03-durable-artifacts-upload-surface.md,
+  //         section "Failures".
+  // Detailed causes and retry behavior are defined earlier in that spec under
+  // multipart and live-capture operation boundaries. Update the owning spec
+  // first, then mirror its code catalog and bounded context fields here.
+
+  /// Identifies the kind of provisional upload session without conflating its
+  /// opaque identity with artifact content identity.
+  variant artifact-upload-session-identity {
+    multipart-stream(string),
+    live-capture(string),
+  }
+
+  record artifact-upload-session-context {
+    session: artifact-upload-session-identity,
+  }
+
+  record artifact-upload-rejected-option-context {
+    option-name: string,
+  }
+
+  record artifact-upload-byte-length-context {
+    expected-byte-length: u64,
+    observed-byte-length: u64,
+  }
+
+  record artifact-upload-size-limit-context {
+    max-byte-length: u64,
+  }
+
+  record artifact-upload-capture-progress-context {
+    session: option<artifact-upload-session-identity>,
+    received-byte-length: u64,
+  }
+
+  /// Timeout values use the failure envelope's millisecond convention.
+  record artifact-upload-inactivity-timeout-context {
+    requested-inactivity-timeout-milliseconds: option<u64>,
+    effective-inactivity-timeout-milliseconds: u64,
+  }
+
+  record artifact-upload-terminal-state-context {
+    session: option<artifact-upload-session-identity>,
+    terminal-state: string,
+  }
+
+  /// Narrow context alternatives derived from the bounded context fields in
+  /// the source spec's "Failures" section. The selected case carries only the
+  /// fields relevant to that issue; `empty` represents an issue with no
+  /// additional structured context.
+  variant artifact-upload-issue-context {
+    empty,
+    session(artifact-upload-session-context),
+    rejected-option(artifact-upload-rejected-option-context),
+    byte-length(artifact-upload-byte-length-context),
+    size-limit(artifact-upload-size-limit-context),
+    quota(quota-context),
+    capture-progress(artifact-upload-capture-progress-context),
+    inactivity-timeout(artifact-upload-inactivity-timeout-context),
+    terminal-state(artifact-upload-terminal-state-context),
+  }
+
+  /// Stable code catalog for the `artifact-upload` case of
+  /// `failure-issue-context`.
+  ///
+  /// Source: `03-durable-artifacts-upload-surface.md`, "Failures".
+  /// Exact stable `code` values, grouped as in that source, are:
+  ///
+  /// Common:
+  /// - `ARTIFACT_UPLOAD_SIZE_LIMIT_EXCEEDED`;
+  /// - `ARTIFACT_UPLOAD_STORAGE_PROVIDER_CAPABILITY_UNSUPPORTED`;
+  /// - `ARTIFACT_UPLOAD_LENGTH_MISMATCH`;
+  /// - `ARTIFACT_UPLOAD_DIGEST_MISMATCH`;
+  /// - `ARTIFACT_UPLOAD_DIGEST_UNSUPPORTED`;
+  /// - `ARTIFACT_UPLOAD_FINGERPRINT_INVALID`;
+  /// - `ARTIFACT_UPLOAD_FINGERPRINT_NOT_TRUSTED`;
+  /// - `ARTIFACT_UPLOAD_FINALIZATION_AMBIGUOUS`.
+  ///
+  /// Direct publication:
+  /// - `ARTIFACT_UPLOAD_INPUT_FORM_UNSUPPORTED`.
+  ///
+  /// Upload session:
+  /// - `ARTIFACT_UPLOAD_NOT_FOUND`;
+  /// - `ARTIFACT_UPLOAD_TIMED_OUT`;
+  /// - `ARTIFACT_UPLOAD_ABORTED`;
+  /// - `ARTIFACT_UPLOAD_STATE_INVALID`;
+  /// - `ARTIFACT_UPLOAD_SESSION_OWNERSHIP_INVALID`;
+  /// - `ARTIFACT_UPLOAD_QUOTA_EXCEEDED`;
+  /// - `ARTIFACT_UPLOAD_PART_INVALID`;
+  /// - `ARTIFACT_UPLOAD_MULTIPART_SIZE_LIMIT_EXCEEDED`;
+  /// - `ARTIFACT_UPLOAD_PART_LENGTH_MISMATCH`;
+  /// - `ARTIFACT_UPLOAD_PART_DIGEST_MISMATCH`;
+  /// - `ARTIFACT_UPLOAD_PART_CONFLICT`; and
+  /// - `ARTIFACT_UPLOAD_PART_SET_INCOMPLETE`.
+  ///
+  /// Live capture:
+  /// - `ARTIFACT_UPLOAD_OPTIONS_INVALID`;
+  /// - `ARTIFACT_UPLOAD_NOT_FOUND`;
+  /// - `ARTIFACT_UPLOAD_TIMED_OUT`;
+  /// - `ARTIFACT_UPLOAD_ABORTED`;
+  /// - `ARTIFACT_UPLOAD_LIVE_CAPTURE_STATE_INVALID`;
+  /// - `ARTIFACT_UPLOAD_LIVE_CAPTURE_APPEND_ALREADY_IN_PROGRESS`;
+  /// - `ARTIFACT_UPLOAD_ALREADY_SEALED`; and
+  /// - `ARTIFACT_UPLOAD_INCOMPLETE`.
+  variant failure-issue-context {
+    general(general-issue-context),
+    request-validation(request-validation-context),
+    principal(principal-issue-context),
+    artifact-storage(artifact-storage-issue-context),
+    artifact-upload(artifact-upload-issue-context),
+  }
+
+  /// One deterministic issue in the universal failure envelope. `code` and
+  /// `message` are common to every failure domain; only `context` varies.
+  /// `failure.kind` identifies the failed operation's domain. Each issue code
+  /// selects its allowed context case; a domain failure may therefore contain
+  /// general or other registered cross-cutting context categories.
+  record failure-issue {
+    code: string,
+    message: string,
+    context-type: string,
+    context: failure-issue-context,
+  }
+
+  /// Universal lossless, data-only failure envelope.
+  ///
+  /// Source: `07-failure-surface.md`, section "Envelope". `version` is
+  /// currently 1. Issue ordering and retry behavior are owned by the source
+  /// specification for the selected `kind`.
+  record failure {
+    kind: failure-kind,
+    message: string,
+    version: u32,
+    issues: list<failure-issue>,
+    retry: retry-directive,
+  }
+}

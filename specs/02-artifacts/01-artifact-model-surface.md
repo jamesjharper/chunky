@@ -1,3 +1,11 @@
+// NOTES:
+TODO: find a away to support locating artifacts which span multiple files.
+One example is, High quality recording devices can have issues with storing files larger then (2^32)-1 bytes or 4 Gb. 
+These types of devices will split files unto multiple files. Each file is a logical distinct file (its has its own valid headers, etc), whose semantic value is only value when considered as a whole. 
+;
+A stage would need to actively support this type of file to be supported, one such example would be to get audio preprocessing to merge, and reduce the file size as step.
+
+
 # Artifact Model
 An **artifact** is any typed value that enters, moves through, or leaves the runtime. Artifacts include:
 
@@ -221,7 +229,18 @@ class ArtifactInstanceLocator:
 
 The fingerprint is always paired with the semantic artifact identity. A bare fingerprint is not a complete public artifact reference because it does not carry the declaration role, schema, phase, or validation context.
 
-`a-instance` uses the final artifact fingerprint produced by the supplied-artifact or stage-produced artifact fingerprint builders. It is the concrete identity used internally for planned and produced artifacts. Planning may mint `a-instance` locators before execution when the final fingerprint is already deterministic.
+`a-instance` uses the final artifact fingerprint produced by the supplied-artifact or stage-produced artifact fingerprint builders. It is the concrete identity used internally for planned and produced artifacts. Planning may mint `a-instance` locators before execution when the final fingerprint is already deterministic.[^content-provenance-revisit]
+
+[^content-provenance-revisit]: **Design revisit:** Separate artifact content
+    identity from production provenance. Artifact fingerprints should likely
+    contain only content identity, for both supplied and stage-produced
+    artifacts, while declaration identity, stage pedigree, settings, and output
+    identity form a separate provenance/execution-cache key that resolves to
+    output content fingerprints. Under that model, upload is independent of
+    `a-ref`, may accept a caller-calculated expected content fingerprint that
+    the runtime verifies, and validates `a-ref` compatibility when the content
+    is used. This note records a coordinated redesign to revisit; the current
+    normative text has not yet been reconciled.
 
 Externally exposed `a-instance` locators are limited to committed artifacts that
 are readable through the configured provider. Non-cacheable or uncommitted
@@ -266,7 +285,7 @@ inputs={
 }
 ```
 
-### Settings role
+### Settings role:
 Settings artifacts are resolved configuration values.
 
 Settings are normal artifacts. A caller-supplied settings artifact takes precedence over the declaration default for that artifact. Declaration defaults are resolved lazily only after planning determines that the setting is relevant. Path-pushed or inherited settings are planner-owned effective-settings overlays, not a separate hidden configuration channel.
@@ -276,7 +295,9 @@ settings value is treated as a supplied graph-root value after it is resolved,
 even when the caller did not explicitly provide it. This does not imply
 publication of caller-supplied or defaulted settings.
 
-A cached settings root may be provided as an `a-instance` locator. The runtime may bind and read that cached settings value before graph planning so settings-dependent planning hooks see the same value they would see from an ordinary supplied settings source.
+A persisted settings root may be provided as an `a-instance` locator. The
+runtime may bind and read that value before graph planning, so settings-dependent planning hooks see the same value they would see from an
+ordinary supplied settings source.
 
 __Examples:__
 ```text
@@ -458,38 +479,33 @@ class AsrRepairStage:
 
 
 ### Codec
-A codec defines the canonical serialized representation at cache, process, and materialization boundaries.
+A codec defines the canonical representation used at cache, persistence,
+transfer, process, and materialization boundaries.
 
-```python
-class Codec(Protocol[T]):
-    codec_id: str
-    codec_version: int
-    mime_type: str
-    extension: str
+```text
+Codec<T>
+  representation_descriptor:
+    codec_id
+    codec_version
+    mime_type
+    extension?
 
-    async def serialize(self, value: T) -> bytes: ...
-    async def deserialize(self, raw: bytes) -> T: ...
+  encode(value: T) -> ArtifactTransferSource
+  decode(source: ArtifactTransferSource) -> T
+  validate_and_fingerprint(source: ArtifactTransferSource)
+      -> semantic-content-contribution
+  buffering_capabilities
 ```
 
 `extension` includes the leading dot, such as `.json`, `.csv`, `.wav`, or `.vtt`. It is storage metadata, not a request that the consuming stage receive a file path.
 
-```python
-class TokenBoundariesCodec:
-    codec_id = "token-boundaries-json"
-    codec_version = 1
-    mime_type = "application/json"
-    extension = ".json"
+The encoded contract uses a transfer source, not complete `bytes`. A codec
+declares whether encode, decode, and validation are incremental or require full
+typed materialization. This permits bounded-memory transfer without pretending
+that every typed artifact can itself be decoded without buffering.
 
-    async def serialize(self, value: TokenBoundaries) -> bytes:
-        return json.dumps(
-            value.to_json_value(),
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-
-    async def deserialize(self, raw: bytes) -> TokenBoundaries:
-        return TokenBoundaries.from_json_value(json.loads(raw.decode("utf-8")))
-```
+See [Artifact I/O](02-artifact-io-surface.md) for the transfer and typed-value
+capability contracts.
 
 
 ## Artifact Capabilities
@@ -634,10 +650,11 @@ class AsrRepairStage:
 
 1. Artifact IDs describe semantic meaning, not storage location or producer instance.
 2. Artifact roles are declaration-level properties and do not change when an artifact is requested as an output.
-3. A concrete cached-instance reference is an `a-instance` locator, not a bare fingerprint.
+3. A concrete semantic-instance reference is an `a-instance` locator, not a
+   bare fingerprint or storage path.
 4. Plain semantic artifact references remain the default request and planning address and serialize as `a-ref`.
-5. Supplied roots are published only through explicit cache I/O or
-   canonicalization.
+5. Supplied roots are published only through explicit upload or internal cache
+   policy; local binding alone does not publish them.
 6. Caller-supplied settings take precedence over declaration defaults.
 7. Defaults are resolved lazily only for settings relevant to the request-specific graph.
 8. Resolved defaults and cached settings roots behave like supplied graph roots after binding.

@@ -1,11 +1,22 @@
 # Bindings
 
-Bindings are the runtime objects that connect the planner's semantic artifact graph to concrete stage execution. A binding answers the question "what handle should this stage read from or write to for this artifact right now?" without forcing stage code to know whether the artifact came from a supplied source, a cache hit, an in-memory intermediate value, or a caller-provided terminal target.
+Bindings are the runtime objects that connect the planner's semantic artifact graph to concrete stage execution. A binding answers the question "what handle should this stage read from or write to for this artifact right now?" without forcing stage code to know whether the artifact came from a supplied source, durable persistence, a cache hit, an in-memory intermediate value, or a caller-provided terminal target.
 
 Bindings are needed for two reasons:
 
 1. stages require a uniform `execute(inputs, outputs)` contract even though artifact lifetimes and storage locations differ;
-2. cache lookup, fingerprinting, reservation ownership, in-memory publication, and final output materialization must happen before or after stage execution, not inside stage logic.
+2. cache and durable lookup, fingerprinting, reservation ownership, in-memory publication, and final output materialization must happen before or after stage execution, not inside stage logic.
+
+Storage location does not change the stage-facing contract. A durable source is
+adapted to the same typed `ArtifactReader` used for local and cache-backed
+sources. Representation transfer is an additional capability used by the
+runtime outside stage code; it does not expose persistence APIs to stages.
+
+The supporting storage contracts are:
+
+- [Cache Management](02-cache-management.md);
+- [Representation Store](03-representation-store.md); and
+- [Artifact Persistence](04-artifact-persistence.md).
 
 ## Stage-facing input/output collections
 
@@ -62,12 +73,21 @@ class ArtifactBindingsProvider:
 
 The result is an `ArtifactInstance` whose source handle is the caller-supplied source. No cache lookup is required to select the root because the caller has already supplied the concrete artifact content.
 
-Binding a local supplied root does not publish it to cache. Explicit cache
-publication and durable request preparation are separate I/O operations. A local
+Binding a local supplied root does not publish it to cache or durable
+persistence. Durable upload is a separate per-artifact I/O operation. A local
 binding may use private task-scoped workspace storage without creating a public
 cache instance.
 
-A supplied root may instead be an `ArtifactInstanceLocator` parsed from `a-instance`. That locator pairs the semantic artifact identity with the expected final fingerprint. Binding validates the manifest declaration and cache metadata, acquires a read reservation, and returns an `ArtifactInstance` backed by the reserved cache source. If the locator cannot be validated as a committed cache hit, binding fails before planning treats the root as available.
+A supplied root may instead be an `ArtifactInstanceLocator` parsed from
+`a-instance`. That locator pairs semantic artifact identity with the expected
+final fingerprint. When resolving through cache, binding validates the manifest
+declaration and cache metadata, acquires a read reservation, and returns an
+`ArtifactInstance` backed by the reserved cache source.
+
+For a durable locator, binding performs the equivalent validation and
+reservation through artifact persistence and adapts the returned transfer
+source to the declaration's typed reader. Localizing the representation into
+cache is an optional optimization, never a prerequisite for stage binding.
 
 Cached settings locators may be rebound and read before graph planning so the planner's settings view contains the same value it would have received from a normal supplied settings handle.
 
@@ -247,7 +267,7 @@ Non-cacheable outputs do not consult the cache. `_bind_non_cacheable_stage_outpu
 
 - the stage still writes through the same `OutputArtifacts` contract as cacheable outputs;
 - the produced value is published in memory for downstream consumers in the same task;
-- no durable cache reservation or cache hit path exists for these outputs.
+- no shared cache reservation or cache-hit path exists for these outputs.
 
 If a stage has both cacheable and non-cacheable outputs, `bind_stage_outputs` binds the cacheable outputs first and then appends the non-cacheable writers when the stage is allowed to run.
 

@@ -1,8 +1,40 @@
+TODO: need to add more concepts to this.
+
+Feels like ALL artifacts should be index by its byte digest. This is because the byte index represents 1 distinct value. 
+This SHOULD not include any information about its version, how it was derived, its codex.
+
+Then there should be an additional concept of artifact pedigree. This should be used as is currently documented. This should represent a way for artifacts to be "resolved" as precomputed.
+
+
+Also document that the digest should be calculated as "file size + BLAKE3-256"
+
+As per
+```
+let mut value = [0u8; 40];
+value[..8].copy_from_slice(&file_size.to_be_bytes());
+value[8..].copy_from_slice(&blake3_digest);
+
+let encoded =
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(value);
+```
+
 # Fingerprints
 
 ## Purpose
 
-Fingerprints identify concrete artifact instances for cache lookup, reuse, provenance, and execution-plan validation.
+Fingerprints identify concrete artifact instances for cache lookup, reuse,
+provenance, and execution-plan validation.[^content-provenance-revisit]
+
+[^content-provenance-revisit]: **Design revisit:** Separate artifact content
+    identity from production provenance. Artifact fingerprints should likely
+    contain only content identity, for both supplied and stage-produced
+    artifacts, while declaration identity, stage pedigree, settings, and output
+    identity form a separate provenance/execution-cache key that resolves to
+    output content fingerprints. Under that model, upload is independent of
+    `a-ref`, may accept a caller-calculated expected content fingerprint that
+    the runtime verifies, and validates `a-ref` compatibility when the content
+    is used. This note records a coordinated redesign to revisit; the current
+    normative text has not yet been reconciled.
 
 ## Core hash contract
 All final fingerprint builders use the same primitive:

@@ -65,7 +65,7 @@ or implicit conversion.
 Convenience APIs must not hide semantic changes, publication, data loss, or a
 durability transition.
 
-### 7. Portable contracts are strict and versioned
+### 7. Portable contracts are strict and versioned:
 
 Durable requests, run states, results, and failures use strict, canonical,
 versioned representations with stable identities, timestamps, and observable

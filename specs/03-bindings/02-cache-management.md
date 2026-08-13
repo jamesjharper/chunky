@@ -2,7 +2,14 @@
 
 ## Purpose
 
-This document defines how Chunky stores, resolves, reserves, publishes, reuses, and removes cached semantic artifacts.
+This document defines how Chunky resolves, reserves, publishes, reuses, and
+removes cached semantic artifacts.
+
+Cache entries reference immutable canonical byte objects supplied by the
+[Representation Store](03-representation-store.md). Cache is distinct from
+[Durable Artifact Persistence](04-artifact-persistence.md): it is evictable,
+recomputable execution state rather than the caller-facing retention authority
+for uploaded inputs and durable task outputs.
 
 The cache is shared coordination state across concurrently running tasks. A task may know the artifact fingerprints it needs, but the cache is responsible for ensuring that:
 
@@ -13,7 +20,10 @@ The cache is shared coordination state across concurrently running tasks. A task
 - tasks waiting for another producer can be cancelled without cancelling that producer;
 - cache hits, misses, waits, commits, failures, and recovery are explainable.
 
-Cache behavior is exposed to artifact orchestration through resolved source and target handles. Stages, `ArtifactReader`, and `ArtifactWriter` do not acquire cache locks or inspect cache storage directly.
+Cache behavior is exposed to artifact orchestration through resolved source and
+target handles. Stages and typed artifact readers do not acquire cache locks,
+inspect cache storage, or learn whether a durable source was localized into
+cache.
 
 ## Design Boundaries
 
@@ -24,7 +34,8 @@ Cache management is responsible for:
 - acquiring shared read reservations for valid hits;
 - acquiring exclusive write reservations for missing or deliberately refreshed entries;
 - returning an explicit wait result when another task owns the write reservation;
-- publishing prepared cache values atomically, including explicit artifact ingestion;
+- publishing prepared cache entries and representation-object references
+  atomically;
 - releasing reservations after commit, abort, source close, cancellation, or recovery;
 - preventing garbage collection from racing active readers and writers;
 - detecting and recovering stale reservations and incomplete entries;
@@ -39,8 +50,12 @@ Cache management is not responsible for:
 - deciding when a stage has enough resources to run;
 - waiting internally on behalf of the scheduler;
 - materializing semantic artifacts to caller-provided output paths;
+- publishing caller uploads or durable task outputs;
+- owning durable artifact claims or public `a-task` bindings;
+- physically storing or garbage-collecting representation objects;
 - calculating the production pedigree from the graph;
-- deciding whether a run request should use a source handle or cached-root reference as a graph root.
+- deciding whether a run request should use a live source handle or durable
+  instance locator as a graph root.
 
 The cache receives an already-resolved artifact declaration and expected fingerprint. Graph creation owns the calculation of production pedigree. Artifact orchestration combines that pedigree with the resolved artifact declaration to calculate the final artifact fingerprint used by the cache.
 
@@ -58,7 +73,8 @@ Task IDs, invocation IDs, file paths, temporary paths, and reservation IDs are o
 
 A caller-provided materialization path is not part of the cache key. The same semantic target artifact may be reused and materialized to different caller destinations without rerunning its producing stage.
 
-A public cached-instance reference is an `a-instance` locator. It pairs the semantic artifact identity with the final artifact fingerprint:
+A cache entry describes the same semantic instance shape as an `a-instance`
+locator. It pairs resolved artifact identity with the final fingerprint:
 
 ```python
 @dataclass(frozen=True)
@@ -68,14 +84,20 @@ class ArtifactInstanceLocator:
     projection_context: str = "global"
 ```
 
-The cache may physically index primarily by fingerprint, but public rebinding must validate both the fingerprint and the expected artifact declaration metadata. Fingerprints are not treated as untyped global object IDs. The same `a-instance` shape is used for upload deduplication, saved-task cached roots, and later retrieval of target-less or otherwise durably published requested outputs.
+The cache may physically index primarily by fingerprint, but rebinding validates
+both fingerprint and expected declaration metadata. Fingerprints are not
+untyped global object IDs.
+
+An `a-instance` is location-independent and may exist in cache, durable
+persistence, both, or neither. Cache presence alone does not make the instance a
+durable caller-facing artifact.
 
 ## Cache Entry Model
 
 A committed cache entry contains:
 
-1. the serialized artifact data;
-2. authoritative metadata describing the semantic artifact and its serialized form;
+1. authoritative semantic and representation metadata;
+2. a reference to one committed immutable representation object; and
 3. optional operational metadata used for retention, diagnostics, and recovery.
 
 Conceptually:
@@ -93,6 +115,9 @@ class CacheEntryMetadata:
     codec_version: int
     mime_type: str
     extension: str
+    representation_object_key: str
+    byte_length: int
+    byte_digest: str
 
     created_at: datetime
     last_used_at: datetime
@@ -100,7 +125,11 @@ class CacheEntryMetadata:
     producing_invocation_id: str | None = None
 ```
 
-The exact storage representation is backend-specific. A filesystem cache may use a data file plus a metadata file. A database or object-store cache may store the same fields in one record or through an immutable object plus a completion pointer.
+The semantic record layout is backend-specific, but the representation-object
+reference and its lifecycle follow
+[Representation Store](03-representation-store.md). A local provider may share
+one representation store with durable persistence so cache and durable records
+reuse bytes without copying.
 
 ### Required validation metadata
 
@@ -114,23 +143,12 @@ The following fields must match the expected artifact binding before an entry ca
 - codec version;
 - MIME type;
 - serialized extension or equivalent format identity.
+- representation-object key;
+- exact canonical byte length; and
+- BLAKE3-256 v1 representation digest.
 
-The executable file-cache example writes metadata with this shape:
-
-```python
-metadata = {
-    "artifact_id": str(declaration.artifact_id),
-    "role": declaration.role.value,
-    "version": declaration.version,
-    "codec_id": codec.codec_id,
-    "codec_version": codec.codec_version,
-    "mime_type": codec.mime_type,
-    "extension": codec.extension,
-    "fingerprint": fingerprint,
-}
-```
-
-A data object with missing, unreadable, or mismatched metadata is not a cache hit even when its storage name matches the requested fingerprint.
+An entry with missing, unreadable, mismatched, or corrupt metadata/object state
+is not a cache hit even when its storage key matches the requested fingerprint.
 
 ### Operational metadata
 
@@ -163,73 +181,40 @@ Only `committed` entries may be returned as hits.
 
 `preparing` data belongs to an active write reservation and must not be visible through normal lookup. `invalid`, `quarantined`, and `deleting` entries must not be returned as hits.
 
-The file-cache example treats the final metadata file as the completion marker. Data may be staged or even moved into its final data location first, but the entry is not considered complete until the matching metadata is atomically published.
+Entry publication is the semantic completion marker. A representation object
+may already exist, but the cache entry is not committed until its metadata and
+object reference are atomically visible.
 
-## Direct Cache I/O
+## Internal Cache Transfer I/O
 
-Publishing caller-supplied content is explicit. Local request binding does not
-publish a source merely because it is selected as an input. Direct publication
-and durable request preparation use the ordinary reservation, validation,
-prepare, commit, abort, and waiter-notification rules; they do not create a
-weaker entry class.
+Cache I/O is an internal execution/provider capability, not the durable
+upload/download API.
 
-The direct artifact-cache IO interface is a public convenience over the same semantics:
+The cache must be able to:
 
-```python
-class ArtifactCacheIO(Protocol):
-    async def publish(
-        self,
-        declaration: ArtifactDeclaration[T],
-        source: ArtifactSourceHandle[T],
-        *,
-    ) -> ArtifactInstanceLocator: ...
+- expose a validated reserved hit as typed and canonical transfer capabilities;
+- prepare a miss from a stable canonical transfer source;
+- attach an already committed compatible representation object;
+- promote a trusted cache instance into durable persistence; and
+- accept transparent localization from a durable source.
 
-    async def open(
-        self,
-        locator: ArtifactInstanceLocator,
-    ) -> ArtifactInstance[T]: ...
-```
+Independent caller upload, upload-grace claims, public `a-task` resolution, and
+download belong to the runtime artifact-persistence service.
 
-`publish` computes the supplied-artifact fingerprint, commits the source under
-that fingerprint, and returns its structured `a-instance` locator. It uses the
-ordinary artifact I/O contract; no separate streaming or bounded-memory
-guarantee is required. Providers may optimize transfer internally, but transfer
-capabilities and source-consumption semantics are outside this contract. `open`
-validates semantic identity and fingerprint,
-acquires a normal read reservation, and returns a cache-backed source handle.
-Neither operation exposes backend paths, object-store keys, reservations, or
-raw lock records.
+Cache localization is optional. A durable instance is directly bindable as a
+stage source, so failure to create an optional cache copy does not make a valid
+durable input unavailable.
 
-A cached root opened by locator changes availability, not graph semantics. Once opened, it behaves like an ordinary supplied root. Cached settings roots may be opened and read before graph planning so settings-dependent planning hooks receive their values.
+## Task and Provenance Metadata
 
-This direct cache IO surface is also the foundation for later requested-output retrieval. Results and output-availability events should expose an externally retrievable `a-instance` locator only after the cache entry is committed and validated. A future existence preflight may check whether a concrete `a-instance` already exists before uploading content, but that optimization is outside this version.
+The cache may record producing task, invocation, stage, and task-relative
+provenance for diagnostics and recovery. Such metadata does not define the
+public durable `a-task -> a-instance` lifecycle.
 
-## Task-instance relations
-
-The cache stores a TTL-bound, untyped relation:
-
-```text
-(task_id, task_a_ref) -> (resolved_canonical_a_ref, fingerprint)
-```
-
-`task_a_ref` is the stable requested output reference embedded in `a-task` and
-may contain `any`. The value uses the fully resolved final-graph identity,
-including projection, domain, content kind, and concrete phase. The resulting
-`a-instance` is reconstructed from that identity and fingerprint.
-
-A relation is written only for a committed readable entry, whether obtained as
-a hit or newly produced. It does not pin the entry and has a task-history TTL
-independent of entry lifetime. Entry expiry can therefore make an old `a-task`
-unresolvable.
-
-For one task-facing artifact reference, at most one effective mapping exists.
-Conflicting mappings fail rather than overwrite one another. A recovery attempt
-may replace an incompatible stale mapping only while the task remains
-nonterminal; terminal mappings are immutable until their history expires.
-
-Local tasks may use the same relation, but resolution lasts only as long as the
-provider's task history and entry. The default workspace provider does not make
-these locators survive runtime shutdown.
+Successful durable task-output bindings and their artifact claims belong to
+[Durable Artifact Persistence](04-artifact-persistence.md). A cache entry may
+expire while the corresponding durable artifact remains available, or remain
+cached after a task-specific durable claim expires.
 
 ## Request cache modes
 
@@ -249,6 +234,24 @@ A resolved TTL is a best-effort retention request. A successful cache read or
 new output commit refreshes the entry's expiry from that event. The TTL never
 shortens a task retention claim or overrides provider limits.
 
+### Required-root availability
+
+An uploaded-root fingerprint remains valid identity information after its cache
+entry is evicted. Artifact orchestration may use that fingerprint to derive and
+probe downstream artifact identities without first opening the root entry.
+
+For each invocation, orchestration resolves the invocation's cacheable outputs
+before acquiring its inputs. When acceptable output hits satisfy the invocation,
+the invocation is skipped and its inputs are not checked for presence. Only an
+invocation that will execute causes its selected inputs to be opened and given
+read reservations. A missing required input then fails the task; a missing root
+used exclusively by skipped invocations is non-failing.
+
+This ordering permits short retention for large uploaded roots and longer
+retention for small derived intermediates. Eviction removes bytes and metadata;
+it does not invalidate the caller's fingerprint or require eager rejection of a
+request that carries it.
+
 ## Cache Resolution Contract
 
 Artifact orchestration asks the cache to resolve one expected artifact fingerprint.
@@ -261,7 +264,7 @@ class CacheHit(Generic[T]):
 
 @dataclass(frozen=True)
 class CacheWriteReservation(Generic[T]):
-    target_handle: ArtifactTargetHandle[T]
+    target_handle: ArtifactTransferTarget
 
 
 class CacheWaitHandle(Protocol):
@@ -287,8 +290,10 @@ class ArtifactCache(Protocol):
 
 `resolve` returns exactly one of three outcomes:
 
-- `CacheHit`: a valid committed entry exists and the returned source handle already owns a read reservation;
-- `CacheWriteReservation`: the caller owns the exclusive right to prepare and commit that fingerprint through the returned target handle;
+- `CacheHit`: a valid committed entry exists and the returned source handle
+  already owns a read reservation and exposes the canonical transfer source;
+- `CacheWriteReservation`: the caller owns the exclusive right to prepare and
+  commit that fingerprint from a canonical transfer source;
 - `CacheWait`: another producer owns the write reservation and the caller must not start a duplicate producer.
 
 The result contains the reservation-owning handle. A separate lock acquisition step must not be required after `resolve` returns.
@@ -314,7 +319,8 @@ An invalid or mismatched entry is treated as unavailable. The backend may quaran
 
 ### Force-write resolution
 
-`force_write=True` deliberately ignores an existing completed entry, but it does not bypass write exclusivity.
+`force_write=True` deliberately ignores an existing completed entry for stage
+selection, but it does not bypass write exclusivity or instance immutability.
 
 ```text
 1. ignore an existing completed hit for selection purposes
@@ -325,14 +331,22 @@ An invalid or mismatched entry is treated as unavailable. The backend may quaran
 
 The demonstrated artifact runtime uses force-write only after a stage output set resolves to a partial cache hit. The stage is rerun and its complete cacheable output set is refreshed together.
 
-Force-write does not create a new semantic identity. The replacement is written under the same expected fingerprint and therefore is valid only for deterministic cacheable artifacts. An implementation must never allow force-write to create two concurrent writers for the same fingerprint.
+Force-write does not create a new semantic identity. Recomputed canonical bytes
+must match an existing valid entry for that fingerprint:
 
-An older committed generation may already have active readers when force-write begins. The backend must either:
+- matching representation identity and digest are an idempotent reuse;
+- a missing, invalid, or corrupt record may be repaired using fully validated
+  exact content; and
+- different valid bytes under the same fingerprint are a nondeterminism,
+  canonicalization, or fingerprint-integrity conflict.
 
-- keep the older immutable generation readable until those source handles close; or
-- delay replacement until the older generation has no readers.
+`REFRESH` or `OVERWRITE` means force recomputation/validation, not permission to
+overwrite one semantic identity with different bytes. An implementation must
+never allow two concurrent writers for the same fingerprint.
 
-It must not replace bytes underneath an active cache source handle.
+An older invalid generation may already have active readers when repair begins.
+The provider must keep their reserved immutable object readable until close or
+delay detachment. It must never replace bytes underneath an active source.
 
 ### Atomicity of `resolve`
 
@@ -374,22 +388,19 @@ The reservation ID is operational identity. The cache entry remains keyed by art
 
 ### Cache source handle
 
-A cache hit returns an `ArtifactSourceHandle` that already owns the read reservation:
+A cache hit returns an `ArtifactSourceHandle` that already owns the read
+reservation and composes:
 
-```python
-class CacheSourceHandle(ArtifactSourceHandle[T]):
-    async def get_value(self, codec: Codec[T]) -> T: ...
+- a reopenable canonical transfer source for the immutable representation
+  object; and
+- a typed value source through the declaration codec adapter.
 
-    async def get_content_fingerprint(self, codec: Codec[T]) -> str:
-        # The final semantic fingerprint was validated before this handle existed.
-        return ""
+The final semantic fingerprint, representation identity, length, and digest are
+validated before the handle exists. The transfer source need not recalculate a
+supplied-content fingerprint.
 
-    async def close(self) -> None:
-        # Idempotently release the read reservation.
-        ...
-```
-
-The source handle may deserialize data lazily. Its reservation must already be active even when the first read has not happened yet.
+The source handle may decode lazily. Its reservation is active even when the
+first stream/read has not happened yet.
 
 `ArtifactReader` does not acquire or release the reservation. It only delegates to the bound source handle and may memoize the typed value for the invocation.
 
@@ -454,19 +465,13 @@ Write reservations should be inspectable by fingerprint and owner task, invocati
 
 ### Cache target handle
 
-A cache write reservation returns an `ArtifactTargetHandle` with this lifecycle:
+A cache write reservation returns an `ArtifactTransferTarget` with the lifecycle
+defined by [Artifact IO](../02-artifacts/02-artifact-io-surface.md):
 
-```python
-class ArtifactTargetHandle(Protocol[T]):
-    async def prepare(
-        self,
-        value: T,
-        codec: Codec[T],
-        fingerprint: str,
-    ) -> None: ...
-
-    async def commit(self) -> None: ...
-    async def abort(self) -> None: ...
+```text
+prepare_from(canonical_transfer_source, expected_instance)
+commit()
+abort()
 ```
 
 State model:
@@ -481,45 +486,44 @@ The reservation remains active throughout `reserved` and `prepared`.
 
 ### Prepare
 
-`prepare(value, codec, fingerprint)` serializes or stages the artifact without making it visible as a committed hit.
+`prepare_from(...)` ingests or attaches one stable canonical representation
+without making the cache entry visible as a hit.
 
-A file-backed cache should write to temporary paths. A database cache may write an uncommitted row or a generation not yet referenced by the committed entry record.
+A file-backed provider may atomically adopt a Chunky-owned temporary file into
+its representation store, attach an existing object, use reflink/native copy,
+or stream into staging. A database/object provider may create an unreferenced
+object or uncommitted generation.
 
 Preparation should stage both:
 
-- serialized artifact data;
-- authoritative metadata for the expected declaration, codec, and fingerprint.
+- a validated immutable representation object or reference; and
+- authoritative metadata for the expected declaration, representation, and
+  fingerprint.
 
 If preparation fails, the caller aborts the target and the entry remains unavailable.
 
 ### Commit
 
-`commit()` publishes the prepared entry atomically where possible and releases the write reservation.
+`commit()` atomically publishes the cache record plus its
+representation-object reference and releases the write reservation.
 
-The cache must not report a hit before the complete entry is visible. In the file-cache example:
-
-```text
-1. atomically move the prepared data into its final data path
-2. atomically move the prepared metadata into its final metadata path
-3. treat metadata publication as the completion marker
-4. release the write reservation
-5. wake waiting tasks
-```
-
-A production backend should avoid exposing mixed data and metadata generations during replacement. This may be implemented using immutable generation directories, transactional records, or an atomic completion pointer.
+The cache must not report a hit before the complete record/reference is visible.
+A production backend may use a database transaction, atomic manifest/pointer, or
+another provider-coordinated protocol. Physical object publication follows the
+representation-store contract.
 
 `commit()` must be idempotent after successful commit.
 
 ### Abort
 
-`abort()` removes staged data and metadata, releases the write reservation, and wakes waiters.
+`abort()` releases staged/reference state, the write reservation, and waiters.
+It never deletes a representation object still referenced elsewhere.
 
 Abort is required when:
 
 - the stage fails;
 - task cancellation is observed before commit;
 - the stage does not write a requested output;
-- another semantic target fails during preparation;
 - a multi-output resolution pass is abandoned because another output must wait;
 - a partial cache hit causes the full cacheable output set to be reacquired for force-write;
 - recovery determines that the writer is stale.
@@ -530,7 +534,8 @@ Abort is required when:
 
 Only the reservation-owning cache target handle, or conservative recovery acting on a stale owner, releases a live write reservation.
 
-`ArtifactWriter` invokes target `commit()` or `abort()`, but it does not need to know that a target is cache-backed.
+Artifact orchestration invokes target `commit()` or `abort()` but does not need
+to know the concrete cache backend.
 
 ## Cache Waits
 
@@ -767,84 +772,46 @@ ArtifactInstance(
 )
 ```
 
-The producing stage does not receive a writer for this output.
+The source exposes:
+
+- a typed value capability through the declaration codec adapter; and
+- the reserved canonical transfer source.
+
+The producing stage does not receive a writer for this output. If the requested
+output belongs to a durable task, runtime publication promotes or transfers the
+trusted cache instance into durable persistence before reporting it available.
 
 ### Cache-miss artifact handle
 
-A cacheable output that must be produced is bound to two semantic targets:
+A cacheable produced value is encoded or staged once. The cache target prepares
+from that stable canonical representation source. In-memory value publication
+may receive the typed value directly.
 
-```python
-publication = IntermediateArtifactHandle[T]()
+When durable persistence and cache both need the output:
 
-ArtifactHandle(
-    declaration=declaration,
-    fingerprint=fingerprint,
-    source=publication,
-    targets=(
-        resolution.target_handle,  # durable cache target
-        publication,               # same-process source after commit
-    ),
-)
-```
+1. the codec exposes or creates one canonical representation source;
+2. a one-shot representation is staged once when several targets need it;
+3. durable and cache targets independently prepare from that snapshot; and
+4. no target independently invokes whole-value serialization.
 
-Target order is significant:
-
-1. the durable cache target commits first;
-2. the in-memory publication target commits last.
-
-Downstream stages therefore cannot observe the produced value before durable cache publication succeeds.
-
-### Prepare-all-before-commit
-
-`ArtifactWriter` prepares every bound semantic target before committing any target:
-
-```python
-prepared = []
-try:
-    for target in handle.targets:
-        await target.prepare(value, codec, fingerprint)
-        prepared.append(target)
-
-    for target in handle.targets:
-        await target.commit()
-except BaseException:
-    for target in reversed(prepared):
-        await target.abort()
-    raise
-```
-
-This prevents one target from becoming visible when another target could not even stage the same semantic value.
-
-Once commit begins, cross-target rollback is not always possible. The binding order is chosen so durable semantic publication succeeds before same-process availability.
+Target commit authority comes from the runtime publication plan. For a durable
+requested output, durable commit plus its task claim is authoritative. Cache
+publication is a separate reuse concern and cannot make an output durable.
 
 ## Semantic Commit and Caller Materialization
 
-The semantic cache entry and caller-provided output target are separate lifecycles.
+Semantic artifact publication, cache reuse, and caller materialization are
+separate lifecycles.
 
-A producing stage writes only semantic targets:
-
-- durable cache target, when cacheable;
-- in-memory publication target, when required for this task.
-
-Caller file, stream, object, or diagnostic sinks are materialized after the semantic artifact is available.
-
-```python
-reader = ArtifactReader(semantic_instance.handle)
-value = await reader.read()
-
-materialization_handle = ArtifactHandle(
-    declaration=semantic_instance.handle.declaration,
-    fingerprint=semantic_instance.fingerprint,
-    source=semantic_instance.handle.source,
-    targets=(caller_target,),
-)
-await ArtifactWriter(materialization_handle).write(value)
-```
+Caller file, stream, object, or diagnostic sinks are materialized after the
+semantic source is available. Materialization should use the canonical transfer
+source when the target supports it and decode to a typed value only when needed.
 
 This separation has several consequences:
 
 - a cache hit can be materialized to a new destination without rerunning the stage;
-- a newly produced semantic artifact is cached before downstream use or caller materialization;
+- a newly produced durable output may remain valid when optional cache
+  publication fails;
 - failure to materialize a caller target does not invalidate a valid semantic cache entry;
 - a subsequent task may reuse the semantic cache entry and retry only materialization;
 - caller target paths do not influence semantic fingerprints.
@@ -885,22 +852,30 @@ If cache preparation fails:
 If commit fails before the completion marker is published:
 
 - the entry is not a hit;
-- temporary or partial data is removed or quarantined;
+- temporary semantic state and unattached object references are removed or
+  quarantined;
 - the write reservation is released;
 - waiters retry and may acquire replacement production rights.
 
-If the cache target commits successfully but in-memory publication later fails, the durable cache entry remains valid. The current task may recover the value by resolving the cache again or may fail according to runner policy.
+If the cache target commits successfully but another local publication later
+fails, the cache entry remains valid. It is not a durable task output unless the
+artifact-persistence service also committed the corresponding durable record.
+
+For a durable requested output, failure of optional cache population after
+durable commit is diagnostic and does not invalidate the durable artifact.
 
 ### Cache read failure
 
-A cache source may fail while reading or deserializing data even after metadata validation, for example because of external corruption.
+A cache source may fail while reading or decoding data even after metadata
+validation, for example because its shared representation object became
+corrupt.
 
 The runner should:
 
 ```text
 1. close the source handle and release its read reservation
 2. report the cache-read or artifact-validation failure
-3. mark or quarantine the entry as invalid when the backend supports it
+3. mark or quarantine the shared representation object and affected entry
 4. re-resolve or fail according to task policy
 ```
 
@@ -958,7 +933,7 @@ Conceptually:
 1. select candidate
 2. atomically verify no read/write reservations
 3. mark candidate deleting or acquire deletion lease
-4. remove data and metadata
+4. remove the cache record and detach its representation-object reference
 5. remove deletion record
 ```
 
@@ -968,14 +943,13 @@ A new resolver must not acquire a source from an entry already claimed for delet
 
 Garbage collection or recovery should also remove:
 
-- abandoned temporary data files;
-- abandoned temporary metadata files;
-- unreferenced immutable generations;
-- data without a valid completion marker;
-- metadata without matching data;
+- abandoned cache-entry preparation records;
+- semantic metadata without an attached committed representation object;
+- detached references left by interrupted entry deletion;
 - invalid entries whose quarantine retention has expired.
 
-These objects are not normal committed cache entries and do not require semantic LRU treatment.
+Representation-object staging, physical orphans, and unreferenced object
+generations are recovered by the representation store.
 
 ## Recovery
 
@@ -998,13 +972,14 @@ It must not release a reservation solely because it is old when the owning task 
 For a stale write reservation, recovery inspects the entry state:
 
 ```text
-valid committed data + matching completion metadata
+valid committed representation object + matching cache record
     -> retain the committed entry
        release the stale reservation
        notify waiters
 
-prepared or partial data without a valid completion marker
-    -> discard or quarantine partial data
+prepared cache state without a valid committed record
+    -> discard or quarantine semantic preparation
+       detach uncommitted object references
        release the stale reservation
        notify waiters
 
@@ -1015,7 +990,9 @@ ambiguous or mismatched data
        notify waiters
 ```
 
-A backend may finalize a completed artifact only when it can prove that the same atomic commit protocol had completed. It must not infer completeness from the presence of a data file alone.
+A backend may finalize a completed entry only when it can prove that the
+record/reference commit protocol completed. It must not infer cache validity
+from the presence of a representation object alone.
 
 ### Wait recovery
 
@@ -1025,16 +1002,17 @@ After a stale write reservation is released, waiting tasks are notified or becom
 
 ### Startup scan
 
-A durable filesystem backend should inspect at least:
+A durable or multi-process cache backend should inspect at least:
 
 - reservation records or leases;
-- temporary data and metadata;
-- final metadata without data;
-- final data without valid metadata;
-- mismatched metadata;
-- obsolete immutable generations.
+- prepared cache records;
+- cache records without valid representation-object references;
+- detached or mismatched references; and
+- invalid/corrupt entry metadata.
 
-The scan may be incremental, but invalid objects must remain unavailable until inspected.
+The representation store separately scans physical object and staging state.
+The scan may be incremental, but invalid entries remain unavailable until
+inspected.
 
 ## Events and Diagnostics
 
@@ -1090,7 +1068,19 @@ The implementation distinguishes:
 - supplied artifact fingerprints, derived from declared identity plus supplied semantic content;
 - stage-produced artifact fingerprints, derived from declared identity and codec plus production pedigree.
 
-The produced artifact value is not serialized and hashed again merely to create its cache key.
+The produced artifact value is not serialized and hashed again merely to create
+its cache key.[^content-provenance-revisit]
+
+[^content-provenance-revisit]: **Design revisit:** Separate artifact content
+    identity from production provenance. Artifact fingerprints should likely
+    contain only content identity, for both supplied and stage-produced
+    artifacts, while declaration identity, stage pedigree, settings, and output
+    identity form a separate provenance/execution-cache key that resolves to
+    output content fingerprints. Under that model, upload is independent of
+    `a-ref`, may accept a caller-calculated expected content fingerprint that
+    the runtime verifies, and validates `a-ref` compatibility when the content
+    is used. This note records a coordinated redesign to revisit; the current
+    normative text has not yet been reconciled.
 
 ### Stable structured hashing
 
@@ -1125,31 +1115,22 @@ supplied_artifact_fingerprint = hash(
 )
 ```
 
-The source implementation builds it as:
+Conceptually:
 
-```python
-async def build_supplied_artifact_fingerprint(
-    declaration: ArtifactDeclaration[T],
-    source_handle: ArtifactSourceHandle[T],
-) -> str:
-    content_fingerprint = await source_handle.get_content_fingerprint(
-        declaration.codec
-    )
-    return stable_hash(
-        {
-            "artifact": {
-                "artifact_id": str(declaration.artifact_id),
-                "role": declaration.role.value,
-                "version": declaration.version,
-            },
-            "content": content_fingerprint,
-        }
-    )
+```text
+canonical_source = source_handle.transfer_source
+  or declaration.codec.encode(source_handle.read())
+
+content_contribution =
+  declaration.codec.validate_and_fingerprint(canonical_source)
+
+supplied_artifact_fingerprint = stable_hash(
+  artifact identity,
+  content_contribution,
+)
 ```
 
-`get_content_fingerprint(codec)` returns the content contribution, not the final artifact fingerprint.
-
-The source handle defines semantic content equality. Examples:
+The declaration codec/validator defines semantic content equality. Examples:
 
 - raw file bytes, when byte identity is the contract;
 - canonical decoded PCM plus relevant audio metadata;
@@ -1157,6 +1138,11 @@ The source handle defines semantic content equality. Examples:
 - normalized table rows for a supplied intermediate artifact.
 
 If the content canonicalization algorithm changes, its version must affect the content contribution or the final payload.
+
+One-shot sources may be staged once so validation and later reads use the same
+stable snapshot. Durable upload may bind the final supplied fingerprint only
+after staging completes; planned stage-produced outputs continue to know their
+pedigree fingerprint before target binding.
 
 ### Resolved settings fingerprints
 
@@ -1421,30 +1407,37 @@ It does not change because:
 1. The final artifact fingerprint is the primary cache lookup key.
 2. A matching key is a hit only after exact metadata validation.
 3. `resolve` atomically returns a reserved hit, an exclusive writer, or a wait.
-4. Reservation ownership is encapsulated by cache-backed source and target handles.
-5. Readers and writers never perform cache lookup or lock acquisition themselves.
+4. Every committed cache entry atomically references one committed immutable
+   representation object.
+5. Reservation ownership is encapsulated by cache-backed source and target
+   handles.
 6. A cache source releases its read reservation through idempotent `close()`.
-7. A cache target releases its write reservation through idempotent `commit()` or `abort()`.
+7. A cache target ingests a canonical transfer source and releases its write
+   reservation through idempotent `commit()` or `abort()`.
 8. Prepared or partial data is never returned as a hit.
-9. The durable cache target commits before same-process publication.
-10. Caller materialization is separate from semantic cache commit.
-11. A materialization failure does not invalidate a committed semantic entry.
-12. Cache waits are cancellation-aware and never cancel the owning writer.
-13. Wait completion always causes re-resolution rather than assuming a hit.
-14. A stage holds no provisional write reservations while waiting for another output.
-15. Partial cache hits refresh the complete cacheable output set under the demonstrated default policy.
-16. Garbage collection cannot delete an entry with active read or write reservations.
-17. Recovery never promotes uncertain partial data to a cache hit.
-18. Supplied artifacts are fingerprinted from identity plus semantic content.
-19. Stage-produced artifacts are fingerprinted from resolved identity and codec plus production pedigree.
-20. Fingerprint aggregation is deterministic and order-stable.
-21. Caller-supplied live roots are published only through an explicit cache-I/O
-    or durable-preparation operation.
-22. Direct cache IO uses artifact declarations and handles, not backend paths or raw cache keys.
-23. Direct cache writes obey the same correctness and atomicity rules as run-time cache publication.
-24. A cached-instance reference is an `a-instance` locator; rebinding validates both artifact identity and fingerprint.
-25. Cached settings roots may be opened before planning when explicitly supplied by `a-instance` locator.
-26. Externally retrievable `a-instance` locators are exposed only after durable commit.
-27. Upload deduplication and future artifact-existence preflight use the same `a-instance` identity.
-28. Task-instance relations are written only for committed readable entries and
-    never pin those entries.
+9. Multiple cache/durable targets reuse one stable encoded snapshot.
+10. A valid cache entry cannot be replaced by different bytes under the same
+    semantic fingerprint.
+11. Caller materialization is separate from cache publication.
+12. A materialization failure does not invalidate a committed cache entry.
+13. Durable output availability requires durable publication, not a cache
+    commit.
+14. Cache waits are cancellation-aware and never cancel the owning writer.
+15. Wait completion always causes re-resolution rather than assuming a hit.
+16. A stage holds no provisional write reservations while waiting for another
+    output.
+17. Partial cache hits refresh the complete cacheable output set under the
+    demonstrated default policy.
+18. Garbage collection cannot delete an entry with active read/write
+    reservations and detaches only that entry's object reference.
+19. Recovery never promotes uncertain semantic or object state to a cache hit.
+20. Supplied artifacts are fingerprinted from identity plus declaration-defined
+    semantic content.
+21. Stage-produced artifacts are fingerprinted from resolved identity, codec,
+    and production pedigree.
+22. Fingerprint aggregation is deterministic and order-stable.
+23. Cache localization of a durable source is optional and invisible to stages.
+24. Trusted committed cache instances may be promoted to durable persistence
+    without re-encoding or semantic re-fingerprinting.
+25. Public upload, download, claims, and successful `a-task` bindings do not
+    belong to cache management.

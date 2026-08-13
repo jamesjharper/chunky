@@ -57,7 +57,9 @@ a-task:/global/{domain}/{content_kind}/{requested-phase}/task/{task_id}
 The declaration-level semantic artifact reference surface. It may be written as canonical `a-ref:/...` or, in caller-facing examples, as a short path such as `source/audio` or `transcript/token_text/100`. It may use `any` for unresolved phase selection.
 
 ### Artifact Instance Locator
-The `a-instance` URI surface for a concrete artifact instance. It pairs resolved artifact identity with the final artifact fingerprint.
+The `a-instance` URI surface for one immutable semantic artifact instance. It
+pairs resolved artifact identity with the final semantic artifact fingerprint;
+it does not identify a cache location or physical representation object.
 
 ### Task Artifact Locator
 The `a-task` URI surface for a task-scoped requested-output binding. It carries
@@ -101,13 +103,27 @@ The rule that the stage or shared package defining an artifact schema is the aut
 An optional declaration component that supplies a default settings value.
 
 ### Codec
-The serialization contract for an artifact at cache, process, and materialization boundaries. A codec defines `codec_id`, `codec_version`, `mime_type`, `extension`, `serialize`, and `deserialize`.
+The conversion and validation contract between a typed artifact value and its
+canonical representation. A codec defines a representation descriptor,
+`encode`, `decode`, `validate_and_fingerprint`, and explicit buffering
+capabilities. Its encoded interface uses transfer sources rather than requiring
+complete byte arrays.
+
+### Canonical Representation
+The declaration-owned logical byte form used for cache, persistence, transfer,
+and materialization. Chunk boundaries, physical layout, and provider-specific
+storage encoding are not semantic.
+
+### Representation Descriptor
+The stable identity of a canonical representation format, including codec ID,
+codec version, media type, and optional extension.
 
 ### Extension
 Storage metadata exposed by a codec, including its leading dot such as `.json` or `.vtt`. It does not imply that a consumer receives a file path.
 
 ### Cacheable
-The declaration property indicating whether an artifact may be reused from durable cache.
+The declaration property indicating whether an artifact may be reused through
+the runtime cache. It does not determine durable publication.
 
 ## Planning Terms
 
@@ -147,10 +163,31 @@ The fully evaluated artifact identity on a handle, after phase selection and ter
 The available semantic artifact associated with one resolved artifact handle.
 
 ### Artifact Source Handle
-The runtime object representing one selected readable source for a concrete artifact value.
+The runtime object representing one selected readable source. It may expose a
+typed value source, a canonical transfer source, or both.
 
 ### Artifact Target Handle
-The runtime object representing one selected writable destination for a concrete artifact value.
+The runtime object representing one selected writable destination. It may
+expose a typed value target, a canonical transfer target, or both.
+
+### Artifact Transfer Source
+A source of canonical representation bytes. Its portable form is a pull-based
+asynchronous stream; it also declares replayability, ownership disposition, and
+optional provider-native transfer offers.
+
+### Artifact Transfer Target
+A transactional destination for canonical representation bytes. It prepares
+from a source, then commits or aborts. The target selects streaming, copy,
+clone, rename, multipart, or another safe provider operation.
+
+### Representation Object
+An immutable stored canonical representation addressed by representation digest
+and byte length. Semantic cache and durable records refer to it.
+
+### Durable Artifact Claim
+A persistence-owned retention reference protecting a durable semantic artifact
+record. Upload-grace, active-task, terminal-task, and administrative claims may
+have different lifecycles.
 
 ### Source
 The readable binding on an artifact handle. Inputs have one resolved source, and cache-hit outputs may also expose a source.
@@ -177,10 +214,13 @@ A binding that reuses an existing semantic source while adding caller-requested 
 An output case where the artifact is already available in cache, so the producing stage can be skipped.
 
 ### Read Reservation
-A cache-owned reservation that keeps a cache source safely readable while a task is still consuming it.
+A provider-owned reservation that keeps a representation safely readable while
+a consumer is using it. Garbage collection must not delete the representation
+while any read reservation is active.
 
 ### Write Reservation
-A cache-owned reservation that protects a cache target while a stage is preparing or committing output.
+A provider-owned reservation that protects an unpublished target while content
+is being prepared or committed.
 
 ### Content Fingerprint
 The source-handle contribution that represents semantic content equality for supplied inputs. It is not always the final artifact fingerprint.
@@ -188,8 +228,10 @@ The source-handle contribution that represents semantic content equality for sup
 ### Artifact Fingerprint
 The final identity hash for a concrete artifact instance. Supplied inputs derive it from content, while produced artifacts may derive it from pedigree.
 
-### Cached Artifact Reference
-A concrete public reference to a committed cache instance. It pairs the semantic artifact ID with the final artifact fingerprint; a bare fingerprint is not a complete public reference.
+### Artifact Instance Reference
+A concrete public semantic reference to an immutable artifact instance. It
+pairs the semantic artifact ID with the final artifact fingerprint; a bare
+fingerprint is not a complete public reference.
 
 ### Bootstrap
 The point where a handle becomes fully assembled with declaration, fingerprint, and resolved source or targets.
@@ -200,10 +242,13 @@ The point where a handle becomes fully assembled with declaration, fingerprint, 
 The runtime reader bound to a complete input artifact handle. It reads a typed value from the handle's source and may memoize it for the invocation.
 
 ### Artifact Writer
-The runtime writer bound to a complete output artifact handle. It prepares all semantic targets, commits them in order, and aborts prepared targets on failure.
+The runtime writer bound to a complete output artifact handle. It creates one
+canonical representation, prepares compatible semantic targets from it,
+commits them in order, and aborts prepared targets on failure.
 
 ### Prepare
-The target-handle lifecycle step that stages a value without publishing it as complete.
+The target-handle lifecycle step that stages artifact content without
+publishing it as complete.
 
 ### Commit
 The target-handle lifecycle step that publishes the prepared value and releases any reservation.
@@ -212,7 +257,8 @@ The target-handle lifecycle step that publishes the prepared value and releases 
 The target-handle lifecycle step that discards prepared output and releases any reservation when publication does not complete.
 
 ### Semantic Target
-A target that makes the artifact itself available to the system, such as the durable cache target or in-memory publication target.
+A target that makes the artifact itself available to the system, such as a
+cache target, durable-persistence target, or in-memory publication target.
 
 ### Materialization Target
 A caller-provided target written after the semantic artifact has successfully become available.

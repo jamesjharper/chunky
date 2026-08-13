@@ -5,7 +5,7 @@
 This document defines the caller-facing contract for constructing run requests:
 the local and durable request forms, accepted artifact addressing, input and
 output semantics, request-level cache and run policy, builder validation and
-ownership, local-to-durable conversion, and the durable request's serialized
+ownership, task artifact retention, and the durable request's serialized
 representation.
 
 - `LocalRunRequest` is process-local and may own external artifact handles.
@@ -23,7 +23,7 @@ Request builders accept the locator families defined by
 [Artifact Model](../02-artifacts/01-artifact-model-surface.md):
 
 - `a-ref` identifies a semantic artifact request;
-- `a-instance` identifies one committed cache instance.
+- `a-instance` identifies one concrete semantic artifact instance.
 
 The builder interfaces should accept non-canonical forms such as `source/audio`
 instead of its canonical form, `a-ref:/global/source/audio/any`. Builders parse
@@ -39,7 +39,8 @@ circumstances under which their execution can survive an interruption.
 **Durable request:**
 
 - contains only serializable data;
-- reads inputs from and writes outputs to the artifact cache;
+- resolves required inputs through the runtime's cache and artifact services;
+- publishes requested outputs to durable artifact persistence;
 - can run unattended; and
 - can be paused, restarted, or recovered after a process restart.
 
@@ -55,13 +56,18 @@ circumstances under which their execution can survive an interruption.
 
 ### Durable request limitations
 
-Durable requests MUST use committed cache instances for every input and MUST
-request targetless outputs. This ensures that:
+Durable requests MUST represent every external input as a serializable `a-ref`
+and upload-fingerprint binding and MUST request targetless outputs. They do not
+require every uploaded root to remain committed when the request is accepted.
+This ensures that:
 
 - the request can be serialized without encoding external input or output
   handles; and
-- execution can resume or restart without the caller resupplying inputs or
-  collecting outputs synchronously.
+- execution can resume or restart from cache-satisfied intermediates without
+  the caller resupplying an unneeded root or collecting outputs synchronously.
+
+If resumed execution must run a stage whose uploaded root has been deleted, the
+task fails with an unavailable required input.
 
 ### Local request limitations
 
@@ -73,12 +79,11 @@ Local requests may contain non-serializable external artifact handles. Therefore
   rebuild the request. Only work committed to a persistent cache can be reused.
 
 
-### Limitations when making a local request durable
-
-Local requests can be made durable through an additional API. This API ingests
-the external input handles into the cache and returns an equivalent durable
-request object. A local request being converted to a durable request MUST NOT
-specify external output target handles; otherwise, the API rejects it.
+There is no whole-request local-to-durable conversion operation. Callers publish
+external inputs independently through
+[Durable Artifact Upload](03-durable-artifacts-upload-surface.md), receive
+upload fingerprints, and bind those fingerprints to `a-ref` values in a durable
+request.
 
 ## Request: Inputs
 
@@ -88,13 +93,20 @@ The caller can specify the following input semantics:
 
 ### 1. Durable request inputs
 
-A durable request input is the `a-instance` locator of an exact committed
-artifact. The artifact MUST already exist in the cache with a matching
-fingerprint. **This is the only input pattern supported by durable requests.**
+A durable request input binds an `a-ref` to an uploaded cache fingerprint. The
+fingerprint supplies identity; it does not assert that the uploaded bytes are
+still resident when the request is built or accepted.
 
 ```python
-local_or_durable_builder.include_cached_input("source/audio/none/fingerprint/2f9d...")
+local_or_durable_builder.include_uploaded_artifact(
+    artifact_ref="source/audio/none",
+    fingerprint="2f9d...",
+)
 ```
+
+The runtime checks presence only if cache evaluation determines that a stage
+must consume the binding. A deleted root fingerprint remains acceptable when
+cached downstream artifacts satisfy the request without executing that stage.
 
 ### 2. External request inputs (local only)
 
@@ -142,6 +154,11 @@ execute a stage with it.
 If the planner cannot resolve a required input from a supplied root, an
 applicable default, a compatible cache entry, or a producer path, planning
 fails. Unselected optional inputs do not make the run fail.
+
+Availability is evaluated after stage-output cache resolution. A supplied root
+that would feed only skipped stages is not a required input and need not remain
+in cache. If a stage must run, every selected input for that stage must resolve
+to readable bytes before execution.
 
 *Stage implementations* determine which inputs are relevant by evaluating their
 artifact requirements. They should declare every required input and every
@@ -317,8 +334,8 @@ entry on a miss.
 
 ```python
 request = (
-    local_or_durable_builder
-    .include_cached_input("source/audio/none/fingerprint/2f9d...")
+    durable_builder
+    .include_uploaded_artifact("source/audio/none", "2f9d...")
     .expect_output("render/webvtt_transcript")
     .with_task_cache_policy(
         behavior=ArtifactCacheBehavior.INHERITED,
@@ -522,7 +539,7 @@ Its language-neutral interface is:
 ```text
 LocalRunRequestBuilder
   include_input(a-ref, ArtifactSourceHandle) -> self
-  include_cached_input(a-instance) -> self
+  include_artifact_instance(a-instance) -> self
 
   expect_output_target(a-ref, ArtifactTargetHandle) -> self
   expect_output(a-ref) -> self
@@ -550,66 +567,49 @@ last-write-wins updates.
 It does not look up artifact declarations or resolve references against a
 manifest.
 
-### Converting a Local Request to a Durable Request
+### Publishing Inputs for a Durable Request
 
-Creating a durable request from a local request is an explicit, consuming,
-asynchronous operation. It is never hidden inside either builder or local
-execution.
+Publishing an external input is an independent durable artifact upload. Each
+successful upload returns one cache fingerprint; the caller then constructs the
+`DurableRunRequest` by binding that fingerprint to an `a-ref`.
+Local requests are never
+converted wholesale and local output targets are never carried into durable
+requests.
 
-Only a local request with targetless outputs is eligible. The service rejects
-local targets, preflights the current manifest and provider, commits every
-supplied input, and returns a durable request containing the committed input
-locators.
-
-```python
-local_request = (
-    LocalRunRequestBuilder()
-    .include_input("source/audio", SourceAudioArtifact.from_file_path("input.wav"))
-    .expect_output("render/webvtt_transcript")
-    .build()
-)
-
-durable_request = await runtime.make_durable(
-    local_request,
-    cancellation=cancellation,
-    progress=progress,
-)
-
-result = await runtime.run(durable_request)
-```
-
-The local request is consumed on success, failure, or cancellation. Inputs
-committed before an unsuccessful conversion remain normal unreferenced cache
-entries. Durable preparation does not create or preserve local delivery
-attachments.
+The request remains structurally valid if the root upload is later deleted.
+Execution requires its bytes only when downstream cache hits are insufficient
+and a selected stage must consume the root.
 
 
 ## Durable request objects
 
 ### `DurableRequest`
 
-`DurableRunRequest` is the serializable durable computation contract. It
+`DurableRunRequest` is a serialisable durable computation contract. It
 contains no external handles, open streams, file descriptors, callbacks,
-credentials, backend paths, provider identifiers, runtime-manifest identifier,
-or delivery destinations.
+credentials, backend paths, provider identifiers, runtime-manifest identifier, or delivery destinations.
 
 Its data model is:
 
 ```text
 DurableRunRequest
   version: 1
-  durable_inputs: set<canonical-a-instance>
+  durable_inputs: map<canonical-a-ref, fingerprint>
   durable_outputs: set<canonical-a-ref>
+  artifact_retention_ttl?: positive-duration
   run_policy?: RunPolicy
   task_cache_policy?: TaskCachePolicy
   cache_policy: map<canonical-a-ref, ArtifactCachePolicy>
 ```
 
-The address kinds are intentional:
+The address and identity kinds are intentional:
 
-- every element of `durable_inputs` is a concrete, committed `a-instance`;
+- every `durable_inputs` entry binds a semantic `a-ref` to an upload
+  fingerprint without promising current cache residency;
 - every element of `durable_outputs` is a semantic `a-ref` and may retain an
   unresolved phase such as `any`;
+- `artifact_retention_ttl`, when present, is the requested lifetime of the
+  task's durable artifact claims after the task terminalizes; and
 - every cache-policy key is a canonical `a-ref`.
 
 ### `DurableRunRequestBuilder`
@@ -619,9 +619,10 @@ The address kinds are intentional:
 ```text
 DurableRunRequestBuilder
   static from_object(NonCanonicalDurableRunRequest) -> self
-  include_cached_input(a-instance) -> self
+  include_uploaded_artifact(a-ref, fingerprint) -> self
   expect_output(a-ref) -> self
 
+  with_artifact_retention_ttl(positive-duration) -> self
   with_run_policy(RunPolicy) -> self
   with_task_cache_policy(TaskCachePolicy) -> self
   with_artifact_cache_policy(a-ref, ArtifactCachePolicy) -> self
@@ -629,11 +630,14 @@ DurableRunRequestBuilder
   build() -> DurableRunRequest
 ```
 
-- **`include_cached_input`** accepts only a committed instance locator but does
-  not verify that it is committed in the configured cache.
+- **`include_uploaded_artifact`** records an `a-ref` and fingerprint but does
+  not perform I/O to verify that the cache entry currently exists.
 - **`expect_output`** declares one durable semantic output without a local
   target. Repeating either declaration for the same parsed reference is
   invalid.
+- **`with_artifact_retention_ttl`** sets the lifetime of the task's durable
+  artifact claims after terminalization. If omitted, submission applies the
+  artifact-persistence service default.
 - **`with_run_policy`** and **`with_task_cache_policy`** may each be called at
   most once.
 - **`with_artifact_cache_policy`** may be called once for each parsed artifact
@@ -641,16 +645,17 @@ DurableRunRequestBuilder
 
 The builder supplies the current schema name and version automatically. Callers
 cannot override either field through normal construction. The builder does not
-access the cache to prove that an instance exists and does not inspect a
-manifest to prove that an output can be produced.
+access artifact persistence to prove that an instance exists and does not
+inspect a manifest to prove that an output can be produced.
 
 **Example:**
 
 ```python
 durable_request = (
     DurableRunRequestBuilder()
-    .include_cached_input(audio_instance)
+    .include_uploaded_artifact("source/audio/none", audio_fingerprint)
     .expect_output("render/webvtt_transcript")
+    .with_artifact_retention_ttl(timedelta(days=1))
     .with_artifact_cache_policy(
         "render/webvtt_transcript",
         ArtifactCachePolicy(
@@ -664,24 +669,25 @@ durable_request = (
 receipt = await durable_task_service.submit(durable_request)
 ```
 
-#### Example upload and Start
+#### Example Upload and Start
 
-Direct cache I/O is exposed through a contract on the runtime instance. It
-returns an `a-instance` locator for the cache instance, which can subsequently
-be used in a request.
+Upload publishes opaque bytes and returns their cache fingerprint. The short
+upload-grace TTL protects the root while the caller constructs and submits the
+request. A task claim replaces that grace only when execution actually requires
+the root.
 
 ```python
-desired_input_ttl = timedelta(days=1)
-audio_instance = await runtime.publish_artifact(
-    "source/audio",
-    SourceAudioArtifact.from_file_path("input.wav"),
-    desired_input_ttl,
+upload = await runtime.artifacts.upload(
+    path="input.wav",
+    desired_grace_ttl=timedelta(hours=2),
+    desired_retention_ttl=timedelta(hours=6),
 )
 
 request = (
     DurableRunRequestBuilder()
-    .include_cached_input(audio_instance)
+    .include_uploaded_artifact("source/audio/none", upload.fingerprint)
     .expect_output("render/webvtt_transcript")
+    .with_artifact_retention_ttl(timedelta(days=1))
     .build()
 )
 
@@ -693,13 +699,14 @@ result = await runtime.run(request)
 `NonCanonicalDurableRunRequest` is a non-canonical, serializable, fault-tolerant
 contract. It has the same elements as `DurableRunRequest` but does not guarantee
 that locators are in canonical form. This object provides a flexible
-serialization contract for externally sourced tasks such as web requests.
+serialisation contract for externally sourced tasks such as web requests.
 
 ```text
 NonCanonicalDurableRunRequest
   version: 1
-  durable_inputs: set<a-instance>
+  durable_inputs: map<a-ref, fingerprint>
   durable_outputs: set<a-ref>
+  artifact_retention_ttl?: positive-duration
   run_policy?: RunPolicy
   task_cache_policy?: NonCanonicalTaskCachePolicy
   cache_policy: map<a-ref, NonCanonicalArtifactCachePolicy>
@@ -767,6 +774,7 @@ RequestValidationIssue
     UnableToDeserializeRequest
     | UnableToBuildRunPolicyRequest
     | UnableToBuildCachePolicyRequest
+    | UnableToBuildArtifactRetentionRequest
     | UnableToBuildDurableInputsRequest
     | UnableToBuildDurableOutputsRequest
     | UnableToBuildInputsRequest
@@ -785,6 +793,9 @@ UnableToBuildCachePolicyRequest
   scope: TASK | ARTIFACT
   artifact_reference?: canonical a-ref or original supplied string
   field?: behavior | desired_ttl | max_ttl
+
+UnableToBuildArtifactRetentionRequest
+  field: artifact_retention_ttl
 
 UnableToBuildDurableInputsRequest
   instance_reference?: original supplied string
@@ -850,7 +861,7 @@ validation codes. `from_object(...)` returns deserialization issues immediately;
 - *`unsupported_request_version`*: `version` is not supported.
 
 These issues originate from and are returned by `from_object(...)`. If
-deserialization succeeds, errors in contained cached inputs, outputs, or
+deserialization succeeds, errors in contained artifact instances, outputs, or
 policies use the corresponding component context below and are returned by
 `build()`.
 
@@ -859,9 +870,9 @@ policies use the corresponding component context below and are returned by
 - *`duplicate_input`*: another input resolves to the same parsed artifact
   reference.
 
-**`include_cached_input` (`UnableToBuildDurableInputsRequest`):**
-- *`invalid_artifact_instance`*: the locator cannot be parsed as an
-  `a-instance`; and
+**`include_uploaded_artifact` (`UnableToBuildDurableInputsRequest`):**
+- *`invalid_artifact_reference`*: the `a-ref` cannot be parsed;
+- *`invalid_fingerprint`*: the fingerprint is structurally invalid; and
 - *`duplicate_input`*: another input resolves to the same parsed artifact
   reference.
 
@@ -878,6 +889,11 @@ policies use the corresponding component context below and are returned by
 - *`invalid_resource_constraint`*: a concurrency-limit key is not a known
   `ResourceConstraint`; and
 - *`invalid_concurrency_limit`*: a concurrency limit is not a positive integer (language dependent).
+
+**`with_artifact_retention_ttl` (`UnableToBuildArtifactRetentionRequest`):**
+- *`duplicate_artifact_retention_ttl`*: a retention TTL was already declared;
+  and
+- *`invalid_ttl`*: the supplied TTL is not a positive duration.
 
 **`with_task_cache_policy` (`UnableToBuildCachePolicyRequest`, `TASK`):**
 - *`duplicate_task_cache_policy`*: a task cache policy was already declared;
@@ -897,19 +913,21 @@ policies use the corresponding component context below and are returned by
 
 **`build`:**
 - *`no_outputs`*: no output was requested; and
-- *`targetless_output_requires_cache_write`*: request-level policy resolution
-  gives a targetless output `NO_CACHE` or `DRY_RUN`.
+- *`targetless_output_requires_cache_write`* (local only): request-level policy
+  resolution gives a targetless local output `NO_CACHE` or `DRY_RUN`.
 
 For `build`, `no_outputs` uses `UnableToBuildOutputsRequest` for a local builder
 and `UnableToBuildDurableOutputsRequest` for a durable builder.
 `targetless_output_requires_cache_write` uses
-`UnableToBuildDurableOutputsRequest`.
+`UnableToBuildOutputsRequest`. Durable outputs are published through artifact
+persistence independently of cache policy.
 
 **`close`:**
 no request-validation errors.
 
-`from_object` is durable-only; `include_input`, `expect_output_target`, and
-`close` are local-only. Other operations apply to both builders.
+`from_object` and `with_artifact_retention_ttl` are durable-only;
+`include_input`, `expect_output_target`, and `close` are local-only. Other
+operations apply to both builders.
 
 A value that cannot be converted to a binding method's parameter type may fail
 at the call boundary before builder validation. Calls on a consumed builder are
@@ -945,17 +963,17 @@ planning, execution, cancellation, failure, and materialization.
 ### Operational validation boundary
 
 Construction and deserialization establish structural validity. The consuming
-runtime, durable-request preparer, or durable task service separately validates
-facts that require current configuration or I/O:
+runtime or durable task service separately validates facts that require current
+configuration or I/O:
 
-- referenced inputs exist, are readable, and match their cache metadata;
-- local targets are compatible with current artifact declarations;
+- referenced inputs exist, are readable, and match durable semantic and
+  representation metadata;
+- Local targets are compatible with current artifact declarations;
 - the provider supports the durability required by the operation;
 - output and policy references are interpreted against the current frozen
   manifest; and
 - planning determines whether the requested graph can be satisfied.
 
-Durable preparation rejects ineligible outputs before reading source handles.
 Direct durable submission rejects malformed data, unusable input instances,
 and insufficient provider durability before task creation. A structurally valid
 direct request whose output is unknown, non-cacheable, or unsupported by the
@@ -978,14 +996,16 @@ stage.
 8. Canonical construction and deserialization share structural validation.
 9. Cache policy cannot make a supplied input optional or change graph shape.
 10. `RunPolicy` cannot change semantic work.
-11. Durable inputs are exact, committed `a-instance` locators, and durable
-    outputs are targetless semantic `a-ref` locators.
-12. Converting a local request to a durable request is explicit, consumes the
-    local request, and rejects all external output targets before reading input
-    handles.
+11. Durable inputs bind semantic `a-ref` locators to upload fingerprints;
+    current cache presence is required only for inputs consumed by stages that
+    execute. Durable outputs are targetless semantic `a-ref` locators.
+12. External inputs are uploaded independently; there is no whole-request
+    local-to-durable conversion operation.
 13. Duplicate declarations are detected after canonical parsing and are never
     resolved using last-write-wins behavior.
 14. Request construction preserves unresolved phased artifact selectors;
     planning alone resolves them against a frozen manifest.
 15. A successful build consumes the builder, while a failed build preserves the
     builder and all handles it owns for correction or cleanup.
+16. Task artifact retention is distinct from cache retention and begins when
+    the durable task terminalizes.

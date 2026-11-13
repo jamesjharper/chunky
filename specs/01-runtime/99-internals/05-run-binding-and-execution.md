@@ -1,105 +1,89 @@
-# Run Binding and Execution
+# Run Binding and Execution Internals:
 
 ## Purpose
 
-This document defines the private boundary at which local and durable requests
-converge. `BoundRunRequest` is an internal execution value, not a public API or
-wire format.
+This internal note describes how a fixed plan becomes concrete runtime artifact
+bindings. Public contracts are owned by the artifact, planning, run, and storage
+specifications.
+
+## Binding flow
+
+For each planned input edge, the runner has:
 
 ```text
-LocalRunRequest --- local binding ---+
-                                    +--> BoundRunRequest --> planner --> runner
-DurableRunRequest - durable binding -+
+PlannedArtifactBinding
+  request: ScopedArtifactRequest
+  schema: ArtifactSchemaId
+  cardinality and publication capability
+  selected source or producer invocation
+  expected binding provenance
 ```
 
-Both paths use the runtime's frozen manifest and configured artifact services.
-They do not convert through one another.
+It binds an `ArtifactBindingReader` from supplied content, a completed cache
+binding, durable content, or a live upstream production.
 
-## Local binding
+For each planned output edge, it creates an `ArtifactBindingWriter` from the
+publication plan. Writers may publish/verify cache state, retain durable
+requested-output members, and materialize local targets.
 
-Local binding takes ownership of the consumed `LocalRunRequest` and preserves its
-local delivery targets. It resolves selected inputs lazily:
+## Durable inputs
 
-- a selected source handle becomes a task-owned supplied artifact;
-- a selected `a-instance` is opened and validated through configured artifact
-  persistence;
-- an unselected source is neither read nor fingerprinted; and
-- every owned handle is eventually closed or aborted.
+Durable inputs were already verified and protected at task acceptance. The
+runner, therefore, does not use the historical lazy-missing-root behavior.
 
-Local source input is not published to durable artifact persistence merely because it was
-supplied. An implementation may use a private task-scoped workspace for seeking,
-repeat reads, codec conversion, or stage interoperability. That does not create
-a public `a-instance` or make the request replayable.
+It opens content lazily for actual consumption where useful, but the task's
+retention protection already covers every supplied binding member.
 
-When selected, an explicitly supplied root is authoritative over a default,
-compatible cache entry, or producer path. Produced-artifact cache policy never
-changes that precedence.
+For each member the runner creates internal
+`ResolvedArtifactInterpretation {schema: ArtifactSchemaId, content: ContentId}`.
+Acceptance proved content presence/readability, not that the selected codec can
+decode it. Representation decoding and semantic validation remain lazy and may
+fail during consumption.
 
-## Durable binding
+Before any upstream traversal, planning resolves supplied scoped bindings by
+longest-applicable-suffix. A selected binding shadows only its deeper branch and
+cuts off upstream production for the satisfied requirement.
 
-Durable binding records each supplied `a-ref` and upload fingerprint without
-eagerly opening the cache entry. The fingerprint remains useful for graph and
-downstream fingerprint calculation even if the uploaded root has been evicted.
+## Cache resolution
 
-For each planned stage, the runner resolves its output cache state before
-opening its inputs. A complete set of acceptable downstream cache hits skips the
-stage, so none of that stage's otherwise-required roots need to exist. When the
-stage must execute, durable binding opens, claims, and validates every selected
-input for that stage before invoking it. A missing or invalid required input is
-a task failure; a missing input used only by skipped stages is non-failing.
+Cache resolution occurs by expected binding provenance.
 
-Durable requests contain no local delivery targets. Their requested outputs
-must be published through artifact persistence before success can be recorded
-or an `a-task` binding can resolve. Cache population is secondary and cannot
-satisfy this durable success boundary.
+- completed hit -> bind ordered content members;
+- active production -> join/wait according to shared-production semantics;
+- miss -> acquire production ownership.
 
-## Shared execution shape
+Partial output hits never remove writers from the resolved output set. Hit
+outputs become verification writers if sibling misses require execution.
 
-`BoundRunRequest` provides the planner and runner with the selected supplied
-artifacts, semantic output requests, request policies, task control surfaces,
-and access to the configured cache, representation store, and artifact
-persistence service. It must not expose builder state or retain canonical wire
-concerns.
+`ContentId` is physical identity. `CompletedBinding` and expected provenance
+remain execution-reuse identity and include effective hierarchical bindings,
+exact schema, selected producer behavior, settings, and resolved output set.
 
-Planning owns manifest-dependent validation, graph expansion, default
-resolution, phase selection, and graph satisfiability. `RunPolicy` may affect
-admission and scheduling only; it cannot change the graph.
+## Execution
 
-Produced artifacts use the request's exact cache policy independently of
-durable publication. Requested durable outputs commit to artifact persistence
-before durable success or availability is reported. Intermediate artifacts are
-not durably published unless they are independently uploaded or explicitly
-requested outputs. Successful `a-task` bindings refer only to committed,
-readable durable instances.
+A stage invocation starts only after dependency readiness and scheduler resource
+admission.
 
-The runner moves compatible representation bytes through
-`ArtifactTransferSource` and `ArtifactTransferTarget` without requiring a
-typed-value round trip. Typed codec conversion may materialize a value only
-when representation conversion is actually required and the codec declares
-that buffering behavior.
+Incremental upstream publication may make a consumer dependency ready before
+upstream completion. Resource waits still apply normally.
 
-## Failure and cleanup
+For the MVP, acquired stage resource leases remain held until the invocation
+ends.
 
-Binding and execution are cancellation-aware. On failure or cancellation the
-runtime:
+## Output completion
 
-- closes all owned source handles, including unused ones;
-- aborts uncommitted target, cache, and durable-persistence writes;
-- releases reservations and wait registrations; and
-- preserves already committed cache entries and completed target writes.
+Each `write_next(...)` commits one final content member. A successful executor
+return validates minimum cardinality and closes the binding. Only then may an
+execution-cache `CompletedBinding` be committed.
 
-Cleanup is required across binding, planning, execution, and materialization.
-No cross-target or cache-to-target rollback is promised.
+Failure/cancellation leaves committed members intact but the binding incomplete.
+Task-output history may expose those members according to retention policy.
 
-## Invariants
+## Cancellation
 
-1. Local and durable requests share planning and execution after binding.
-2. Local input publication is explicit, never an implicit consequence of
-   execution.
-3. Selected supplied inputs are authoritative; unused supplied inputs are lazy.
-4. `BoundRunRequest` remains private and process-local.
-5. Only committed readable durable instances may become externally resolvable.
-6. A durable task cannot succeed until every requested output is durably
-   published and bound to its `a-task` locator.
-7. Cache presence is checked only for artifacts required by stages that will
-   execute.
+Live input waits, cache waits and resource waits are cancellation-aware. Stage
+code receives the same cooperative cancellation context and should check it at
+safe boundaries.
+
+Shared producer cancellation follows surviving demand rather than whichever task
+first created the producer.

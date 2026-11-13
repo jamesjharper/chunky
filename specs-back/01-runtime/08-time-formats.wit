@@ -1,0 +1,24 @@
+package chunky:runtime;
+
+/// Shared second-accurate time formats for Chunky runtime interfaces.
+///
+/// This interface is the WIT expression of `08-time-formats.md`. It defines
+/// representation only; operation-specific validity and conversion policy
+/// remain with the interface that owns each time field.
+interface time-formats {
+  /// A non-negative elapsed time in whole seconds. Zero is representable;
+  /// the owning operation decides whether zero is valid.
+  record duration {
+    seconds: u64,
+  }
+
+  /// An elapsed time in whole seconds. `seconds` MUST be greater than zero.
+  record positive-duration {
+    seconds: u64,
+  }
+
+  /// Whole seconds since `1970-01-01T00:00:00Z`.
+  record absolute-time {
+    seconds: u64,
+  }
+}

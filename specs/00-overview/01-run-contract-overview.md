@@ -1,161 +1,178 @@
-# Chunky Run Contract — Overview
+# Run Contract Overview
 
-## Purpose
+## Public model
 
-Chunky exposes one semantic runtime contract through two execution patterns:
-
-- local, process-local execution for callers that already own input and output
-  handles; and
-- durable submission for callers that need replay, recovery, or later result
-  retrieval.
-
-Both patterns use the same artifact model, frozen runtime manifest, planner,
-binding contract, and runner after their inputs are bound. Cache and durable
-artifact persistence remain separate services.
-
-## Local execution pattern
-
-A local caller builds a `LocalRunRequest` from live source handles, requested
-outputs, and optional local target handles. It then either awaits execution or
-starts the same in-process work and retains a handle:
-
-```python
-result = await runtime.run(request)
-```
-
-```python
-handle = runtime.start(request)
-result = await handle.await_to_completion()
-```
-
-`run` and `start` consume the request. `start` is detached from waiting, not
-from the process: its handle, progress, and unfinished work do not survive
-process loss.
-
-A targetless local output is retained only according to its cache policy. The
-default workspace provider does not promise survival beyond the runtime.
-
-## Durable service pattern
-
-A service-oriented caller uploads each external input independently and
-receives one cache fingerprint per upload. It then binds those fingerprints to
-semantic `a-ref` values, submits the data-only durable request, and retains the
-returned receipt.
-
-An uploaded root may be deleted after its grace and retention windows. Its
-fingerprint remains acceptable when retained downstream intermediates satisfy
-the requested work; the runtime requires cache presence only for artifacts
-consumed by stages that must execute.
-
-The serializable receipt contains the durable task ID and sorted requested
-output `a-task` locators. The client later queries status or resolves those
-locators through the durable service.
-
-Durable requests contain no client paths, target handles, provider
-credentials, or runtime-manifest identifier. Services must share the logical
-artifact-persistence namespace referenced by their locators.
-
-## Artifact addressing
-
-The public locator family separates meaning, committed content, and task
-results:
+Chunky exposes three independent public concepts:
 
 ```text
-a-ref:/global/{domain}/{content_kind}/{phase-or-any}
-a-instance:/global/{domain}/{content_kind}/{phase-or-none}/fingerprint/{fingerprint}
-a-task:/global/{domain}/{content_kind}/{requested-phase}/task/{task_id}
+ContentId
+  universal identity and upload/download address of exact finite bytes
+
+ScopedArtifactRequest
+  semantic hierarchy-qualified binding key ending in {domain}/{content-kind}
+
+TaskArtifactBinding
+  one requested scoped binding's status, failure, and ordered ContentId members
 ```
 
-- `a-ref` names a semantic artifact request;
-- `a-instance` names committed content with a concrete resolved identity; and
-- `a-task` is a stable requested-output pointer whose requested phase may still
-  be `any`.
+Exact `ArtifactSchemaId`, selected producer invocation, production provenance,
+and cache resolution are frozen internal planning/persistence data. They are not
+ordinary caller locators.
 
-An `a-task` becomes resolvable only through task lifecycle and a committed
-durable artifact binding. It does not itself assert that output bytes exist.
+## End-to-end durable flow
 
-## Request and execution boundaries
+```text
+bytes + optional caller-defined ContentId + optional expected content digest
+  -> POST /content or PUT /content/{ContentId}
+  -> effective ContentId + length + grace/retention metadata
 
-`LocalRunRequest` may contain live source and target handles. Local inputs are not
-implicitly uploaded to durable storage. Backward planning reads only selected
-inputs, and a selected supplied input is authoritative over defaults, cache
-alternatives, or a producing stage.
+ContentId + ScopedArtifactRequest
+  -> SuppliedArtifactBinding
+  -> durable run request with unique scoped requested outputs
+  -> atomic acceptance
+  -> task
 
-`DurableRunRequest` contains committed durable input locators and durable
-semantic output requests only. Upload is explicit per artifact; it is not
-hidden in request building or local execution.
+task + requested ScopedArtifactRequest
+  -> TaskArtifactBinding
+  -> ordered {ordinal, ContentId} committed members
+  -> GET /content/{ContentId}
+  -> exact bytes
+```
 
-The two forms bind into a private shared execution request. Cacheable produced
-outputs commit to cache before targetless local availability. Requested durable
-outputs commit to artifact persistence before durable success or availability;
-cache population is secondary.
+Upload is content-only. It accepts no artifact request or schema. It either
+calculates the `ContentId` or accepts a caller-defined algorithm and value under
+explicit identity policy; an independent expected content digest only verifies
+the received bytes. Multipart and live-capture session identifiers name
+provisional transfer state only; commit/seal returns the same content upload
+result.
 
-## Output delivery
+A durable input separately asserts where content applies:
 
-Multiple local targets are an ordered fail-fast convenience. Each target is
-transactional independently. A target failure does not roll back an earlier
-target or an already committed semantic cache entry.
+```json
+{
+  "request": "speech_processing/audio_preprocessing/audio_settings",
+  "members": [
+    {"ordinal": 0, "content_id": "blake3/Speech..."}
+  ]
+}
+```
 
-Targetless local outputs require a cache-writing policy and inherit the cache
-provider's lifetime. Durable outputs are always targetless and require
-configured artifact persistence regardless of cache policy.
+The request is versionless and manifest-independent. During durable acceptance,
+the service verifies that every supplied member is present, readable, and
+authorized. It atomically establishes active/recoverable-task protection,
+removes or converts upload-grace claims, and creates the task. Any failed check
+creates no task and no partial claims.
 
-## Cache behavior
+## Scoped planning
 
-Every configured runtime has a cache provider. If none is supplied, the
-runtime builder installs a runtime-scoped workspace provider. An owned default
-workspace is deleted when the runtime closes. Durable operations additionally
-require an artifact-persistence service; cache durability does not substitute
-for it.
+The final two request segments form the artifact family. Preceding segments are
+stable semantic binding scopes declared by the manifest:
 
-Produced-artifact cache policy resolves to four operational modes, with
-`INHERITED` selecting the enclosing policy:
+```text
+ArtifactRequest
+  audio_preprocessing/audio_settings
 
-| Mode | Reuse shared entry | Publish new entry |
-|---|---:|---:|
-| `CACHE` | yes | yes |
-| `OVERWRITE` | no | yes |
-| `DRY_RUN` | yes | no |
-| `NO_CACHE` | no | no |
+ScopedArtifactRequest
+  speech_processing/audio_preprocessing/audio_settings
+```
 
-The optional TTL is a best-effort retention request. It refreshes entry expiry
-whenever a task successfully uses a cached artifact or commits it as an output.
-It cannot shorten durable artifact claims or override provider limits.
+Hierarchy is written downstream-to-upstream. Supplied inputs use deterministic
+longest-applicable-suffix resolution, so a deeper binding shadows a compatible
+shallower binding only inside its branch and terminates upstream traversal for
+that requirement. Requested outputs are independent planning roots and do not
+shadow one another. Concrete producers are selected by planning and never
+encoded as hierarchy segments.
 
-## Scheduling and task lifecycle
+## Requested outputs
 
-`RunPolicy` governs scheduling and admission only. It cannot alter graph shape,
-producer selection, artifact identity, fingerprints, cache behavior, or output
-materialization.
+Durable outputs are unique canonical scoped requests without caller-chosen
+output keys:
 
-Local-run progress and cancellation cover the complete in-process lifecycle.
-Durable tasks add atomic acceptance, persisted cancellation, retention claims,
-and restart-from-request recovery. Plans and progress are not persisted; only
-fully committed artifacts carry reusable work across attempts.
+```json
+{
+  "outputs": [
+    {"request": "render/webvtt_transcript"},
+    {"request": "transcript/token_text"}
+  ]
+}
+```
 
-## Contract map
+An explicitly requested intermediate is retained and observed like any other
+requested output. Incidental intermediates are not exposed through the MVP task
+output API merely because they were produced or cached.
 
-- [Run Request Building](../01-runtime/02-run-request-building-surface.md)
-- [Run Surface](../01-runtime/04-run-surface.md)
-- [Run Binding and Execution](../01-runtime/99-internals/05-run-binding-and-execution.md)
-- [Durable Artifact Upload](../01-runtime/03-durable-artifacts-upload-surface.md)
-- [Durable Artifact Download](../01-runtime/05-durable-artifact-download-surface.md)
-- [Artifact Model](../02-artifacts/01-artifact-model-surface.md)
-- [Artifact I/O](../02-artifacts/02-artifact-io-surface.md)
-- [Cache Management](../03-bindings/02-cache-management.md)
-- [Representation Store](../03-bindings/03-representation-store.md)
-- [Artifact Persistence](../03-bindings/04-artifact-persistence.md)
-- [Task Planning](../06-planning/01-task-planning.md)
-- [Eventing and Task Control](../07-scheduling/eventing-and-task-control-model-spec.md)
-- [Persisted Task Lifecycle](../07-scheduling/02-persisted-task-lifecycle.md)
+Collection lookup:
 
-## Invariants
+```http
+GET /task/{task_id}/outputs
+```
 
-1. Local and durable entrypoints remain distinct even when both can be awaited.
-2. Request builders perform no I/O and are independent of a runtime manifest.
-3. Local input publication and durable upload are always explicit.
-4. Only committed readable durable artifact records satisfy durable
-   `a-instance` resolution.
-5. Target order affects local delivery; durable collection order does not
-   affect request meaning.
-6. Cache state can skip work but cannot change graph shape.
+Focused lookup, where the query value is the percent-encoded canonical
+`ScopedArtifactRequest`:
+
+```http
+GET /task/{task_id}/outputs?request={encoded-ScopedArtifactRequest}
+```
+
+Example result:
+
+```json
+{
+  "requested": "transcript/token_text",
+  "status": "AVAILABLE",
+  "members": [
+    {"ordinal": 0, "content_id": "blake3/Tokens..."}
+  ]
+}
+```
+
+The member list is the evolving committed prefix while production is active.
+Committed members remain final if later production fails. `AVAILABLE` is the
+successful complete binding status, with no separate completion boolean. One
+binding may have zero, one, or many members according to the selected edge
+contract; downloads open each member independently and never concatenate them.
+
+## Service boundaries
+
+- The **Content Store** owns immutable exact bytes keyed by `ContentId`,
+  physical read/write reservations, integrity, and garbage collection.
+- The **execution cache** owns reusable successful `CompletedBinding` records
+  keyed by production provenance. Equal output bytes do not collapse distinct
+  provenance records.
+- **task observation** owns each requested `TaskArtifactBinding`, including its
+  independent status and public failure information.
+- **artifact persistence** owns semantic upload-grace, task-input, and
+  requested-output retention claims and coordinates durable opens over Content
+  Store objects.
+
+A cache hit is not a public content locator, and task-output lookup is not a
+cache read. Requested-output retention does not implicitly retain supplied
+inputs after task terminalization. Content storage, completed-binding caching,
+task observation, and retention/protection claims remain separate even when
+they refer to the same `ContentId`.
+
+## Local parity
+
+Local builders preserve recursive mappings with process-local handles:
+
+```python
+inputs={
+    "music_processing": {
+        "audio_preprocessing": {
+            "audio_settings": InMemorySource(...),
+        },
+    },
+}
+```
+
+This is the object-form representation of the same canonical scoped key
+`music_processing/audio_preprocessing/audio_settings`. Local targets are
+delivery attachments; they do not change semantic binding identity or durable
+wire data.
+
+## Security boundary
+
+A `ContentId` is universal equality, not an authority grant. Semantic
+identifiers contain no provider path, bucket key, URL, credential, tenant, or
+physical location. Authorization remains an independent check at acceptance
+and retrieval.

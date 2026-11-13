@@ -1,5 +1,8 @@
 # Handover Prompt: Run Surface Interview
 
+> **Historical.** Superseded by the active run, durable-task, and download
+> surfaces keyed by canonical `ScopedArtifactRequest`.
+
 Continue the design interview for
 `specs/01-runtime/04-run-surface.md`.
 

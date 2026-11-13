@@ -1,430 +1,250 @@
-# Artifact IO
+# Artifact I/O
 
 ## Purpose
 
-Artifact I/O presents one semantic artifact abstraction to stages while giving
-runtime infrastructure a separate transfer plane for canonical encoded content.
+Artifact I/O separates stage-facing typed values from provider-neutral transfer
+of exact content bytes. It also defines the ordered binding reader/writer used
+for `ONE` and `ONE_OR_MORE` stage edges.
 
-The two views are:
+Stages do not know whether content is backed by memory, cache, durable storage,
+a local file, an object store, or another provider.
 
-- typed value capabilities used by stages and local callers; and
-- provider-neutral representation transfer used by persistence, cache, files,
-  and transport adapters.
+## Content transfer
 
-Stages do not know whether a selected source is backed by memory, cache, durable
-persistence, a file, SMB, S3-like storage, or another provider.
-
-## Artifact Handles
-
-An `ArtifactHandle` is the execution-time binding for one concrete semantic
-artifact instance:
-
-```text
-ArtifactHandle<T>
-  declaration: ArtifactDeclaration<T>
-  fingerprint
-  source?: ArtifactSourceHandle<T>
-  targets: ordered list<ArtifactTargetHandle<T>>
-```
-
-The resolved artifact ID and fingerprint derive the location-independent
-`a-instance` locator. Any phase selection or terminal remapping is complete
-before a planned stage input/output handle is created.
-
-The handle is immutable after binding. Resource state belongs to the referenced
-source and target handles.
-
-An input normally has one source. A stage-produced output has one or more
-targets selected by the runtime publication plan. A materialization binding
-reuses an existing semantic source and adds an external target.
-
-Supplied-content upload is different: its final fingerprint may be unknown
-until representation validation completes. Upload therefore creates an
-artifact instance; it does not require a pre-bound planned output handle.
-
-## Artifact Instance
-
-An `ArtifactInstance` identifies an available semantic artifact:
-
-```text
-ArtifactInstance<T>
-  handle: ArtifactHandle<T>
-
-  locator -> a-instance
-  fingerprint
-```
-
-Availability asserts semantic identity, not storage location or retention
-forever.
-
-## Representation Descriptor
-
-Each artifact declaration owns one canonical transferable representation:
-
-```text
-RepresentationDescriptor
-  codec_id
-  codec_version
-  mime_type
-  preferred_extension
-```
-
-Codec identity and version are authoritative. MIME type and extension are
-descriptive.
-
-The canonical representation is one finite ordered logical byte sequence.
-Compound artifacts use a codec-defined streamable container or manifest.
-Directory entries, symlinks, sparse extents, and multiple object-store objects
-are not core artifact-transfer primitives.
-
-Representation identity is separate from semantic artifact identity:
-
-- artifact fingerprints describe semantic content or production pedigree;
-- representation length and digest describe exact canonical bytes; and
-- chunk boundaries never affect either identity.
-
-## Capability Separation
-
-Typed value I/O and encoded transfer are separate capabilities. A concrete
-artifact handle may compose either or both:
-
-```text
-ArtifactSourceHandle<T>
-  value_source?: ArtifactValueSource<T>
-  transfer_source?: ArtifactTransferSource
-  close()
-
-ArtifactTargetHandle<T>
-  value_target?: ArtifactValueTarget<T>
-  transfer_target?: ArtifactTransferTarget
-```
-
-Examples:
-
-- an in-memory stage value may initially expose only a value source;
-- a cache or durable source normally exposes both through a codec adapter;
-- a live HTTP request body may be transfer-only because it is upload input, not
-  yet a committed stage-readable artifact;
-- an in-memory publication target may be value-only; and
-- cache, durable, and file targets normally accept transfer sources.
-
-The capability interfaces are distinct, so implementations do not pretend that
-every typed value is naturally streamable or that every byte stream is already
-a valid typed artifact.
-
-## Typed Value Source
-
-A typed source returns the stage-facing value:
-
-```text
-ArtifactValueSource<T>
-  read(codec) -> T
-```
-
-It may:
-
-- return an existing in-memory object;
-- decode a canonical transfer source through the declaration codec; or
-- use provider-specific typed access while preserving the same value semantics.
-
-`ArtifactReader` delegates to this capability. It never switches on concrete
-provider type.
-
-Constructing `T` may inherently require buffering. The bounded-memory guarantee
-applies to representation transfer, not to every possible typed value.
-
-## Transfer Source
-
-An `ArtifactTransferSource` exposes canonical representation bytes:
+A transfer source exposes one stable finite byte snapshot:
 
 ```text
 ArtifactTransferSource
-  representation_descriptor
+  content_id?
+  byte_length?
   replayability
   ownership_disposition
-  byte_length?
-  byte_digest?
   open_stream(byte_range?) -> asynchronous byte stream
   native_offers()
   close()
 ```
 
-The portable fallback is a pull-based asynchronous byte stream. The consumer
-controls backpressure. Chunk sizes and boundaries are implementation details.
+The portable fallback is a pull-based asynchronous byte stream with bounded
+memory and backpressure. Transfer chunk boundaries have no semantic meaning.
+
+A committed provider-backed source normally knows its `ContentId` and exact
+byte length before open. A one-shot external source may learn them while being
+ingested.
+
+When an upload caller provides a `ContentId`, publication applies the upload
+surface's caller-provided identity policy; that policy may permit the identity
+without recomputing it. A separate expected content digest, when supplied, MUST
+be verified over the complete exact byte sequence. Request construction itself
+opens no stream and performs neither operation.
 
 ### Snapshot stability
 
-Every source represents one stable encoded snapshot for its lifetime. Length,
-digest, semantic fingerprinting, and transferred bytes must describe that same
-snapshot.
-
-A source declares:
+A source is either:
 
 - `ONE_SHOT`: at most one stream may be opened; or
-- `REOPENABLE`: every open yields byte-for-byte identical content.
+- `REOPENABLE`: every open returns byte-for-byte identical content.
 
-A mutable file path may claim `REOPENABLE` only when its wrapper enforces or
-validates snapshot stability. Otherwise it is one-shot and must be staged before
-a second pass, retry, or multiple destinations.
-
-### Ownership disposition
-
-A source is:
-
-- `PRESERVE`: successful transfer must leave its backing content usable; or
-- `CONSUMABLE`: a compatible target may adopt its exclusive backing resource.
-
-Possession of a source never implies destructive permission. Caller files,
-cache hits, and durable objects are normally preserve-only. Chunky-owned
-temporary files may be consumable.
-
-### Native offers
-
-Native offers are opaque provider capabilities. Compatible targets may use
-rename, reflink, block clone, provider-side copy, metadata attachment, or
-another optimized path.
-
-The common contract does not expose paths, bucket keys, SMB handles, signed
-URLs, or credentials. Unknown offers are ignored and streaming remains the
-universal fallback.
-
-Native operations must preserve exact bytes, ownership, mutation isolation,
-transactional visibility, integrity, cancellation, and failure semantics.
-
-### Ranges
-
-Sequential full streaming is required. A source may support one zero-based
-half-open byte range `[start, end)`.
-
-Invalid ranges fail before streaming. Multipart range framing uses several
-independently opened sources and belongs to a transport adapter.
-
-## Typed Value Target
-
-A typed target accepts a stage-facing value:
-
-```text
-ArtifactValueTarget<T>
-  prepare(value, codec, fingerprint)
-  commit()
-  abort()
-```
-
-In-memory publication is the primary example. A target that persists canonical
-bytes should use a transfer target through a codec adapter rather than
-serializing independently.
-
-## Transfer Target
-
-A transactional transfer target accepts a canonical source:
-
-```text
-ArtifactTransferTarget
-  prepare_from(source, expected_instance?)
-  commit()
-  abort()
-```
-
-The target owns ingestion. It may use a recognized native offer or pull bounded
-chunks according to its own block, multipart, and memory policy.
-
-The state machine is:
-
-```text
-OPEN -> PREPARED -> COMMITTED
-                  \-> ABORTED
-```
-
-Preparation succeeds at most once. Commit and abort are idempotent:
-
-- repeated commit returns the same committed outcome;
-- repeated abort safely completes cleanup;
-- abort never rolls back a committed artifact; and
-- commit after confirmed abort fails as terminally aborted.
-
-For a consumable backing resource, ownership transfers when
-`prepare_from(source)` succeeds. Before success the source owns it; afterward
-the target owns staging. A provider unable to preserve unambiguous ownership
-uses a preserving transfer.
+Native transfer offers may optimize copy/adoption but must preserve exact bytes,
+ownership, mutation isolation, cancellation, transactional publication and
+integrity.
 
 ## Codec
 
-The authoritative codec contract operates on transfer sources rather than
-complete `bytes`:
+Each exact `ArtifactSchemaId` resolves to an immutable `ArtifactSchema`
+containing its codec/interpretation contract.
 
 ```text
 Codec<T>
-  representation_descriptor
   encode(value) -> ArtifactTransferSource
   decode(source) -> T
-  validate_and_fingerprint(source) -> semantic content contribution
   buffering_capabilities
 ```
 
-The codec:
+A codec may validate while decoding. Binding a `ContentId` to a scoped request
+does not promise that the bytes were already successfully decoded. Invalid
+content is reported when the consuming boundary discovers it.
 
-- defines the declaration's canonical representation;
-- converts between typed and transfer views;
-- validates canonical representation content;
-- defines supplied-content semantic equality; and
-- declares whether encode, decode, and validation are incremental or buffering.
+Content identity is always the digest of exact encoded bytes. A codec does not
+replace content identity with decoded semantic equality.
 
-Bindings may provide private small-value byte helpers. Complete `bytes` are not
-the cross-module artifact I/O contract.
+## Concrete artifact member
 
-An incoming representation descriptor is an assertion, not proof. Upload
-validates content through the codec or a declaration-owned validator before
-commit.
-
-Raw byte/file artifacts may define semantic content equality as the canonical
-byte digest. Structured formats may parse incrementally. A format requiring
-full typed materialization must declare that behavior rather than claiming a
-bounded-memory conversion.
-
-## Semantic Fingerprints
-
-Supplied artifacts derive their final fingerprint from:
+A stage-visible member is one exact content object under one exact schema:
 
 ```text
-hash(
-  resolved artifact identity,
-  declaration-defined semantic content contribution,
-)
-```
-
-The semantic content contribution may differ from the representation digest.
-For example, an audio declaration may fingerprint canonical decoded samples
-while retaining a distinct encoded byte digest.
-
-Stage-produced artifact fingerprints continue to derive from production
-pedigree. They are known before output target binding and are not created by
-serializing the produced value again.[^content-provenance-revisit]
-
-[^content-provenance-revisit]: **Design revisit:** Separate artifact content
-    identity from production provenance. Artifact fingerprints should likely
-    contain only content identity, for both supplied and stage-produced
-    artifacts, while declaration identity, stage pedigree, settings, and output
-    identity form a separate provenance/execution-cache key that resolves to
-    output content fingerprints. Under that model, upload is independent of
-    `a-ref`, may accept a caller-calculated expected content fingerprint that
-    the runtime verifies, and validates `a-ref` compatibility when the content
-    is used. This note records a coordinated redesign to revisit; the current
-    normative text has not yet been reconciled.
-
-A trusted committed cache or durable source may preserve its validated
-`a-instance` without re-decoding or re-fingerprinting when representation
-compatibility and exact-byte preservation are established.
-
-## Artifact Reader
-
-`ArtifactReader<T>` exposes the typed stage-facing view:
-
-```text
-ArtifactReader<T>
+ArtifactMember<T>
+  interpretation: ResolvedArtifactInterpretation
   read() -> T
+  open_transfer_source() -> ArtifactTransferSource
 ```
 
-It requires a bound source with a typed value capability. If the concrete source
-is transfer-backed, binding composes the declaration codec adapter before the
-stage sees it.
+`read()` may decode lazily and may buffer when the codec inherently requires
+materialization.
 
-Reader disposal does not independently close a task-owned source handle. The
-runner owns source-handle lifetime so several downstream stages may consume one
-artifact while its cache or durable reservation remains active.
+## Input binding reader
 
-## Artifact Writer and Publication Plan
+Every stage input is exposed through one ordered asynchronous binding reader,
+including `ONE` inputs.
 
-A stage writes a semantic value once. The runtime publication plan determines
-which value and transfer targets are required.
+```text
+ArtifactBindingReader<T>
+  request: ScopedArtifactRequest
+  schema: ArtifactSchemaId
+  cardinality
+  asynchronous iteration -> ArtifactMember<T>
+  one() -> ArtifactMember<T>          # optional convenience
+```
 
-For transfer targets:
+Conceptual usage:
 
-1. the codec exposes or creates one stable canonical representation source;
-2. if more than one target needs a one-shot representation, the runtime stages
-   it once into a reopenable source;
-3. every transfer target prepares from that same snapshot; and
-4. no target independently re-encodes the typed value.
+```python
+async for member in inputs.get_artifact(SOURCE_AUDIO):
+    value = await member.read()
+```
 
-Value-only targets may receive the typed value directly.
+### Cardinality behavior
 
-Target commit ordering and failure authority belong to the publication plan:
+- required `ONE`: exactly one member;
+- optional `ONE`: zero or one member;
+- required `ONE_OR_MORE`: one or more members;
+- optional `ONE_OR_MORE`: zero or more members.
 
-- for a requested output of a durable task, durable commit plus its task claim
-  is the availability boundary;
-- cache publication is separate reusable execution state;
-- a cache failure does not invalidate an already committed durable output;
-- a cache entry alone is not a durable task output; and
-- local tasks follow their configured cache and materialization contracts.
+An absent optional input is an already-closed empty binding. The core API does
+not require a separate `get_optional_artifact() -> None` model.
 
-A cache hit selected for a durable output must be promoted or transferred into
-durable persistence before the output is reported available.
+### Live iteration
+
+When an upstream output is configured for incremental publication, the reader
+is live:
+
+- iteration yields each committed member in binding order;
+- waiting for the next member is cancellation-aware;
+- successful binding closure produces normal end-of-sequence;
+- upstream failure is reported after the already committed prefix;
+- upstream cancellation remains distinguishable from successful EOF; and
+- once yielded, a member is final and cannot later be revised or withdrawn.
+
+A task cancellation must wake a reader blocked waiting for the next member.
+Stage implementations should still call
+`context.cancellation.raise_if_cancelled()` around expensive work and other
+safe cancellation boundaries.
+
+## Output binding writer
+
+Every planned output edge is exposed as a runtime-owned ordered writer:
+
+```text
+ArtifactBindingWriter<T>
+  request: ScopedArtifactRequest
+  schema: ArtifactSchemaId
+  cardinality
+  write_next(value) -> committed ArtifactMember<T>
+```
+
+The runtime owns member ordinals. Executors never provide sequence indexes.
+
+`write_next(...)`:
+
+1. verifies that another member is permitted by the declared upper bound;
+2. encodes or accepts the member through the schema codec;
+3. commits exact bytes to required publication targets;
+4. determines and verifies the `ContentId`;
+5. appends that digest at the next contiguous ordinal; and
+6. makes the member visible according to the active publication policy.
+
+For a `ONE` writer, a second `write_next(...)` fails immediately and the stage
+invocation fails.
+
+### Binding close
+
+Executors do not explicitly close output bindings.
+
+```text
+executor returns normally
+  -> runtime validates every minimum cardinality
+  -> runtime closes bindings successfully
+  -> reusable CompletedBinding records may commit
+```
+
+If the executor raises, cancellation wins, or final cardinality validation
+fails:
+
+- the invocation fails;
+- open bindings do not become successful completed bindings;
+- already committed members remain valid content and may remain visible through
+  task-output history; and
+- incomplete bindings are not reusable cache hits.
+
+## Incremental publication
+
+Incremental publication is independent of cardinality.
+
+- `ONE + INCREMENTAL`: the one final member may become available before the
+  stage invocation finishes.
+- `ONE_OR_MORE + INCREMENTAL`: each final member may become available as it is
+  committed; successful executor completion closes the sequence.
+- `AT_COMPLETION`: committed work is not exposed to the requesting consumer as a
+  complete task output until successful binding closure.
+
+Incremental publication means **finality**, not provisional progress. A stage
+must buffer internally until it can irrevocably commit a member.
+
+## Publication plan
+
+A member may need several targets, such as:
+
+- Content Store;
+- execution cache verification/publication;
+- durable task-output retention;
+- process-local caller targets.
+
+The runtime publication plan owns target preparation, commit, abort and
+ordering. A stage writes one semantic member through its binding writer and does
+not directly manipulate cache, persistence or materialization targets.
+
+For partial output cache hits, a writer may be a verification writer: the stage
+still sees the complete resolved output set, but recomputed members for an
+existing binding are compared against the immutable cached result instead of
+silently replacing it.
 
 ## Materialization
 
-Caller file, object, stream, or diagnostic delivery is separate from semantic
-artifact publication.
+Caller delivery is separate from content identity, artifact schema, binding
+identity and cache identity.
 
-Materialization consumes the existing semantic source through either:
+Materialization may consume either the typed member or its transfer source. A
+failed local target does not change a `ContentId` or invalidate an already
+committed durable/cache object.
 
-- a typed value adapter; or
-- its canonical transfer source.
+Process-local source and target handles attach to complete
+`ScopedArtifactRequest` keys. Durable sources attach through
+`SuppliedArtifactBinding` ordered members; target fan-out order is delivery
+metadata and never binding-member order.
 
-For file targets, preparation occurs in target-controlled staging on the
-destination filesystem. Commit performs the strongest requested atomic
-create/replace operation. Existing destinations remain unchanged and new
-destinations remain absent until commit.
+## Source and target ownership
 
-Failure to materialize a caller target does not invalidate a committed durable
-artifact or valid cache entry.
+Source and target handles are explicitly closeable. The runtime owns stage-bound
+handle lifetimes and keeps shared provider reservations alive while dependent
+consumers still require them.
 
-## Source and Target Ownership
+Cancellation:
 
-Source handles are explicitly closeable. Closing releases reservations and
-provider resources. Upload consumes and closes its supplied transfer-source
-handle for every terminal outcome; this does not delete preserve-only backing
-content.
-
-Targets own staging after successful preparation and must clean it on abort or
-recovery.
-
-Bindings without language-enforced moves must track consumed/terminal state and
-reject reuse.
-
-## Cancellation and Progress
-
-Streaming checks cancellation between bounded chunks. An issued native
-operation may finish physically when it cannot be interrupted, but cancellation
-prevents publication unless commit already won and schedules cleanup.
-
-Progress is phase-aware:
-
-- resolving/waiting;
-- transferring;
-- validating/canonicalizing;
-- committing;
-- cleaning up; and
-- completed.
-
-Byte counts and totals are reported when meaningful. Native operations may be
-indeterminate until completion. Block size, part size, and progress frequency
-are private implementation details.
-
-## Errors
-
-Artifact I/O exposes provider-neutral structured categories for malformed
-content, representation mismatch, length/digest mismatch, exhausted source,
-ownership violation, invalid range, cancellation, corruption, capacity failure,
-and storage/recovery failure.
-
-Provider-specific causes may be attached as diagnostics.
+- stops pulling further transfer chunks promptly;
+- aborts uncommitted targets;
+- never rolls back content or target publication that already committed; and
+- releases reservations when safe.
 
 ## Invariants
 
-1. Stages consume one storage-independent typed artifact abstraction.
-2. Canonical representation transfer never requires whole-file buffering.
-3. Typed conversion declares when it buffers.
-4. One source handle denotes one stable semantic/representation snapshot.
-5. Reopenable transfer sources return identical bytes on every open.
-6. A native operation never weakens preservation or mutation isolation.
-7. Multiple persistence targets reuse one encoded snapshot.
-8. Semantic fingerprints and representation digests are never conflated.
+1. Every stage input is an ordered binding reader.
+2. Every output is an ordered binding writer.
+3. `ONE` is the one-member case of the same binding abstraction.
+4. Runtime-assigned ordinals are contiguous and deterministic.
+5. Published members are final.
+6. Successful binding closure validates cardinality.
+7. Failed/incomplete bindings never become completed cache hits.
+8. Transfer chunks, multipart parts, and live-capture segments are unrelated to
+   artifact-binding member boundaries.
+9. Exact content bytes determine `ContentId` regardless of codec or provenance.
+10. A plural binding is an ordered sequence of independent content objects,
+    never a compound or concatenated content object.

@@ -4,7 +4,6 @@
 `ChunkyRuntimeBuilder` is the surface for bootstrapping a `ChunkyRuntime` instance with a stage manifest, configured runtime services and runtime settings.
 
 > *Design Note:* The builder should remain a thin composition surface. It is not intended to become a general dependency-injection container, and it should not treat runtime service location as a generic mutable service locator.
-
 ## Core Concepts
 `ChunkyRuntime` is the configured runtime: an immutable collection of the
 stage manifest, runtime services, and runtime settings required to plan and
@@ -14,7 +13,7 @@ execute runs. It is not an individual run or a second service shape.
 `RuntimeFeature` values. The builder exposes three delegates to each feature
 installer:
 
-- `StageManifestBuilder` which collects artifact declarations and stage
+- `StageManifestBuilder` which collects artifact schemas and stage
   registrations;
 - `RuntimeServicesBuilder` which configures the runtime's internal service
   slots; and
@@ -22,7 +21,7 @@ installer:
   setting sources.
 
 A feature may use any combination of those delegates to install artifact
-declarations, stage registrations, runtime-setting sources, required setting
+schemas, stage registrations, runtime-setting sources, required setting
 specifications, and runtime services. `build()` finalizes the configuration and
 returns a `ChunkyRuntime` containing an immutable `StageManifest`,
 `RuntimeServices`, and `RuntimeSettings`.
@@ -75,7 +74,7 @@ class RuntimeFeature(Protocol):
 
 ### A feature may install:
 
-__Artifact declarations:__
+__Artifact schemas:__
 
 ```python
 class AsrArtifactStageFeature:
@@ -124,18 +123,18 @@ class SharedFileArtifactStorageFeature:
         self.config=config
 
     def install(self, manifest_builder: StageManifestBuilder, service_locator: "RuntimeServicesBuilder", env_settings: RuntimeSettingsBuilder) -> None:
-        representations = FileRepresentationStore(
+        contents = FileContentStore(
             self._root / "objects",
             config=self.config,
         )
-        service_locator.set_representation_store(representations)
+        service_locator.set_content_store(contents)
         service_locator.set_artifact_cache(
-            FileCacheProvider(self._root / "cache", representations)
+            FileCacheProvider(self._root / "cache", contents)
         )
         service_locator.set_artifact_persistence(
             FileArtifactPersistenceProvider(
                 self._root / "artifacts",
-                representations,
+                contents,
             )
         )
 ```
@@ -147,16 +146,16 @@ class SharedFileArtifactStorageFeature:
 ```python
 @dataclass(frozen=True)
 class RuntimeServices:
-    representation_store: RepresentationStore
+    content_store: ContentStore
     artifact_cache: ArtifactCache
     artifact_persistence: ArtifactPersistenceProvider
     artifact_bindings_provider_factory: ArtifactBindingsProviderFactory
     planner_factory: PlannerFactory
     runner_factory: RunnerFactory
 
-    def set_representation_store(
+    def set_content_store(
         self,
-        representation_store: RepresentationStore,
+        content_store: ContentStore,
     ) -> "RuntimeServicesBuilder":
         pass
 
@@ -184,22 +183,28 @@ __Expected behavior:__
 - if a service is never configured by any feature, `freeze()` supplies the runtime's default implementation for that slot where a default is defined;
 - the frozen `RuntimeServices` object exposes the resolved service set as an immutable runtime dependency bundle.
 
-Representation storage, artifact cache, and durable artifact persistence are
+Content storage, artifact cache, and durable artifact persistence are
 separate service slots. Cache and persistence share physical objects only when
-they are explicitly composed with the same representation-store instance and
+they are explicitly composed with the same content-store instance and
 namespace.
+
+All three operate over shared exact `ContentId` objects while retaining distinct
+ownership: the Content Store owns bytes and claims, the execution cache owns
+reusable completed-binding provenance, and artifact persistence owns durable
+task/upload coordination. Their internal exact `ArtifactSchemaId` and producer
+records do not leak into public requests or ordinary task results.
 
 The builder must reject:
 
-- two independent representation coordinators claiming the same physical
+- two independent content-store coordinators claiming the same physical
   namespace;
-- cache and persistence providers configured with incompatible representation
+- cache and persistence providers configured with incompatible content-store
   schemas;
 - ambiguous reference or garbage-collection ownership; and
 - workers configured with inconsistent shared-store identity.
 
 When no storage feature is installed, the builder creates a runtime-scoped
-workspace representation store and cache. It may also expose a local workspace
+workspace content store and cache. It may also expose a local workspace
 artifact provider for non-durable use. The runtime owns this private workspace
 and deletes it on close after releasing active handles.
 
@@ -234,7 +239,7 @@ class RuntimeSettingsBuilder:
     def install_source(self, source: RuntimeSettingSource) -> "RuntimeSettingsBuilder":
         pass
 
-    def install_stage_settings(self, stage_id: str, settings: Iterable[RuntimeStageSetting]) -> "RuntimeSettingsBuilder":
+    def install_stage_settings(self, producer_id: str, settings: Iterable[RuntimeStageSetting]) -> "RuntimeSettingsBuilder":
         pass
 
     def freeze(self) -> RuntimeSettings:
@@ -253,7 +258,7 @@ class ChunkyRuntimeBuilder:
         manifest = self._manifest_builder.freeze()
         for registration in manifest.stages.values():
             self._env_settings.install_stage_settings(
-                registration.stage_id,
+                registration.producer_id,
                 registration.runtime_settings,
             )
 ```
@@ -307,7 +312,7 @@ This keeps operational configuration validation aligned with the true execution 
 Stages are installed by calling `manifest_builder.add_stage(registration)` from a feature's `install(...)` method.
 
 `StageManifestBuilder.add_stage(...)` is intentionally narrow:
-- it rejects duplicate `stage_id` values;
+- it rejects duplicate `producer_id` values;
 - it automatically installs every declaration in `registration.owned_artifacts`;
 - artifact conflicts are still validated through `add_artifact(...)`;
 - it stores the `StageRegistration` exactly as the planner and runner will later see it.
@@ -330,15 +335,15 @@ class WebVttTopologyExampleFeature:
 
 ```python
 class StageRegistration:
-    stage_id: str
+    producer_id: str
     display_name: str
     registration_version: str
     behavior_version: str
     executor_factory: StageExecutorFactory
 
-    owned_artifacts: tuple[ArtifactDeclaration[Any], ...]
-    input_capabilities: tuple[ArtifactCapability, ...]
-    output_capabilities: tuple[ArtifactCapability, ...]
+    owned_artifacts: tuple[ArtifactSchema[Any], ...]
+    input_capabilities: tuple[ArtifactRequirementCapability, ...]
+    output_capabilities: tuple[ArtifactOutputCapability, ...]
 
     resolve_requirements: StageRequirementResolver
     resolve_output_capabilities: StageOutputResolver
@@ -349,23 +354,21 @@ class StageRegistration:
 ```
 
 The important builder-time implications are:
-- __`stage_id`__ is the stable identity used for manifest registration and runtime-setting scoping;
+- __`producer_id`__ is the stable identity used for manifest registration and runtime-setting scoping;
 - __`display_name`__ is presentation metadata;
 - __`registration_version`__ and __`behavior_version`__ are part of the stage's durable registration contract and manifest identity;
 - __`executor_factory`__ is the runtime constructor the runner will use for invocations;
-- __`owned_artifacts`__ are the artifacts declared by stage [[../02-artifacts/01-artifacts-spec#Artifact Declarations|Artifact Declarations]]
-- __`output_capabilities`__ defines a static set of output capabilities this stage *could* produce if requested
-- __`input_capabilities`__ defines a static set of input requirements this stage *could* require depending on a specific set of requested outputs
+- __`owned_artifacts`__ are the exact immutable `ArtifactSchema` values owned by
+  the stage; their persisted identity is `ArtifactSchemaId`
+- __`output_capabilities`__ defines the static output envelope, including cardinality, `processing_order`, and incremental-publication capability
+- __`input_capabilities`__ defines the static input envelope, including cardinality/optionality and optional `max_processing_order` constraints
 - __`resolve_output_capabilities()`__ is a function to be used to assess a stage's *actual* `output_capabilities` within the context of a specific `LocalRunRequest`
 - __`resolve_requirements()`__ is a function to be used to assess a stage's *actual* `input_requirements` within the context of a specific `LocalRunRequest`
 - __`resolve_resource_policy()`__ is a function to be used to assess a stage's *actual* `resource_policy` within the context of a specific `LocalRunRequest`
 - __`runtime_settings`__ lets a stage declare a set of runtime-setting specs that it depends on to be successfully invoked. Runtime settings are resolved and validate after planning and before execution of the task plan
 - __`concurrency_policy`__ provides optional execution constraints beyond the default scheduler behavior.
 
-> Notes for future self and refactoring agents. 
-> 1: concurrency_policy and resolve_resource_policy should probably be role into one, 
-> 2: owned_artifacts could probably be refactored out of the StageRegistration and bubbled up to the feature installer.
-> 3: should `input_capabilities` be renamed to input_requirements? 
+> Notes for future refactoring remain non-normative. The stage-facing contract is authoritative in `05-stages/stages-spec.md`.
 
 
 ## Configured Runtime

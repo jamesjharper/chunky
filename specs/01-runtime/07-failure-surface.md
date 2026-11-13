@@ -263,213 +263,97 @@ list except `OPERATION_CANCELLED`.
 
 ## Request-validation profile
 
-Request builders produce the `REQUEST_VALIDATION` member of the universal
-envelope, represented by the WIT `request-validation` failure kind and context
-case. Its issues use the `FailureIssue` shape and the following context types:
+Request builders produce `REQUEST_VALIDATION` failures through the universal
+envelope.
+
+The primary bounded contexts are:
 
 ```text
 UnableToDeserializeRequest
-  violation: violation_message
-  field_path: json_path_string
+  violation
+  field_path
 
 UnableToBuildRunPolicyRequest
-  field?: prevent_concurrency | constraint_concurrency_limits
-  resource_constraint?: canonical ResourceConstraint or original supplied string
+  field?: prevent_concurrency | constraint_concurrency_limits | publication_mode
+  resource_constraint?
 
 UnableToBuildCachePolicyRequest
   scope: TASK | ARTIFACT
-  artifact_reference?: canonical a-ref or original supplied string
+  scoped_request?
   field?: behavior | desired_ttl | max_ttl
 
 UnableToBuildArtifactRetentionRequest
   field: artifact_retention_ttl
 
 UnableToBuildDurableInputsRequest
-  instance_reference?: original supplied string
+  scoped_request?
+  member_ordinal?
+  content_id?
 
 UnableToBuildDurableOutputsRequest
-  artifact_reference?: original supplied string
+  scoped_request?
 
 UnableToBuildInputsRequest
-  artifact_reference?: original supplied string
+  scoped_request?
 
 UnableToBuildOutputsRequest
-  artifact_reference?: original supplied string
-  target_index?: nonnegative-index
+  scoped_request?
+  target_index?
 ```
 
-The WIT `request-validation-context` alternatives are
-`unable-to-deserialize-request`, `unable-to-build-run-policy-request`,
-`unable-to-build-cache-policy-request`,
-`unable-to-build-artifact-retention-request`,
-`unable-to-build-durable-inputs-request`,
-`unable-to-build-durable-outputs-request`, `unable-to-build-inputs-request`,
-and `unable-to-build-outputs-request`. Each carries the correspondingly named
-context object above.
+Builders aggregate independently detectable structural issues and omit
+misleading cascades.
 
-`context_type` identifies the request component that could not be built.
-`UnableToBuildCachePolicyRequest` is shared by task and artifact cache policies;
-`scope` distinguishes them. `UnableToDeserializeRequest` is reserved for
-envelope or field-shape failures returned directly by `from_object(...)`,
-before a request component can be interpreted. A successfully returned builder
-never contains this context type.
+Stable request-validation conditions include:
 
-Context fields are included only when relevant. Declaration indexes use
-zero-based caller declaration order. References are canonical when parsing
-succeeded and otherwise preserve the original supplied string. In addition to
-the universal context restrictions, request-validation context MUST NOT contain
-an external artifact handle, target handle, raw request body, or parsed runtime
-object.
+- `invalid_request_shape`;
+- `unsupported_request_version`;
+- `invalid_scoped_artifact_request`;
+- `invalid_content_id`;
+- `scoped_request_too_short`;
+- `empty_supplied_binding`;
+- `invalid_member_ordinal`;
+- `duplicate_input_binding`;
+- `duplicate_output_request`;
+- `mixed_output_form`;
+- `duplicate_run_policy`;
+- `invalid_publication_mode`;
+- `invalid_resource_constraint`;
+- `invalid_concurrency_limit`;
+- `duplicate_artifact_retention_ttl`;
+- `duplicate_task_cache_policy`;
+- `duplicate_artifact_cache_policy`;
+- `invalid_cache_behavior`;
+- `invalid_ttl`;
+- `ttl_requires_writing_cache`;
+- `no_outputs`; and
+- `targetless_output_requires_cache_write` where applicable to local targetless
+  output semantics.
 
-### Validation timing and aggregation
+`ttl_requires_writing_cache` applies when a cache TTL is attached to behavior
+that never publishes shared cache state, such as `NO_CACHE` or `READ_ONLY` on a
+miss according to the owning policy contract.
 
-Local and durable request builders accumulate component-level structural
-issues and return them together from `build()`. Issues whose prerequisites
-failed are omitted to avoid misleading cascades.
+Unknown artifact families, exact schema resolution, scope applicability,
+unscoped-output ambiguity, processing-order selection, output capability/cardinality compatibility,
+provider capability, and durable content presence require a frozen runtime and
+are not pure builder errors.
 
-`from_object(...)` separately validates the serialized request envelope shape,
-field shapes, and version before returning a durable builder. If deserialization
-fails, it immediately returns one `REQUEST_VALIDATION` failure containing all
-independently detectable deserialization issues. If deserialization succeeds,
-errors in contained artifact instances, outputs, or policies use their
-component contexts and are returned by `build()`.
-
-The following sections define the complete request-validation code set by
-operation.
-
-### `from_object` (`UnableToDeserializeRequest`)
-
-- `invalid_request_shape`: the request or a required field has the wrong
-  structural type, or a required field is absent; and
-- `unsupported_request_version`: `version` is not supported.
-
-### `include_input` (`UnableToBuildInputsRequest`)
-
-- `invalid_artifact_reference`: the `a-ref` cannot be parsed; and
-- `duplicate_input`: another input resolves to the same parsed artifact
-  reference.
-
-### `include_uploaded_artifact` (`UnableToBuildDurableInputsRequest`)
-
-- `invalid_artifact_reference`: the artifact reference cannot be parsed;
-- `invalid_fingerprint`: the fingerprint is structurally invalid; and
-- `duplicate_input`: another input resolves to the same parsed artifact
-  reference.
-
-### `expect_output` (`UnableToBuildDurableOutputsRequest`)
-
-- `invalid_artifact_reference`: the `a-ref` cannot be parsed; and
-- `mixed_output_form`: the same parsed output has a targeted declaration.
-
-### `expect_output_target` (`UnableToBuildOutputsRequest`)
-
-- `invalid_artifact_reference`: the `a-ref` cannot be parsed; and
-- `mixed_output_form`: the same parsed output has a targetless declaration.
-
-Repeated targeted declarations are valid and create ordered fan-out.
-
-### `with_run_policy` (`UnableToBuildRunPolicyRequest`)
-
-- `duplicate_run_policy`: a run policy was already declared;
-- `invalid_resource_constraint`: a concurrency-limit key is not a known
-  `ResourceConstraint`; and
-- `invalid_concurrency_limit`: a concurrency limit is not a positive integer.
-
-### `with_artifact_retention_ttl` (`UnableToBuildArtifactRetentionRequest`)
-
-- `duplicate_artifact_retention_ttl`: a retention TTL was already declared;
-  and
-- `invalid_ttl`: the supplied TTL is not a positive duration.
-
-### `with_task_cache_policy` (`UnableToBuildCachePolicyRequest`, `TASK`)
-
-- `duplicate_task_cache_policy`: a task cache policy was already declared;
-- `invalid_cache_behavior`: the behavior is not a known
-  `ArtifactCacheBehavior`;
-- `invalid_ttl`: a supplied TTL is not a positive duration; and
-- `ttl_requires_writing_cache`: request-level policy resolution attaches a TTL
-  to `NO_CACHE` or `DRY_RUN`.
-
-### `with_artifact_cache_policy` (`UnableToBuildCachePolicyRequest`, `ARTIFACT`)
-
-- `invalid_artifact_reference`: the supplied `a-ref` cannot be parsed;
-- `duplicate_artifact_cache_policy`: a policy already exists for the same
-  parsed artifact reference;
-- `invalid_cache_behavior`: the behavior is not a known
-  `ArtifactCacheBehavior`;
-- `invalid_ttl`: a supplied TTL is not a positive duration; and
-- `ttl_requires_writing_cache`: request-level policy resolution attaches a TTL
-  to `NO_CACHE` or `DRY_RUN`.
-
-### `build`
-
-- `no_outputs`: no output was requested; and
-- `targetless_output_requires_cache_write`: request-level policy resolution
-  gives a targetless local output `NO_CACHE` or `DRY_RUN`.
-
-`no_outputs` uses `UnableToBuildOutputsRequest` for a local builder and
-`UnableToBuildDurableOutputsRequest` for a durable builder.
-`targetless_output_requires_cache_write` is local-only and uses
-`UnableToBuildOutputsRequest`. Durable outputs are published through artifact
-persistence independently of cache policy.
-
-`close` produces no request-validation issues.
-
-### Operation applicability and validation boundary
-
-`from_object`, `include_uploaded_artifact`, and
-`with_artifact_retention_ttl` are durable-only. `include_input`,
-`expect_output_target`, and `close` are local-only. All other operations listed
-above apply to both builders.
-
-A value that cannot be converted to a binding method's parameter type may fail
-at the call boundary before builder validation. Calls on a consumed builder are
-also binding-level lifecycle errors. Neither case produces a
-`REQUEST_VALIDATION` failure.
-
-Unknown artifacts, target/declaration compatibility, declaration cacheability,
-provider capability, phased-family matching, and graph support require a frozen
-runtime and are not builder errors.
-
-A phased artifact selector MUST NOT be converted into an exact match during
-request construction. The builder has no family catalog with which to select a
-concrete phase, so it preserves the parsed selector in the request. Exact-phase
-validation, `AT_MOST` selection, and terminal phase-less remapping are owned by
-planning, as defined in the
-[Artifact Model](../02-artifacts/01-artifact-model-surface.md).
-
-### Example
-
-```json
-{
-  "kind": "REQUEST_VALIDATION",
-  "message": "Unable to build invalid task request",
-  "version": 1,
-  "issues": [
-    {
-      "code": "mixed_output_form",
-      "message": "Output already has a targetless declaration.",
-      "context_type": "UnableToBuildOutputsRequest",
-      "context": {
-        "artifact_reference": "render/webvtt_transcript"
-      }
-    }
-  ],
-  "retry": {
-    "retryable": false
-  }
-}
-```
+Durable task submission failures caused by supplied content being missing,
+unreadable, unauthorized, expired, or unclaimable occur at atomic acceptance,
+not builder validation. Stable codes are
+`SUPPLIED_CONTENT_MISSING`, `SUPPLIED_CONTENT_UNREADABLE`,
+`SUPPLIED_CONTENT_UNAUTHORIZED`, and `SUPPLIED_CONTENT_UNCLAIMABLE`; context
+contains the canonical scoped request, member ordinal, and `ContentId`. These
+failures create no task and no partial protection or grace-claim mutation.
 
 ## Artifact-upload profile
 
-Artifact publication and provisional upload sessions produce the
-`ARTIFACT_UPLOAD` member of the universal envelope, represented by the WIT
-`artifact-upload` failure kind and context case. Operation-specific causes and
-retry behavior remain owned by
-[Durable Artifacts Upload Surface](03-durable-artifacts-upload-surface.md).
+Durable content upload continues to use broad failure kind `ARTIFACT_UPLOAD` for
+compatibility with the failure taxonomy. The operation publishes content rather
+than a semantic artifact instance.
 
-The artifact-upload context schema is:
+The bounded upload contexts include:
 
 ```text
 ArtifactUploadSessionIdentity
@@ -477,67 +361,88 @@ ArtifactUploadSessionIdentity
   | live_capture: opaque-string
 
 ArtifactUploadSessionContext
-  session: ArtifactUploadSessionIdentity
+  session
 
 ArtifactUploadRejectedOptionContext
-  option_name: string
+  option_name
 
 ArtifactUploadByteLengthContext
-  expected_byte_length: nonnegative-integer
-  observed_byte_length: nonnegative-integer
+  expected_byte_length
+  observed_byte_length
 
 ArtifactUploadSizeLimitContext
-  max_byte_length: nonnegative-integer
+  max_byte_length
 
 ArtifactUploadCaptureProgressContext
-  session?: ArtifactUploadSessionIdentity
-  received_byte_length: nonnegative-integer
+  session?
+  received_byte_length
 
 ArtifactUploadInactivityTimeoutContext
-  requested_inactivity_timeout_milliseconds?: nonnegative-integer
-  effective_inactivity_timeout_milliseconds: nonnegative-integer
+  requested_inactivity_timeout_milliseconds?
+  effective_inactivity_timeout_milliseconds
 
 ArtifactUploadTerminalStateContext
-  session?: ArtifactUploadSessionIdentity
-  terminal_state: string
+  session?
+  terminal_state
 ```
 
-The WIT `artifact-upload-issue-context` alternatives are:
+Stable upload conditions include:
 
-- `empty`, with no additional structured context;
-- `session`, carrying `ArtifactUploadSessionContext`;
-- `rejected-option`, carrying `ArtifactUploadRejectedOptionContext`;
-- `byte-length`, carrying `ArtifactUploadByteLengthContext`;
-- `size-limit`, carrying `ArtifactUploadSizeLimitContext`;
-- `quota`, carrying `QuotaContext`;
-- `capture-progress`, carrying `ArtifactUploadCaptureProgressContext`;
-- `inactivity-timeout`, carrying
-  `ArtifactUploadInactivityTimeoutContext`; and
-- `terminal-state`, carrying `ArtifactUploadTerminalStateContext`.
+- `ARTIFACT_UPLOAD_SIZE_LIMIT_EXCEEDED`;
+- `ARTIFACT_UPLOAD_STORAGE_PROVIDER_CAPABILITY_UNSUPPORTED`;
+- `ARTIFACT_UPLOAD_LENGTH_MISMATCH`;
+- `ARTIFACT_UPLOAD_DIGEST_MISMATCH`;
+- `ARTIFACT_UPLOAD_DIGEST_UNSUPPORTED`;
+- `ARTIFACT_UPLOAD_CONTENT_ID_INVALID`;
+- `ARTIFACT_UPLOAD_CONTENT_ID_NOT_TRUSTED`;
+- `ARTIFACT_UPLOAD_FINALIZATION_AMBIGUOUS`;
+- `ARTIFACT_UPLOAD_INPUT_FORM_UNSUPPORTED`;
+- `ARTIFACT_UPLOAD_NOT_FOUND`;
+- `ARTIFACT_UPLOAD_TIMED_OUT`;
+- `ARTIFACT_UPLOAD_ABORTED`;
+- `ARTIFACT_UPLOAD_STATE_INVALID`;
+- `ARTIFACT_UPLOAD_SESSION_OWNERSHIP_INVALID`;
+- `ARTIFACT_UPLOAD_QUOTA_EXCEEDED`;
+- `ARTIFACT_UPLOAD_PART_INVALID`;
+- `ARTIFACT_UPLOAD_MULTIPART_SIZE_LIMIT_EXCEEDED`;
+- `ARTIFACT_UPLOAD_PART_LENGTH_MISMATCH`;
+- `ARTIFACT_UPLOAD_PART_DIGEST_MISMATCH`;
+- `ARTIFACT_UPLOAD_PART_CONFLICT`;
+- `ARTIFACT_UPLOAD_PART_SET_INCOMPLETE`;
+- `ARTIFACT_UPLOAD_OPTIONS_INVALID`;
+- `ARTIFACT_UPLOAD_LIVE_CAPTURE_STATE_INVALID`;
+- `ARTIFACT_UPLOAD_LIVE_CAPTURE_APPEND_ALREADY_IN_PROGRESS`;
+- `ARTIFACT_UPLOAD_ALREADY_SEALED`; and
+- `ARTIFACT_UPLOAD_INCOMPLETE`.
 
-The exact stable artifact-upload issue codes are:
+The removed caller-assigned upload fingerprint feature has no
+`ARTIFACT_UPLOAD_FINGERPRINT_*` errors in the revised contract.
 
-- Common: `ARTIFACT_UPLOAD_SIZE_LIMIT_EXCEEDED`,
-  `ARTIFACT_UPLOAD_STORAGE_PROVIDER_CAPABILITY_UNSUPPORTED`,
-  `ARTIFACT_UPLOAD_LENGTH_MISMATCH`, `ARTIFACT_UPLOAD_DIGEST_MISMATCH`,
-  `ARTIFACT_UPLOAD_DIGEST_UNSUPPORTED`,
-  `ARTIFACT_UPLOAD_FINGERPRINT_INVALID`,
-  `ARTIFACT_UPLOAD_FINGERPRINT_NOT_TRUSTED`, and
-  `ARTIFACT_UPLOAD_FINALIZATION_AMBIGUOUS`.
-- Direct publication: `ARTIFACT_UPLOAD_INPUT_FORM_UNSUPPORTED`.
-- Upload session: `ARTIFACT_UPLOAD_NOT_FOUND`, `ARTIFACT_UPLOAD_TIMED_OUT`,
-  `ARTIFACT_UPLOAD_ABORTED`, `ARTIFACT_UPLOAD_STATE_INVALID`,
-  `ARTIFACT_UPLOAD_SESSION_OWNERSHIP_INVALID`,
-  `ARTIFACT_UPLOAD_QUOTA_EXCEEDED`, `ARTIFACT_UPLOAD_PART_INVALID`,
-  `ARTIFACT_UPLOAD_MULTIPART_SIZE_LIMIT_EXCEEDED`,
-  `ARTIFACT_UPLOAD_PART_LENGTH_MISMATCH`,
-  `ARTIFACT_UPLOAD_PART_DIGEST_MISMATCH`, `ARTIFACT_UPLOAD_PART_CONFLICT`,
-  and `ARTIFACT_UPLOAD_PART_SET_INCOMPLETE`.
-- Live capture: `ARTIFACT_UPLOAD_OPTIONS_INVALID`,
-  `ARTIFACT_UPLOAD_NOT_FOUND`, `ARTIFACT_UPLOAD_TIMED_OUT`,
-  `ARTIFACT_UPLOAD_ABORTED`, `ARTIFACT_UPLOAD_LIVE_CAPTURE_STATE_INVALID`,
-  `ARTIFACT_UPLOAD_LIVE_CAPTURE_APPEND_ALREADY_IN_PROGRESS`,
-  `ARTIFACT_UPLOAD_ALREADY_SEALED`, and `ARTIFACT_UPLOAD_INCOMPLETE`.
+## Durable task acceptance and artifact retrieval
+
+The owning run/persistence/download specifications may use failure kinds such as
+`TASK_SUBMISSION`, `TASK_CONTROL`, `ARTIFACT_PERSISTENCE`, and
+`ARTIFACT_DOWNLOAD` according to the implementation's registered taxonomy.
+Their issue codes must remain globally unique and use the same root envelope.
+
+Important redesigned conditions include:
+
+- malformed `ContentId` or canonical `ScopedArtifactRequest`;
+- supplied durable content missing, unreadable, unauthorized, expired, or
+  unclaimable at atomic task acceptance;
+- incompatible exact artifact schema or scoped binding;
+- output publication/cardinality failure;
+- content not retained;
+- content corruption;
+- invalid/unsupported byte range;
+- provider unavailable/capability unsupported;
+- `OPERATION_CANCELLED`; and
+- `OPERATION_DEADLINE_EXCEEDED`.
+
+A task-artifact binding that is `PENDING`, `PRODUCING`, `FAILED`, `CANCELLED`, or
+`EXPIRED` is normally an expected binding state rather than a malformed call.
+Raw content download uses operation failures when the requested `ContentId` cannot be
+opened under the applicable durable/service retention scope.
 
 ## Invariants
 
@@ -547,24 +452,9 @@ The exact stable artifact-upload issue codes are:
 3. Stable categorical fields, not messages, drive program behavior.
 4. Typed issue context is the sole detailed cause-correlation mechanism.
 5. Issue order is deterministic and independent of execution races.
-6. No canonical failure contains process-local state or secrets.
-7. Retryability is explicit for every failure and applies to the complete
-   failed call.
-8. A retry delay is present only for a retryable failure and never promises
-   that a later attempt will succeed.
-
-Their going to the store tomorrow, but I doesn't think they has enough money.
-
-She don't know where the documents is, and neither of the reports were completed correct.
-/.,j;kj'
-
-;lhljkgkjkjl
-]
-
-
-I have went there yesterday and seen the problem myself.
-
-curl -s \
-  -X POST 'http://10.100.0.123:8010/v2/check' \
-  --data-urlencode 'language=en-GB' \
-  --data-urlencode "text=Their going to the store tomorrow, but I doesn't think they has enough money."
+6. No canonical failure contains process-local state, raw artifact bytes, or
+   secrets.
+7. Retryability is explicit for every failure and applies to the complete failed
+   call.
+8. The redesigned artifact model never reuses the removed semantic upload
+   fingerprint errors for `ContentId` or provenance.

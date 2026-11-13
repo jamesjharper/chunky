@@ -1,258 +1,263 @@
-// NOTES:
-TODO: find a away to support locating artifacts which span multiple files.
-One example is, High quality recording devices can have issues with storing files larger then (2^32)-1 bytes or 4 Gb. 
-These types of devices will split files unto multiple files. Each file is a logical distinct file (its has its own valid headers, etc), whose semantic value is only value when considered as a whole. 
-;
-A stage would need to actively support this type of file to be supported, one such example would be to get audio preprocessing to merge, and reduce the file size as step.
-
-
 # Artifact Model
-An **artifact** is any typed value that enters, moves through, or leaves the runtime. Artifacts include:
 
-- source inputs, such as audio files;
-- settings, such as speaker detection settings;
-- intermediate results, such as utterance event streams;
-- final outputs, such as transcripts;
-- diagnostic outputs, such as logs, metrics, or inspection CSVs;
-- target output requests, such as transcript or embedding outputs.
+## Purpose
 
-The artifact model gives the runtime a stable way to reason about identity, compatibility, reuse, and materialization across stages.
+This specification defines Chunky's artifact identity model, versionless
+artifact requests, exact artifact schemas, and scoped content bindings.
 
-## Artifact Identity
-Artifact IDs are stable semantic identifiers. An artifact ID describes **what the artifact means**, not where it is stored or how it was produced.
+The key distinction is between:
 
-Artifact IDs must not encode:
-- temporary file names;
-- physical storage locations;
-- implementation language or binding;
-- stage invocation IDs;
-- task IDs;
-- incidental output filenames.
+- **content identity**: one exact finite byte sequence;
+- **artifact schema**: how content is interpreted by a stage or codec;
+- **artifact binding**: an ordered zero/one/many-member value on a stage edge;
+- **production provenance**: the deterministic identity of a complete binding;
+- **task-output observation**: the evolving public result for one
+  caller-requested scoped binding.
 
-Artifact IDs may include a namespace when it improves semantic clarity. Artifacts that represent settings private to one stage may include implementation-specific naming, but those details should still describe the setting's meaning rather than its storage format.
+Storage, transfer, cache, provenance hashing, task lifecycle, and stage execution
+are defined by their owning specifications.
 
-### Internal semantic identity
-`ArtifactKey` remains the internal semantic value object for declaration-level artifact identity.
 
-```python
-@dataclass(frozen=True, order=True)
-class ArtifactKey:
-    domain: str
-    content_kind: str
-    phase: int | None = None
+Artifact Parts
 
-    @property
-    def family(self) -> tuple[str, str]:
-        return self.domain, self.content_kind
 
-    def without_phase(self) -> "ArtifactKey":
-        return ArtifactKey(self.domain, self.content_kind)
-```
+Version
 
-The `ArtifactKey` describes two related semantic identities:
+Domain:
 
-- family or non-phased declarations are unique by `{domain}/{content_kind}`;
-- concrete phased intermediate declarations are unique by `{domain}/{content_kind}/{phase}`.
 
-`ArtifactKey` is not itself a URI string. URI strings are boundary serializations parsed into structured locator objects and then into the internal semantic fields used by the planner, manifest, cache, and bindings.
+## Identity and request types
 
-### Artifact locator family
-Chunky uses a URI-compatible locator family at public and persistence boundaries.
+Chunky deliberately uses different types for exact bytes, exact
+interpretations, caller intent, hierarchy-qualified binding keys, supplied
+values, and task results. They are related but not interchangeable. The old
+public locator names are retired.
 
-The locator family has three schemes:
-
-| Scheme | Structured type | Meaning |
-| --- | --- | --- |
-| `a-ref` | `ArtifactRefLocator` | Declaration-level semantic artifact reference. May use unresolved phase token `any`. |
-| `a-instance` | `ArtifactInstanceLocator` | Concrete artifact instance reference. Uses the final artifact fingerprint as discriminator. |
-| `a-task` | `TaskArtifactLocator` | Task-scoped requested-output binding reference. Uses the task ID as discriminator and resolves through task metadata. |
-
-All three schemes share the same canonical path spine:
+### Content
+A content object is one finite ordered byte sequence. `ContentId` is it's a universal identity, its physical deduplication key, and its primary public upload/download address.
 
 ```text
-/{projection_context}/{domain}/{content_kind}/{phase}
+ContentId
+  algorithm: string
+  value: string
 ```
 
-The canonical no-projection token is `global`. Projection context is an ergonomic presentation/context field, not part of semantic identity. For example, a settings artifact owned by `audio_preprocessing` may be presented under `speech_processing`, but the underlying artifact identity remains `audio_preprocessing/audio_settings`.
+The required runtime-generated algorithm is BLAKE3-256. Its canonical algorithm identifier is `blake3`, and that identifier permanently denotes the 32-byte BLAKE3 output. A caller-defined `ContentId` supplies both its algorithm identifier and value; the upload surface may accept a non-default algorithm only under explicit caller-provided content-ID policy.
 
-V1 intentionally omits `content_kind_path`. Only `projection_context`, `domain`, `content_kind`, `phase`, and the scheme-specific discriminator are in scope.
+Algorithm identifiers and their meanings are part of the storage contract; they are not runtime-configurable and must never be reassigned or reinterpreted after content has been stored.
 
-### Canonical and short `a-ref` forms
-The structured `ArtifactRefLocator` still has a canonical URI serialization used for generated strings, persisted metadata, and logs that need an unambiguous full locator:
+> A future runtime-generated algorithm requires a distinct identifier and an explicit specification update. Implementations must reject an unknown caller-provided algorithm unless explicit upload policy defines and permits it.
+
+The digest is calculated over the exact logical bytes only. Byte length is mandatory integrity and storage metadata but is not part of content equality.
+
+The canonical textual form is `{algorithm}/{canonical-value}`. For the required runtime-generated algorithm it is:
+```text
+blake3/{unpadded-base64url-digest}
+```
+
+The BLAKE3-256 payload is exactly 43 Base64URL characters and contains no `=`
+padding. For example, the digest of an empty content object is:
 
 ```text
-a-ref:/global/{domain}/{content_kind}/{phase-or-any}
+blake3/rxNJufX5oaagQE3qNtzJSZvLJcmtwRK3zJqTyuQfMmI
 ```
 
-Documentation and caller-facing examples should prefer the accepted short `a-ref` input form:
+Parsing must reject a non-canonical algorithm identifier or algorithm-specific value. For `blake3`, it must reject padded or otherwise non-canonical Base64URL, a payload that does not decode to exactly 32 bytes, or a value whose canonical re-encoding differs from the input.
+
+Unless explicit caller-provided content-ID policy permits a trusted identity without byte verification, verification must recompute the identified algorithm over supplied or retrieved bytes and reject an identity or byte-length mismatch.
+
+Two content objects have the same content identity exactly when their algorithm identifiers and digest values are equal. Byte length is verified metadata, not
+part of equality.
+
+### Artifact schema
+
+`ArtifactSchema` and `ArtifactSchema<T>` define one complete immutable contract for interpreting or writing content as a typed artifact value.
+
+An `ArtifactSchema`'s identity is expressed by `ArtifactSchemaId`.
+
+```text
+ArtifactSchemaId
+  domain: string
+  content_kind: string
+  schema_version: positive integer
+```
+
+Its canonical serialization is:
+
+```text
+{domain}/{content-kind}/v{schema-version}
+```
+
+Examples:
+
+```text
+source/audio/v1
+transcript/token_stream/v2
+render/webvtt_transcript/v1
+```
+
+
+// TODO: ADD DEFINITION OF WHAT "DOMAIN" and "CONTEXT_KIND" ACTURALLY MEAN
+
+`domain` and `content_kind` name the artifact family.
+
+`schema_version` fixes all schema-owned codec, validation, and interpretation semantics; incompatible changes require a new version. Exact schema IDs are serializable for frozen planning, persistence, replay, and diagnostics, but ordinary caller requests do not contain them.
+
+`ArtifactSchemaId` does not contain:
+- processing order;
+- producer identity;
+- cardinality or optionality;
+- content identity or provenance;
+- task identity;
+- storage/provider information;
+- projection/presentation context; or
+- a separately serialized codec version.
+
+### Artifact request
+
+`ArtifactRequest` is the unscoped, versionless selector for one artifact family
+
+advertised by stages:
+
+```text
+ArtifactRequest
+  domain
+  content_kind
+```
+
+Its canonical text is exactly two non-empty canonical path segments:
 
 ```text
 {domain}/{content_kind}
-{domain}/{content_kind}/{phase-or-any}
-{projection_context}/{domain}/{content_kind}
-{projection_context}/{domain}/{content_kind}/{phase-or-any}
 ```
 
 Examples:
 
 ```text
-source/audio
-speech_detection/vad_settings
-utterance_detections/utterance_stream/201
-speech_processing/audio_preprocessing/audio_settings
+transcript/token_stream
+render/webvtt_transcript
 ```
 
-The `a-ref:/` scheme prefix is optional when parsing semantic artifact references. Omitted projection context canonicalizes to `global`; omitted `a-ref` phase canonicalizes to `any`.
+An artifact request contains no scope, schema version, content identity, or producer constraint. Planning resolves it against the frozen manifest.
 
-Concrete locator schemes are not optional and remain strict:
+### Scoped artifact request
+
+//  TODO: Why cant "ArtifactRequest" be merged into ScopedArtifactRequest?
+
+`ScopedArtifactRequest` identifies one occurrence of an artifact-family binding
+in the planning hierarchy. Its canonical text is an arbitrary-depth sequence of
+zero or more scope segments followed by the two `ArtifactRequest` segments:
 
 ```text
-a-instance:/global/{domain}/{content_kind}/{phase-or-none}/fingerprint/{fingerprint}
-a-task:/global/{domain}/{content_kind}/{requested-phase}/task/{task_id}
+{scope-segment...}/{domain}/{content-kind}
 ```
+
+Every semantic segment uses `[a-z][a-z0-9_]*`; `/` is the only segment
+separator. Empty segments, leading/trailing `/`, `.`, `..`, percent escapes,
+and non-canonical case are invalid in the semantic value. HTTP query/path
+embedding applies ordinary percent-encoding to the complete already-canonical
+value and does not change its identity.
 
 Examples:
 
 ```text
-a-instance:/global/source/audio/none/fingerprint/b3d9...
-a-instance:/global/utterance_detections/utterance_stream/201/fingerprint/9af1...
-
-a-task:/global/render/webvtt_transcript/any/task/task-123
-a-task:/global/utterance_detections/utterance_stream/201/task/task-123
+transcript/token_stream
+punctuation_repair/transcript/token_stream
+punctuation_repair/asr_transcribe/transcript/token_stream
+music_processing/audio_preprocessing/audio_settings
 ```
 
-Phase tokens have scheme-specific rules:
+The final two segments form the `ArtifactRequest`; every preceding segment is a
+stable semantic binding-scope name declared by the manifest. The zero-scope
+serialization is textually identical to its `ArtifactRequest`, while the two
+semantic types remain distinct. Segments are written downstream-to-upstream,
+so a shallower applicable key is a suffix of a deeper occurrence.
 
-- `a-ref` may use `any` to mean unresolved declaration-level phase selection;
-- `a-ref` may also use a numeric phase selector;
-- `a-instance` must use a concrete numeric phase or `none`;
-- `a-task` preserves the stable requested output reference and may therefore use
-  `any`;
-- `none` means the resolved concrete artifact has no phase;
-- `a-instance` must never use or infer `any`.
+The hierarchy is not a storage path, producer chain, or proof of provenance.
+It must not contain exact producer IDs. The planner selects and records a
+concrete producer separately.
 
-### Structured locator objects
-Parsing is scheme-specific and yields dedicated types. Do not introduce one catch-all locator with optional fields for every scheme.
+### Supplied artifact binding
 
-```python
-@dataclass(frozen=True)
-class ArtifactRefLocator:
-    artifact_key: ArtifactKey
-    projection_context: str = "global"
-
-    @classmethod
-    def from_a_ref(cls, value: str) -> "ArtifactRefLocator": ...
-
-    def to_a_ref(self, *, projected: bool = False) -> str: ...
-
-
-@dataclass(frozen=True)
-class ArtifactInstanceLocator:
-    artifact_key: ArtifactKey
-    fingerprint: str
-    projection_context: str = "global"
-
-    @classmethod
-    def from_a_instance(cls, value: str) -> "ArtifactInstanceLocator": ...
-
-    def to_a_instance(self, *, projected: bool = False) -> str: ...
-
-
-@dataclass(frozen=True)
-class TaskArtifactLocator:
-    artifact_key: ArtifactKey
-    task_id: str
-    projection_context: str = "global"
-
-    @classmethod
-    def from_a_task(cls, value: str) -> "TaskArtifactLocator": ...
-
-    def to_a_task(self, *, projected: bool = False) -> str: ...
-```
-
-
-For `a-ref`, an unresolved phase serializes as `any`; a numeric phase serializes
-as that concrete selector. For `a-instance`, an unphased concrete identity
-serializes as `none`. `a-task` serializes the phase token from the original
-requested output reference rather than replacing it with the phase later chosen
-by planning.
-
-### Task artifact resolution
-
-An `a-task` is allocated from the stable requested output reference and task ID.
-It does not contain a fingerprint or persist the planner's selected instance.
-Resolution combines task lifecycle with the cache provider's task-instance
-relation:
-
-| Condition | Resolution |
-|---|---|
-| task is active and no readable relation exists | `PLANNED` |
-| relation names a committed readable instance | `AVAILABLE` with its `a-instance` |
-| task ended without an available instance | `FAILED`, `CANCELLED`, `INCOMPATIBLE`, or `UNPLANNABLE` |
-| task/history is unknown, or the related entry disappeared | `UNRESOLVABLE` |
-
-`PLANNED` means only that an active task may still satisfy the request; it does
-not assert that a plan or fingerprint was persisted. Each output resolves
-independently, so a committed output remains `AVAILABLE` even if its task later
-fails or is cancelled.
-
-Locator objects store structured fields only. They do not preserve the original serialized string and they do not store a cached canonical string. Canonical strings are generated lazily at CLI, API, logging, metadata, and persistence boundaries.
-
-The default plain string form of every locator is its canonical serialization. Projected/presentation serialization must be requested explicitly.
-
-### Equality and hashing
-Semantic equality and hashing for `a-ref` ignore `projection_context` and use only the canonical artifact identity fields.
+`SuppliedArtifactBinding` binds one complete scoped request to an ordered,
+non-empty sequence of exact content members:
 
 ```text
-audio_preprocessing/audio_settings
-speech_processing/audio_preprocessing/audio_settings
+SuppliedArtifactBinding
+  request: ScopedArtifactRequest
+  members: ordered-non-empty-list<ContentId>
 ```
 
-These are the same semantic artifact reference. Projection context must not affect planning semantics, cache lookup, fingerprint payloads, map keys, or producer selection.
+Member order and duplicate `ContentId` values are semantic. A singular value is
+a one-member binding. Optional absence is represented by no binding, never an
+empty supplied binding. One complete scoped key may be declared at most once.
 
-`a-instance` equality includes the semantic artifact identity and final artifact fingerprint. `a-task` equality includes the semantic artifact identity and task ID. Their projection context is also presentation-only.
+### Task artifact binding
 
-### Artifact references
-The model distinguishes declaration-level semantic identity, concrete instance identity, and task-scoped requested-output identity.
+`TaskArtifactBinding` is the public observation of one requested output:
 
-A semantic artifact reference identifies what a run needs or can produce. It is represented externally as `a-ref` and internally by `ArtifactKey` plus any planning selector state.
+```text
+TaskArtifactBinding
+  requested: ScopedArtifactRequest
+  status: binding status
+  members: ordered-list<TaskArtifactMember>
+  failure?: public failure
 
-A concrete artifact instance reference identifies one deterministic artifact instance:
-
-```python
-@dataclass(frozen=True)
-class ArtifactInstanceLocator:
-    artifact_key: ArtifactKey
-    fingerprint: str
-    projection_context: str = "global"
+TaskArtifactMember
+  ordinal: zero-based integer
+  content_id: ContentId
 ```
 
-The fingerprint is always paired with the semantic artifact identity. A bare fingerprint is not a complete public artifact reference because it does not carry the declaration role, schema, phase, or validation context.
+While production is active, members are the evolving committed prefix. Each
+committed member is final even if later production fails. `AVAILABLE` is the
+successful complete status; there is no separate `complete` boolean. Task
+results are correlated by the original canonical `ScopedArtifactRequest`, not
+by a caller-chosen output key or public task-artifact locator.
 
-`a-instance` uses the final artifact fingerprint produced by the supplied-artifact or stage-produced artifact fingerprint builders. It is the concrete identity used internally for planned and produced artifacts. Planning may mint `a-instance` locators before execution when the final fingerprint is already deterministic.[^content-provenance-revisit]
+### Internal resolved records
 
-[^content-provenance-revisit]: **Design revisit:** Separate artifact content
-    identity from production provenance. Artifact fingerprints should likely
-    contain only content identity, for both supplied and stage-produced
-    artifacts, while declaration identity, stage pedigree, settings, and output
-    identity form a separate provenance/execution-cache key that resolves to
-    output content fingerprints. Under that model, upload is independent of
-    `a-ref`, may accept a caller-calculated expected content fingerprint that
-    the runtime verifies, and validates `a-ref` compatibility when the content
-    is used. This note records a coordinated redesign to revisit; the current
-    normative text has not yet been reconciled.
+Exact interpretation and production choice remain internal or persisted
+resolution metadata:
 
-Externally exposed `a-instance` locators are limited to committed artifacts that
-are readable through the configured provider. Non-cacheable or uncommitted
-values may have internal identities, but they are not returned as retrievable
-public references.
+```text
+ResolvedArtifactInterpretation
+  schema: ArtifactSchemaId
+  content: ContentId
 
-`a-task` identifies a task-scoped requested-output binding, not a file path or
-materialized object. Durable acceptance allocates it before planning; live tasks
-may expose the same shape when provider-backed task history exists. It resolves
-to an `a-instance` only through a committed readable task-instance relation.
+PlannedArtifactBinding
+  request: ScopedArtifactRequest
+  schema: ArtifactSchemaId
+  cardinality and publication capability
+  selected source or producer invocation
+  expected binding provenance
+```
 
-## Artifact Roles
+More than one schema may read the same content. Consequently,
+`ArtifactSchemaId + ContentId` identifies one resolved interpretation, not a
+second content object and not the primary upload/download address. Decoding may
+still reject malformed or incompatible bytes when the selected reader consumes
+them.
+
+
+## Artifact roles
+
+Artifacts retain semantic roles such as:
+
+```text
+SOURCE
+SETTINGS
+INTERMEDIATE
+TARGET
+DIAGNOSTIC
+```
+
+Role is declaration metadata used for manifest validation and documentation. It
+is not part of content identity.
+
+Settings remain semantic inputs but have additional planner behavior described
+under **Settings** and the fingerprint/provenance specification.
+
+### Role details
 Every artifact has exactly one role:
 
 ```python
@@ -295,9 +300,10 @@ settings value is treated as a supplied graph-root value after it is resolved,
 even when the caller did not explicitly provide it. This does not imply
 publication of caller-supplied or defaulted settings.
 
-A persisted settings root may be provided as an `a-instance` locator. The
-runtime may bind and read that value before graph planning, so settings-dependent planning hooks see the same value they would see from an
-ordinary supplied settings source.
+A durable settings root is supplied as a `SuppliedArtifactBinding`. The runtime
+may bind and read its `ContentId` members before graph planning, so
+settings-dependent planning hooks see the same value they would see from an
+ordinary local source handle.
 
 __Examples:__
 ```text
@@ -343,9 +349,9 @@ __Examples:__
 ```text
 utterance_detections/vad_stream
 utterance_detections/diarization_stream
-utterance_detections/utterance_stream/1
-speaker_detection/speaker_role_token_stream/100
-chunk_plan/chunk_segments/1
+utterance_detections/utterance_stream
+speaker_detection/speaker_role_token_stream
+chunk_plan/chunk_segments
 ```
 
 #### IO
@@ -386,14 +392,14 @@ and task contract.
 __Example as output:__
 ```
 outputs={
-  "render/webvtt_transcript/any": WebVttTargetArtifact.to_file_path("output.vtt"),
+  "render/webvtt_transcript": WebVttTargetArtifact.to_file_path("output.vtt"),
 },
 ```
 
 __Example as target-less output:__
 ```
 outputs={
-  "render/webvtt_transcript/any": [],
+  "render/webvtt_transcript": [],
 },
 ```
 
@@ -423,238 +429,151 @@ outputs={
 },
 ```
 
-## Artifact Declarations
-An artifact declaration is the semantic contract emitted by the stage or shared package that owns an artifact schema.
-
-```python
-T = TypeVar("T")
-
-class DefaultProvider(Protocol[T]):
-    def get_default(self) -> T: ...
-
-@dataclass(frozen=True)
-class ArtifactDeclaration(Generic[T]):
-    artifact_id: ArtifactKey
-    role: ArtifactRole
-    version: int
-    codec: Codec[T]
-    cacheable: bool = True
-    default_provider: DefaultProvider[T] | None = None
-
-    def __post_init__(self) -> None:
-        if self.artifact_id.phase is not None and self.role is not ArtifactRole.INTERMEDIATE:
-            raise ValueError("only intermediate artifact declarations may use phases")
-```
-
-### Declaration ownership by stage
-Stages emit the declarations they authoritatively own:
-
-- source artifacts that are unique to that stage or subsystem;
-- settings artifacts that are unique to that stage or subsystem;
-- target artifacts whose semantic output shape the stage defines;
-- diagnostic artifacts whose shape the stage defines;
-- intermediate artifacts produced by that stage.
-
-A stage must not emit a declaration for an intermediate artifact it only consumes. For shared source or settings artifacts, ownership should live in the stage/subsystem that defines the schema or in a shared artifact package, not in every consumer.
-
-```python
-class AsrRepairStage:
-    artifact_declarations = [
-        ArtifactDeclaration(
-            artifact_id=ArtifactKey.from_a_ref("transcript/token_text"),
-            role=ArtifactRole.INTERMEDIATE,
-            version=2,
-            codec=TokenTextCodec(),
-        ),
-        ArtifactDeclaration(
-            artifact_id=ArtifactKey.from_a_ref("transcript/token_boundaries/100"),
-            role=ArtifactRole.INTERMEDIATE,
-            version=1,
-            codec=TokenBoundariesCodec(),
-            cacheable=False,
-        ),
-    ]
-    # ...
-```
 
 
-### Codec
-A codec defines the canonical representation used at cache, persistence,
-transfer, process, and materialization boundaries.
+
+
+## Artifact bindings
+
+A binding is the ordered collection of concrete content members satisfying one
+stage input, stage output, or task-output request. Each member is independently
+addressable by `ContentId` and is interpreted through the exact
+`ArtifactSchemaId` selected for that edge.
 
 ```text
-Codec<T>
-  representation_descriptor:
-    codec_id
-    codec_version
-    mime_type
-    extension?
-
-  encode(value: T) -> ArtifactTransferSource
-  decode(source: ArtifactTransferSource) -> T
-  validate_and_fingerprint(source: ArtifactTransferSource)
-      -> semantic-content-contribution
-  buffering_capabilities
+ArtifactBinding
+  request: ScopedArtifactRequest
+  ordered members: [ContentId, ...]
 ```
 
-`extension` includes the leading dot, such as `.json`, `.csv`, `.wav`, or `.vtt`. It is storage metadata, not a request that the consuming stage receive a file path.
-
-The encoded contract uses a transfer source, not complete `bytes`. A codec
-declares whether encode, decode, and validation are incremental or require full
-typed materialization. This permits bounded-memory transfer without pretending
-that every typed artifact can itself be decoded without buffering.
-
-See [Artifact I/O](02-artifact-io-surface.md) for the transfer and typed-value
-capability contracts.
-
-
-## Artifact Capabilities
-A stage advertizes its input and output capabilities thought the use of Artifact Capabilities. An artifact capability points at a declared artifact.
-
-> Artifact References, let stages depend on published artifact contracts without copying declaration details. The declaration owns the artifact's type, role, version, codec, and fingerprint provider. The reference owns how this stage uses that artifact.
-
-
-__Artifact Capabilities fields:__
-
-| Field | Description |
-| ----- | ----------- |
-| `artifact_id` | ID of the artifact declaration being referenced. |
-
-__Example:__
-```python
-@dataclass(frozen=True)
-class ArtifactCapability:
-    artifact_id: ArtifactKey
+### Equality:
+The list is ordered, and not a set:
+```text
+[A, B, C] != [A, B]
+[A, B]    != [B, A]
 ```
 
-Artifact capabilities are _statically_ advertised by the stage because they must be known while performing the backward traversal that generates the task graph.
-
-```python
-class AsrRepairStage:
-    output_capabilities = [
-        ArtifactCapability(
-            artifact_id=ArtifactKey.from_a_ref("transcript/token_text"),
-        ),
-        ArtifactCapability(
-            artifact_id=ArtifactKey.from_a_ref("transcript/token_boundaries/100"),
-        ),
-    ]
-
-    input_capabilities = {
-        ArtifactCapability(
-            artifact_id=ArtifactKey.from_a_ref("audio/prepared"),
-        ),
-        ArtifactCapability(
-            artifact_id=ArtifactKey.from_a_ref("transcript/token_boundaries/99"),
-        ),
-    }
-    # ...
+### Duplication
+Duplicate content members are valid when the producing or supplying semantics require them.
+i.e., the following is valid
+```text
+[A, A, B]
 ```
 
+### Discrete Members
+Each member of a binding is a discrete, individual, self-contained artifact.
 
-## Artifact requirements
-A stage states its input requirements thought the use of Artifact Requirements. An artifact requirement points at a declared artifact. 
+***For example,***
+A multi-file recording upload may be split across multiple files. Each file must be independently valid, i.e. include correct file headers, and should not be chunked representation of a complete file artifact.
 
-__Artifact Requirements fields:__
+Storage-level multipart upload, object sharding, and transfer chunking are separate implementation concerns and never create artifact-binding members.
 
-| Field | Description |
-| ----- | ----------- |
-| `artifact_id` | ID of the artifact declaration being referenced. |
-| `required` | Whether the stage must receive this artifact to run. |
+## Cardinality
 
-__Example:__
-```python
-@dataclass(frozen=True)
-class ArtifactRequirement:
-    artifact_id: ArtifactKey
-    required: bool = True
-```
-
-Artifact requirements are _dynamically_ advertised by the stage through inspection of the task's `StageNodeContext`. StageNodeContext can be used to interrogate 
- - The expected outputs for this stage 
- - The resolved and inherited settings for this stage 
-
-These inputs should be calculated during each step of the backward traversal that generates the task graph.
-
-```python
-class AsrRepairStage:
-    def input_requirements(
-        self,
-        context: StageNodeContext,
-    ) -> list[ArtifactRequirement]: ...
-
-    # ...
-```
-
-### Phased intermediate references:
-Some intermediate artifact families opt into numbered processing phases:
+Cardinality belongs to stage input/output edges, not artifact schemas. The same
+exact `ArtifactSchemaId` may be used by different stages with different
+cardinality. The stage specification owns declaration and validation; this
+section defines only the shared meaning.
 
 ```text
-{domain}/{content_kind}/{phase}
+enum ArtifactCardinality
+  ONE
+  ONE_OR_MORE
+
+ArtifactEdgeCardinality
+  cardinality: ArtifactCardinality
+  optional: bool
 ```
 
-The phase number is used to discover stage processing order. Phase behavior applies only to artifact families that explicitly declare it. Specifically for ArtifactRequirement the `ArtifactRequirement::artifact_id.phase` represents the phase requirements value for this stage. Phase requirements are simple: a numbered requirement selects the closest available phase that does not exceed the requested value.
+Meaning:
 
-Graph creation evaluates phased references through the family catalog:
-
-- `PhaseMatchMode.AT_MOST` is the default for numbered requirements and matches any declared phase in the same family whose phase number is less than or equal to the selector;
-- `PhaseMatchMode.EXACT` suppresses fallback and requires the referenced concrete phase declaration to exist;
-- when several concrete phases satisfy an `AT_MOST` selector, planning chooses the highest available phase that does not exceed the selector;
-- a phase-less selector addresses the completed family result rather than a concrete phase and therefore does not use `phase_match` to choose among declarations.
-
-Requesting phased outputs follows the same family rules:
-
-- a concrete phased output may be requested only when that exact declaration exists;
-- a phase-less output request is valid when the family is known, because the planner may terminally remap the producing phase to the completed family ID;
-- a numbered output request for a not-explicitly-declared phase is valid only when the family has both a declared phase at-or-below the requested phase and a declared phase above it, which proves the request names an interior handoff rather than a nonexistent terminal.
-
-
-__For phased families:__
-
-- a numbered output declaration is a concrete phase;
-- a numbered input reference is a maximum phase selector; the concrete phase is resolved while building the stage graph.
-- a phase-less artifact ID represents the completed family selected by the evaluated graph.
-
-Terminal remapping remains planner-owned:
-
-- a stage declares the concrete phased output it materializes;
-- the planner may remap that output to the phase-less family ID only when the declared output is an intermediate declaration in the same family and has a concrete phase number;
-- any other remapping is invalid, including remapping across families, remapping non-intermediate artifacts, or remapping from a phase-less declaration to another key.
-
-The focused artifact example includes an intentionally empty `StageNodeContext` stub. The complete planning context is owned by graph creation and is outside this example.
-
-__Example:__
-```python
-@dataclass(frozen=True)
-class StageNodeContext:
-    """Stub for the read-only planning context owned by graph creation."""
-
-    pass
-
-
-class AsrRepairStage:
-    def input_requirements(
-        self,
-        _context: StageNodeContext,
-    ) -> list[ArtifactRequirement]:
-        return [
-            ArtifactRequirement(
-                # Select the closest available phase not exceeding 99.
-                artifact_id=ArtifactKey.from_a_ref("transcript/token_boundaries/99"),
-            )
-        ]
+```text
+required + ONE          = exactly 1
+optional + ONE          = 0..1
+required + ONE_OR_MORE  = 1..N
+optional + ONE_OR_MORE  = 0..N
 ```
 
+For `ONE_OR_MORE`, the runtime knows the cardinality class but does not know the
+final `N` until the producing binding closes successfully.
 
-## Recommended Invariants
 
-1. Artifact IDs describe semantic meaning, not storage location or producer instance.
-2. Artifact roles are declaration-level properties and do not change when an artifact is requested as an output.
-3. A concrete semantic-instance reference is an `a-instance` locator, not a
-   bare fingerprint or storage path.
-4. Plain semantic artifact references remain the default request and planning address and serialize as `a-ref`.
-5. Supplied roots are published only through explicit upload or internal cache
-   policy; local binding alone does not publish them.
-6. Caller-supplied settings take precedence over declaration defaults.
-7. Defaults are resolved lazily only for settings relevant to the request-specific graph.
-8. Resolved defaults and cached settings roots behave like supplied graph roots after binding.
+## Producer identity and processing order
+
+Stable producer IDs and `processing_order`/`max_processing_order` are owned by
+the stage and planning specifications. They select and identify concrete
+production capabilities, but are never content identity, schema identity, or
+segments of a caller-facing scoped request. A stage may advertise at most one
+output capability for a given exact schema while running that capability in
+multiple distinct scoped invocations.
+
+## Settings
+
+## What are Setting Artifacts
+Settings are semantic artifact values whose final effective values may be resolved from caller overrides and declaration defaults before complete stage requirements are known.
+
+#### Setting Requirements
+They remain part of the artifact model, but the planner may expose an effective
+settings view to requirement/output resolution. Settings schemas must define a
+deterministic finite value tree and its canonical encoding; JSON is one
+possible representation, not a required storage format.
+
+Production provenance includes a separate deterministic fingerprint of the final merged effective settings set. The provenance specification owns that calculation.
+
+## What are not Setting Artifacts
+Runtime-only configuration such as credentials, service endpoints, resource limits, retries, and transport tuning is not a settings artifact unless the contract explicitly intends it to change semantic outputs.
+
+## Request and declaration resolution
+
+The normal resolution path is:
+
+```text
+ArtifactRequest
+  transcript/token_stream
+        ↓ hierarchy qualification
+ScopedArtifactRequest
+  punctuation_repair/transcript/token_stream
+        ↓ manifest and producer resolution
+ArtifactSchemaId + selected producer invocation
+        ↓ planning/provenance
+PlannedArtifactBinding
+```
+
+The caller's request identity remains stable even when the planner resolves an
+exact schema and producer internally.
+
+## Equality and canonicalization
+- Content equality and universal address: `ContentId`.
+- Artifact-family request equality: `ArtifactRequest`.
+- Scoped binding-key equality: complete canonical `ScopedArtifactRequest`.
+- Supplied binding equality: scoped key plus ordered member `ContentId` values.
+- Resolved interpretation equality: exact `ArtifactSchemaId + ContentId`.
+- Production provenance: selected producer invocation and behavior version,
+  effective ordered input bindings, effective semantic settings/bindings, and
+  resolved output set.
+
+Canonical serializers must produce one stable representation. Parsers may
+accept documented shorthand only where the receiving API makes the expected
+value type unambiguous.
+
+## Location and authorization
+Artifact and content identifiers contain no filesystem path, object-store key, region, cache-provider name, credential, or authorization grant.
+
+Content identity is globally stable as an equality relation. Actual presence, retention, and retrieval are scoped to the configured runtime/service. Authorization and tenant isolation are future capabilities; the MVP does not claim that possession of an identifier authorizes access.
+
+## Invariants
+
+1. One `ContentId` denotes one exact finite logical byte sequence.
+2. Byte length is not part of content identity.
+3. `ArtifactSchemaId` identifies one immutable schema and contains no producer
+   or processing-order information.
+4. Caller artifact requests are versionless; planning resolves exact schema
+   versions.
+5. Scope hierarchy is part of binding-key equality but never content identity.
+6. Cardinality belongs to bindings/edges, not schemas.
+7. Ordered bindings preserve order and duplicates.
+8. Multi-member bindings do not create synthetic compound content objects.
+9. Producer identity and processing order affect planning/provenance only.
+10. Exact schema plus content is resolved interpretation metadata.
+11. Public task results expose only the original scoped request, status,
+    public failure, and ordered committed content members.

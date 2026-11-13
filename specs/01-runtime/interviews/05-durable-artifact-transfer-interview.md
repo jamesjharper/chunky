@@ -1,5 +1,8 @@
  # Durable Artifact Transfer Interview Record
 
+> **Historical interview record.** Active upload/download are content-only
+> `ContentId` operations; task bindings are specified separately.
+
 This working record preserves questions, answers, and confirmed decisions for
 durable artifact upload and download. It is not an authoritative specification.
 The target specifications and implementation must not be changed until the user

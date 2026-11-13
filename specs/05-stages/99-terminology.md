@@ -1,181 +1,50 @@
 # Stage Terminology
 
-This document consolidates the domain terminology defined in the `specs/04-stages` folder. It is a reference glossary for the stage model, stage registration, planning, and runtime execution specifications.
+**Stage registration** — Immutable bootstrap-time contract for one producer.
 
-## Core Terms
+**Producer ID** — Stable stage identity using
+`[a-z0-9]+(?:[._-][a-z0-9]+)*`, used internally for selection and provenance.
 
-### Stage
-A deterministic unit of runtime behavior that reads already-bound semantic artifacts and writes already-bound semantic artifacts.
+**Binding-scope segment** — Stable manifest-declared semantic occurrence name
+owned by an input/output edge, independent of producer ID.
 
-### Stage Model
-The semantic model that separates bootstrap-time registration, request-specific planning, and runtime stage execution.
+**Scope transition** — An input requirement's `INHERIT` or `EXTEND(segment)`
+rule for propagating a scoped binding occurrence upstream.
 
-### Stage Executor
-The runtime implementation that performs one resolved stage invocation through `execute(inputs, outputs, context)`.
+**Display name** — Presentation-only human-readable stage label.
 
-### Stage Registration
-The complete bootstrap-time contract for one stage implementation. It includes identity, versions, capabilities, planning hooks, resource policy resolution, and the executor factory.
+**Behavior version** — Version that changes when equal semantic production
+context may legitimately produce different output bindings.
 
-### Stage Manifest Builder
-The mutable bootstrap-time builder that collects features, artifact declarations, stage registrations, provider bindings, and defaults before freezing the manifest.
+**Registration version** — Version of manifest/planning-visible registration
+contract.
 
-### Stage Manifest
-The validated and frozen result of bootstrap. It is the immutable planning registry used for graph creation.
+**Stage invocation** — One concrete planned execution with fixed input bindings,
+resolved output set, effective settings, resource policy and expected binding
+provenance.
 
-### Planned Stage Invocation
-A request-specific planned use of one registered stage, including bound inputs, requested outputs, resource policy, and expected fingerprints.
+**Artifact requirement** — Input-edge declaration containing artifact family,
+cardinality/optionality and optional `max_processing_order`.
 
-## Identity and Registration Terms
+**Artifact output capability** — Output-edge declaration containing exact
+artifact family/schema, cardinality, optional `processing_order`, incremental
+capability and default publication behavior.
 
-### Stage ID
-The stable semantic identifier for a stage registration, used for producer selection, provenance, scheduling, progress, diagnostics, and explicit producer preferences.
+**Processing order** — Sparse ordering metadata used for producer selection. It
+is not artifact identity and is not an exact dependency selector.
 
-### Display Name
-A human-readable stage name used in diagnostics and progress reporting. It is not part of semantic identity.
+**ArtifactBindingReader** — Ordered asynchronous stage input reader.
 
-### Registration Version
-Version metadata for the planning and manifest-visible contract of a stage registration. It changes when registration semantics change, even if produced bytes do not.
+**ArtifactBindingWriter** — Runtime-owned ordered stage output writer. Runtime
+assigns ordinals and validates binding closure/cardinality.
 
-### Behavior Version
-Version metadata for execution behavior that can change semantic outputs for the same inputs and effective settings.
+**Incremental publication** — Exposure of irrevocably committed members before
+whole stage completion.
 
-### Executor Factory
-The bootstrap-time binding that creates or returns an invocation-safe executor instance for a planned invocation.
+**Verification writer** — Writer used to deterministically verify a cached
+output binding when sibling cache misses require the stage to rerun with its
+original resolved output set.
 
-### Owned Artifact Declaration
-An artifact declaration authoritatively installed by a stage registration or feature package.
-
-### Input Capability
-A static declaration that a stage may consume a referenced artifact in some valid invocation.
-
-### Output Capability
-A static declaration that a stage may produce a referenced artifact in some valid invocation.
-
-### Static Capability Envelope
-The broad set of input or output artifacts a registration may support before request-specific planning narrows them.
-
-### Concurrency Policy
-Registration metadata that describes concurrency limits, affinity, or safety rules relevant to stage selection or scheduling.
-
-### Producer Uniqueness
-The requirement that an exact output artifact have at most one registered producer in a frozen manifest unless ambiguity is removed before planning.
-
-## Planning Terms
-
-### Stage Planning Context
-The read-only deterministic planning context passed to registration hooks during graph creation.
-
-### Resolved Stage Requirements
-The concrete set of artifact requirements computed for one request-specific invocation.
-
-### Requirement Resolution
-The planning step that narrows static input capabilities into the concrete required and optional inputs for one invocation.
-
-### Output-Capability Resolution
-The planning step that narrows a stage's broad output capability envelope to the outputs it can validly produce for the current request and settings.
-
-### Resource-Policy Resolution
-The planning step that determines the scheduler-facing resource requirements for one planned invocation.
-
-### Requested Output Subset
-The exact subset of outputs fixed for one planned invocation. The executor receives writers only for that subset.
-
-### Candidate Graph
-The static or reused artifact relationship graph the planner uses to discover producer paths from requested outputs.
-
-### Request-Specific Resolution
-The full graph-creation process that selects producers, resolves settings, calls planning hooks, binds artifact paths, and creates planned invocations.
-
-### Invocation Sharing
-The planner optimization that reuses one invocation across graph paths when all identity-affecting values are equivalent.
-
-### Invocation Duplication
-The planner behavior that creates separate invocations when stage identity, versions, settings, constraints, inputs, or requested outputs differ.
-
-### Registry Override
-A per-run override that derives a new manifest snapshot without mutating the runtime's baseline frozen manifest.
-
-## Runtime Terms
-
-### Input Artifacts
-The stage-facing collection of readers for the concrete input artifacts bound to one invocation.
-
-### Output Artifacts
-The stage-facing collection of writers for the exact output subset bound to one invocation.
-
-### Stage Execution Context
-The narrow runtime context passed to stage code, containing correlation identities, cancellation, progress, logging, and optional scratch workspace.
-
-### Scratch Workspace
-An optional invocation-owned temporary workspace created and cleaned up by the runner. Its contents are implementation details unless published as declared artifacts.
-
-### Scheduler Invocation Record
-The richer internal runtime record used by the scheduler, distinct from the narrower stage-facing execution context.
-
-### Cache Hit
-The runtime case where a planned output is already available, allowing stage execution to be skipped.
-
-### Cache Wait
-A scheduler-level blocked condition where a task must wait for another task's output writer reservation to commit or abort before resolving outputs again.
-
-### Resource Admission
-The scheduler step that waits for the planned invocation's resolved resource policy to be admitted for execution.
-
-### Materialization
-The runner-owned act of writing an available semantic artifact to caller-provided targets after the semantic artifact already exists.
-
-### Output Validation
-The post-execution runner check that every bound output was written correctly and matches its planned declaration and fingerprint.
-
-## Bootstrap and Manifest Terms
-
-### Runtime
-The configured collection of the stage manifest, runtime services, and runtime
-settings that plans and executes runs. A runtime is not a single run.
-
-### Runtime Feature
-A coherent bootstrap installation unit that can add artifact declarations, stage registrations, provider bindings, defaults, and dependencies.
-
-### Feature Installer
-Bootstrap code that installs one runtime feature into the stage manifest builder.
-
-### Feature Dependency
-A bootstrap-time prerequisite relationship between features or shared declarations.
-
-### Frozen Manifest
-The immutable runtime manifest produced after bootstrap validation and manifest identity calculation complete.
-
-### Manifest Identity
-The deterministic identity of a frozen manifest, derived from its declarations, stage metadata, feature records, and configured producer choices.
-
-### Serializable Manifest Description
-A portable diagnostic representation of the runtime manifest that excludes executable objects, credentials, and process-local references.
-
-### Baseline Manifest
-The runtime-owned frozen stage manifest used as the default input to planning for all runs.
-
-### Derived Manifest
-A request-specific frozen manifest snapshot produced from the baseline manifest plus registry overrides.
-
-## Contract and Invariant Terms
-
-### Deterministic Planning Hook
-A side-effect-free registration hook whose result depends only on deterministic planning inputs, not cache state, live resources, time, or randomness.
-
-### Executor Lifetime
-The scope in which an executor instance is created, reused, or shared safely across invocations.
-
-### Invocation-Safe Executor
-An executor instance that is safe to use for the invocation and, when explicitly declared, safe to share under concurrent execution.
-
-### Stage Failure
-The execution outcome where a stage reports inability to complete by raising an exception.
-
-### Cancellation
-The cooperative stop signal observed by the executor through the stage execution context and handled by scheduler waits outside execution.
-
-### Language-Neutral Contract
-The cross-language requirement that all bindings preserve the same semantic separation between feature installation, registration, planning, and execution.
-
-### Recommended Invariant
-A normative rule that preserves the correctness of the stage model across bootstrap, planning, scheduling, and execution.
+**StageExecutionContext** — Small stage-facing context carrying task/invocation
+identity, cancellation, progress, logging and optional scratch workspace. It
+does not expose planning/cache/resource-control mutation APIs.

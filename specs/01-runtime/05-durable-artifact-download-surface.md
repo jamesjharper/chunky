@@ -1,359 +1,236 @@
-# Durable Artifact Download
+# Durable Content and Task-Artifact Retrieval
 
 ## Purpose
 
-Durable artifact download resolves a concrete artifact instance or task-relative
-output and opens its canonical encoded representation through a reserved,
-bounded-memory transfer source.
+Durable retrieval has two distinct operations:
 
-The primitive surface returns bytes, metadata, and lifecycle state. Typed
-decoding is layered above it through the declaration codec.
+1. resolve one task-requested artifact binding into its committed member list;
+2. download one exact content object by `ContentId`.
 
-This document defines service behaviour, not HTTP framing or exact
-language-binding spelling.
+The service does not treat a plural binding as one byte stream and does not
+require an artifact schema or scoped request to retrieve raw bytes.
 
-## Service Operations
+## Task artifact lookup
 
-Conceptually,
+Conceptually:
 
 ```text
-inspect(a-instance | a-task) -> ArtifactAvailability
-
-open(
-  a-instance | a-task,
-  byte_range?,
-) -> DurableArtifactDownload | Pending | Unavailable
-
-await_open(
-  a-instance | a-task,
-  byte_range?,
-  cancellation/deadline?,
-) -> DurableArtifactDownload | Unavailable
+list_task_outputs(task_id)
+inspect_task_output(task_id, ScopedArtifactRequest)
+    -> TaskArtifactBinding
 ```
 
-`open` never silently waits. `await_open` waits only for a pending `a-task`.
-
-The authoritative provider behavior is defined in
-[Durable Artifact Persistence](../03-bindings/04-artifact-persistence.md).
-Transfer sources are defined by
-[Artifact IO](../02-artifacts/02-artifact-io-surface.md).
-
-## Locators
-
-The service accepts:
-
-- `a-instance`, which identifies one concrete semantic artifact instance; or
-- `a-task`, which identifies one task-scoped requested output and may initially
-  retain an unresolved phase selector.
-
-Locators are location-independent and contain no cache, filesystem, SMB,
-bucket, region, or provider address.
-
-Possession of a locator does not authorize access.
-
-## Availability
-
-Expected lifecycle outcomes use:
+HTTP-oriented form:
 
 ```text
-ArtifactAvailability
-  Pending(task/output state)
-  Available(resolved a-instance, representation metadata, retained_until?)
-  Unavailable(reason, resolved a-instance?)
+GET /task/{task_id}/outputs
+GET /task/{task_id}/outputs?request={encoded-ScopedArtifactRequest}
 ```
 
-An `a-instance` is never `Pending`.
-
-`Unavailable` includes:
-
-- terminally failed or cancelled task output;
-- resolved output whose task artifact claim expired;
-- concrete artifact no longer retained; and
-- task/output record expired according to its applicable lifecycle.
-
-Malformed locators, unauthorized access, invalid ranges, provider faults, and
-contract violations are structured operation failures rather than availability
-variants.
-
-## Inspect
-
-Inspection returns current availability without opening content or promising
-that a later open will be successful.
-
-For `a-task`, it distinguishes:
-
-- pending resolution/execution;
-- successful binding to a concrete instance;
-- terminal failure/cancellation;
-- resolved but expired artifact; and
-- currently downloadable artifact.
-
-Inspection does not refresh claims.
-
-## Non-Waiting Open
-
-`open`:
-
-1. parses and authorises the locator;
-2. resolves `a-task` when already possible;
-3. returns `Pending` rather than blocking when the output is not ready;
-4. returns terminal `Unavailable` when no instance can become available;
-5. validates the durable record and representation object; and
-6. atomically acquires a read reservation before returning content.
-
-Availability may change between `inspect` and `open`; `open` is authoritative
-for acquiring readable content.
-
-## Waiting Open
-
-`await_open` waits through a pending `a-task` until:
-
-- its output binds to a committed durable `a-instance`;
-- it becomes terminally unavailable;
-- the caller cancels; or
-- the caller's deadline expires.
-
-Waiting does not affect task execution and does not create an artifact claim.
-After resolution, it uses the same validation and atomic reservation path as
-a non-waiting open.
-
-An `a-instance` follows the non-waiting path immediately.
-
-## Download Result
-
-Success returns:
+The result is the current immutable snapshot of the requested binding:
 
 ```text
-DurableArtifactDownload
-  requested_locator: a-instance | a-task
-  artifact_instance: a-instance
-  retained_until?
-  representation_descriptor
+TaskArtifactBinding
+  requested: ScopedArtifactRequest
+  status
+  members: ordered list<TaskArtifactMember>
+  failure?
+
+TaskArtifactMember
+  ordinal
+  content_id: ContentId
+```
+
+The member list is the committed ordered prefix. `AVAILABLE` means it is the
+complete binding; `PRODUCING`/terminal failures do not assert completeness.
+
+Lookup never concatenates member bytes and never synthesizes ZIP/TAR/container
+content.
+
+The original canonical scoped request is the correlation key. Duplicate
+requested outputs are invalid, and there is no caller-chosen output key or
+public task-artifact locator. Exact schema, selected producer, provenance, and
+cache resolution remain internal task/planning state.
+
+## Raw content open
+
+Conceptually:
+
+```text
+inspect_content(content_id) -> ContentAvailability
+open_content(content_id, byte_range?)
+    -> DurableContentDownload | Unavailable
+```
+
+HTTP-oriented form:
+
+```text
+GET /content/blake3/{unpadded-base64url-digest}
+```
+
+`open_content` never waits for a task to produce a digest that does not yet
+exist. A caller first polls/observes the task-artifact binding when it needs
+future members.
+
+`inspect_content` distinguishes at least committed/readable, not present or no
+longer retained, corrupt/quarantined, and temporarily unavailable provider
+state. It does not acquire a long-lived read reservation. `open_content`
+atomically rechecks readable state while acquiring its reservation, so an
+inspection result is never a promise that a later open will succeed.
+
+## Download result
+
+```text
+DurableContentDownload
+  content_id: ContentId
   byte_length
-  byte_digest
+  retained_until?
   source
 ```
 
-The digest is the canonical BLAKE3-256 v1 representation digest. It is distinct
-from the artifact fingerprint embedded in `artifact_instance`.
+The source is a pull-based asynchronous exact-byte stream with bounded memory
+and provider-selected chunking.
 
-The result may include a safe suggested filename derived from artifact identity,
-fingerprint, and preferred extension. Original upload filenames are optional
-presentation context, not authoritative durable-instance metadata.
+Raw download is independent of artifact schema and scoped request. Internal
+typed access may separately use `ResolvedArtifactInterpretation` when an exact
+schema context is required.
 
-## Read Reservation
+Chunk boundaries and sizes are non-semantic. A complete download yields exactly
+`byte_length` bytes and then stable EOF. Whole-object buffering is never
+required by the contract, and a slow consumer applies backpressure to the
+source.
 
-Opening atomically acquires a read reservation after validating committed,
-readable content. Garbage collection must not remove the durable record or its
-representation object while the reservation is active.
+## Read reservation
 
-Each download handle:
+Opening readable durable content atomically acquires a read reservation.
+Garbage collection cannot remove the underlying content while the reservation is
+active.
 
-- owns one read reservation;
-- permits at most one active byte stream;
-- may reopen sequentially when its source capability is reopenable; and
-- must be explicitly closed to release the reservation.
+Each download handle owns its reservation until explicit close, cancellation,
+context exit, or stale-reader recovery. EOF may close the current stream while a
+reopenable handle remains open according to provider capability.
 
-EOF closes the active stream but leaves a reopenable handle valid. Cancellation,
-explicit close, or async-context-manager exit closes the stream and releases the
-reservation. One-shot binding helpers may close automatically after EOF.
-
-Concurrent full or range reads use independent download opens and reservations.
-Stale-reader recovery is the backstop for abandoned handles.
-
-## Streaming
-
-The source exposes a pull-based asynchronous byte stream with backpressure.
-Whole-file buffering is never required by the download contract.
-
-Chunk boundaries and sizes are non-semantic and provider-selected. A transport
-adapter may stream the source directly to an HTTP response. A file target may
-use native-copy negotiation or the streaming fallback.
-
-The source may expose opaque native-transfer offers. It does not expose local
-paths, SMB handles, bucket keys, signed URLs, or provider credentials through
-the common contract.
-
-## Python-Like Example: Stream into Cache
-
-The following example uses illustrative binding names. It shows optional
-durable-to-cache localisation through the common transfer contracts without
-prescribing an exact Python API.
-
-```python
-download = await runtime.artifacts.await_open(task_output_locator)
-expected_instance = runtime.artifacts.parse_instance(
-    download.artifact_instance
-)
-declaration = runtime.artifacts.resolve(expected_instance.artifact_key)
-
-try:
-    resolution = await runtime.cache.resolve(
-        declaration=declaration,
-        fingerprint=expected_instance.fingerprint,
-    )
-
-    if isinstance(resolution, CacheWriteReservation):
-        cache_target = resolution.target_handle
-        try:
-            await cache_target.prepare_from(
-                download.source,
-                expected_instance=expected_instance,
-            )
-            await cache_target.commit()
-        except BaseException:
-            await cache_target.abort()
-            raise
-    elif isinstance(resolution, CacheHit):
-        # Another localization already committed the same semantic instance.
-        await resolution.source_handle.close()
-    else:
-        # Production orchestration waits with task cancellation, then calls
-        # cache.resolve(...) again. Wait completion does not itself imply a hit.
-        await resolution.wait_handle.wait()
-finally:
-    await download.close()
-```
-
-`prepare_from(download.source, ...)` makes the cache target responsible for
-ingestion. It pulls the durable source with bounded memory and backpressure, or
-uses a compatible native-copy offer, and publishes nothing until `commit()`.
-The example does not materialize a typed value or concatenate chunks into one
-in-memory byte string.
-
-The durable download handle retains its read reservation until `close()`. The
-cache target independently owns its write reservation until `commit()` or
-`abort()`. A real localisation loop retries `resolve(...)` after `CacheWait`;
-failure to create an optional cache copy does not make an otherwise valid
-durable artifact unavailable.
-
-## Byte Ranges
+## Byte ranges
 
 A provider may support one contiguous half-open range:
 
 ```text
-[start, end)
+[start,end)
 ```
 
-The rules are:
+Offsets are zero-based and validated before streaming. The full `ContentId`
+remains metadata for the whole object and does not claim verification of an
+isolated range.
 
-- offsets are zero-based bytes;
+For a supported range `[start,end)`:
+
 - `0 <= start <= end <= byte_length`;
 - omitted `end` means `byte_length`;
-- invalid or unsupported ranges fail before streaming; and
+- invalid or unsupported ranges fail before response bytes are exposed; and
 - the stream yields exactly `end - start` bytes.
 
-The full-object digest remains metadata and does not assert verification of one
-isolated range. A transport builds multipart ranges from independently reserved
-opens.
+Multipart HTTP range framing is a transport-layer feature built from separate
+reserved opens; it is not part of the common content-source contract.
 
 ## Integrity
 
-Commit-time representation validation is authoritative.
+Open validates committed/readable state, expected byte length and available
+provider-native integrity signals. A complete pre-read rehash is not required.
+Detected corruption fails the read and quarantines the shared content object
+until exact repair.
 
-Open validates:
+If corruption or provider failure is detected after some bytes were delivered,
+the stream terminates with failure rather than successful EOF. Consumers must
+not treat a partial transfer as a valid content object merely because the
+expected digest was known in advance.
 
-- committed durable-record state;
-- representation-object reference and metadata;
-- exact stored length/digest metadata; and
-- cheap provider-native integrity signals.
+## Native transfer and source ownership
 
-The service does not require a complete pre-read rehash before streaming.
-Providers may verify during read, use trustworthy native checksums, or perform
-background scrubbing.
+A download source may expose opaque provider-native transfer offers for
+reflink, block clone, provider-side copy or equivalent optimization. The common
+surface never exposes local paths, object-store keys, credentials or signed
+provider URLs as semantic metadata.
 
-Detected corruption fails the read and quarantines the shared representation
-object for every referencing cache/durable record. Corruption is never hidden by
-silently rebinding the semantic instance.
+Native transfer must preserve exact bytes, cancellation, mutation isolation and
+the destination's transactional commit. Streaming remains the universal
+fallback.
+
+Possession of a download source never authorizes destructive movement of the
+stored content. Source disposition is preserve-only. Closing a stream or handle
+releases its reservation; it does not delete the content object or any durable
+task/cache reference.
 
 ## Retention
 
-`retained_until`, when visible, reports the applicable claim deadline. The
-active read reservation is separate:
+An active read reservation permits the opened transfer to continue even if its
+ordinary retention deadline passes. It does not silently refresh or extend
+retention.
 
-- it allows the opened transfer to continue after the claim deadline;
-- it does not silently refresh or extend the claim; and
-- after the handle closes, the artifact may become collectible immediately when no
-  other claim/reservation protects it.
+A task-artifact member may become unavailable when that task's retention reason
+expires even if identical content remains retained for another purpose, unless
+the raw content service's applicable retention scope still authorizes/readies it.
 
-A successful `a-task -> a-instance` binding follows that task output's artifact
-claim and may outlive the task record. It does not survive merely because an
-unrelated claim retains identical deduplicated content.
+## Provenance
 
-## Manifest Evolution and Typed Access
+The MVP defines no public `/artifact/provenance/...` endpoint. Provenance remains
+an internal planning/cache key. A future surface may expose completed-binding
+lookup without changing this content-download contract.
 
-Primitive raw download relies on committed representation metadata. It remains
-available even if the current runtime no longer installs the original
-declaration codec.
+## Explicit intermediate retrieval
 
-Typed decoding or use as a current task input requires a compatible current
-declaration and codec. Incompatible versions fail rather than reinterpret old
-bytes.
+An intermediate is guaranteed task-addressable and retained for download only
+when the caller included its `ScopedArtifactRequest` in the requested outputs.
+The caller inspects that `TaskArtifactBinding`, then opens each returned
+`ContentId` independently. Incidental produced intermediates are intentionally
+absent from the MVP public task lookup even when they exist transiently or in
+the execution cache.
+
+```text
+request output: transcript/token_text
+GET /task/{task_id}/outputs?request=transcript%2Ftoken_text
+  -> [{ordinal: 0, content_id: blake3/Tokens...}]
+GET /content/blake3/Tokens...
+```
+
+## Typed access and manifest evolution
+
+Typed decoding is layered above raw content open. An internal
+`ResolvedArtifactInterpretation` fixes `ArtifactSchemaId + ContentId`, so later
+manifest versions never silently reinterpret persisted content. This record is
+not a validation certificate: codec/semantic validation may fail lazily. Public
+task-output lookup does not expose the exact schema.
+
+## Authorization
+
+The MVP does not standardize principal/tenant policy, but implementations apply
+their configured access check before opening content. Possession of a
+`ContentId` or scoped binding is not an authority grant. Future scope-based
+visibility must preserve universal content equality.
 
 ## Cancellation
 
-Cancellation or client disconnect:
-
-- stops pulling further chunks;
-- closes the active source stream;
-- releases the read reservation; and
-- does not affect task execution or longer-lived artifact claims.
-
-## Progress
-
-Structured progress may distinguish:
-
-- task resolution/waiting;
-- source open/reservation;
-- byte transfer;
-- cleanup; and
-- completion.
-
-Byte counts and total length are reported when available. Chunk sizes and
-transport framing remain adapter details.
-
-## Excluded Concerns
-
-This contract does not define:
-
-- HTTP status codes, headers, or authentication;
-- pre-signed/direct client-to-provider download;
-- multipart HTTP range framing; or
-- typed file/object materialization conveniences.
-
-These may be layered over the reserved transfer source.
+Cancelling a download stops byte transfer and releases its read reservation. It
+does not affect task execution or other content retention reasons.
 
 ## Failures
 
-Download uses the universal [Failure Contract](07-failure-surface.md) with kind
-`ARTIFACT_DOWNLOAD`. Stable issue codes distinguish:
+Retrieval uses the common data-only failure envelope. Stable distinctions must
+exist for malformed `ContentId` or scoped request, unknown task/requested output, binding not
+yet available, content not present or no longer retained, corruption, invalid
+or unsupported range, provider unavailability/capability failure and operation
+cancellation.
 
-- `ARTIFACT_LOCATOR_INVALID`;
-- `ARTIFACT_LOCATOR_UNKNOWN`;
-- `ARTIFACT_READ_UNAUTHORIZED`;
-- `TASK_OUTPUT_TERMINALLY_UNAVAILABLE`;
-- `ARTIFACT_NOT_RETAINED`;
-- `ARTIFACT_CONTENT_CORRUPT`;
-- `BYTE_RANGE_INVALID`;
-- `BYTE_RANGE_UNSUPPORTED`;
-- `PROVIDER_UNAVAILABLE`;
-- `PROVIDER_CAPABILITY_UNSUPPORTED`;
-- `OPERATION_CANCELLED`;
-- `OPERATION_DEADLINE_EXCEEDED`; and
-- `ARTIFACT_STORAGE_FAILURE`.
-
-Issue context may include the requested locator, resolved instance locator,
-requested range, committed length, provider capability, and retry hint. It
-never contains artifact bytes, credentials, or provider paths. Provider causes
-may be attached as bounded diagnostics.
+A task binding in `PRODUCING` is an ordinary snapshot, not a failed lookup. A
+caller that requires complete membership waits/polls the binding; it does not
+ask `open_content` to wait on an unknown future digest.
 
 ## Invariants
 
-1. Download accepts both `a-instance` and `a-task`.
-2. Non-waiting open never blocks on a pending task output.
-3. Returned bytes are the committed canonical representation.
-4. Open and read-reservation acquisition are atomic.
-5. Active readers prevent garbage collection.
-6. Download never requires typed materialization.
-7. Cache availability never substitutes for durable availability.
-
+1. Task-artifact lookup returns binding metadata, not bytes.
+2. Raw download is by `ContentId`.
+3. Plural bindings are downloaded member-by-member.
+4. Active readers prevent content deletion.
+5. Raw download never requires typed materialization.
+6. Successful full-object EOF means exactly `byte_length` bytes were delivered.
+7. Download-source ownership never permits destructive movement of shared
+   content.

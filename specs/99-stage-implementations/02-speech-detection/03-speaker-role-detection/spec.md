@@ -463,5 +463,5 @@ These facts were learned while consolidating `../02-expected_stages.md` and shou
 2. Keep this stage focused on deriving speaker-role evidence and role streams from diarization. The clean transcript insertion stream is now `transcript/speaker_role_change_stream` and is produced by a separate speaker role change stream stage after ASR token boundaries are available.
 3. The clean `transcript/speaker_role_change_stream` is change-token based, not span/turn based. It emits `{speaker_role_change_seq}: {role} | {speaker_id} | {asr_token_range_start}` and is consumed by transcript composition.
 4. Speaker-role detection may still use speaker turns, frames, primary/current/instant/interjection calculations internally and may emit diagnostic role streams.
-5. Shared diarization detector profiles should be declared once by the speech detection subsystem and borrowed by this stage as normal fingerprinted settings inputs.
+5. Shared diarization detector profiles should be declared once by the speech detection subsystem and borrowed by this stage as normal semantic settings inputs whose final effective values contribute to binding provenance.
 6. If this stage emits intermediate files or diagnostics, those should be declared artifacts or diagnostics; unrequested declared outputs are incidental outputs.

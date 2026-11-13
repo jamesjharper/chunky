@@ -1,5 +1,8 @@
 # Run Surface Interview Record
 
+> **Historical interview record.** Public task-output identity and result shape
+> are now defined by the active run/download/task specifications.
+
 This working record preserves decisions made while reviewing
 `04-run-surface.md`. It is not the authoritative run-surface specification.
 The target specification must not be changed until the user confirms that the

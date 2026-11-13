@@ -1,5 +1,9 @@
 # Run Request Building Interview Record
 
+> **Historical interview record.** Do not treat locator or request decisions
+> here as normative; see `../02-run-request-building-surface.md` and the active
+> artifact model.
+
 This working record preserves decisions made while reviewing
 `03-run-request-building.md`, including their rationale and supersession
 history. The confirmed results through decision 90 were consolidated into the

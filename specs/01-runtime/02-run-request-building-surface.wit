@@ -1,36 +1,43 @@
 package chunky:runtime;
 
 /// Caller-facing construction of local and durable run requests.
-///
-/// This interface is the WIT expression of
-/// `02-run-request-building-surface.md`. It models request construction only;
-/// planning, execution, cache mechanics, target mechanics, and persisted task
-/// lifecycle are outside this interface.
 interface run-request-building {
   use failure-surface.{failure};
   use time-formats.{positive-duration};
 
-  /// A semantic artifact request locator. Builders accept canonical and
-  /// supported non-canonical spellings, then store the canonical parsed value.
-  type artifact-ref = string;
+  /// Canonical arbitrary-depth hierarchy ending in `{domain}/{content-kind}`.
+  /// The final two segments are the ArtifactRequest; any preceding segments
+  /// are semantic binding scopes. No producer or schema suffix is permitted.
+  type scoped-artifact-request = string;
 
-  /// A concrete semantic artifact-instance locator.
-  type artifact-instance = string;
+  enum content-id-algorithm {
+    blake3,
+  }
 
-  /// A structurally valid durable upload fingerprint.
-  type fingerprint = string;
+  /// Universal exact-byte identity. `value` is canonical unpadded Base64URL.
+  record content-id {
+    algorithm: content-id-algorithm,
+    value: string,
+  }
+
+  /// Ordinal MUST equal list position in its enclosing binding.
+  record supplied-artifact-member {
+    ordinal: u32,
+    content-id: content-id,
+  }
+
+  /// Canonical supplied binding. `members` MUST be non-empty.
+  record supplied-artifact-binding {
+    request: scoped-artifact-request,
+    members: list<supplied-artifact-member>,
+  }
 
   enum artifact-cache-behavior {
-    /// Delegate to the next policy level.
     inherited,
-    /// Reuse valid cache entries and publish produced artifacts.
     cache,
-    /// Do not read or write cache entries for produced artifacts.
     no-cache,
-    /// Ignore an existing entry and replace it with the produced artifact.
-    overwrite,
-    /// Perform planning without cache publication or execution.
-    dry-run,
+    refresh,
+    read-only,
   }
 
   record artifact-cache-policy {
@@ -43,6 +50,18 @@ interface run-request-building {
     max-ttl: option<positive-duration>,
   }
 
+  /// Output request envelope. `request` is also the task-result correlation
+  /// key. There is intentionally no caller-chosen output key.
+  record requested-artifact-output {
+    request: scoped-artifact-request,
+    cache-policy: option<artifact-cache-policy>,
+  }
+
+  record artifact-cache-policy-entry {
+    request: scoped-artifact-request,
+    policy: artifact-cache-policy,
+  }
+
   enum resource-constraint {
     vram,
     ram,
@@ -50,193 +69,132 @@ interface run-request-building {
     cpu,
   }
 
-  /// One entry in `run-policy.constraint-concurrency-limits`.
-  /// `limit` MUST be a positive integer. Constraint keys MUST be unique.
   record constraint-concurrency-limit {
     constraint: resource-constraint,
     limit: u32,
   }
 
-  /// Request-scoped scheduling limits.
-  ///
-  /// These limits may lower but never raise runtime-wide capacity. The lower
-  /// limit wins when both layers constrain a resource. The policy is fixed
-  /// when the execution plan is created and does not change while the task
-  /// runs. It never changes semantic work.
+  enum publication-mode {
+    default,
+    at-completion,
+    incremental,
+  }
+
   record run-policy {
     prevent-concurrency: bool,
     constraint-concurrency-limits: list<constraint-concurrency-limit>,
+    publication-mode: publication-mode,
   }
 
-  /// One canonical durable input binding.
-  /// Artifact references MUST be unique after canonical parsing.
-  record durable-input {
-    artifact: artifact-ref,
-    fingerprint: fingerprint,
-  }
-
-  /// One canonical artifact cache-policy binding.
-  /// Artifact references MUST be unique after canonical parsing.
-  record artifact-cache-policy-entry {
-    artifact: artifact-ref,
-    policy: artifact-cache-policy,
-  }
-
-  /// Immutable, data-only durable computation contract.
-  ///
-  /// `version` is currently 1. `durable-outputs` has set semantics and
-  /// therefore MUST contain no duplicate canonical artifact references.
-  /// Collection order is not semantically significant. This record contains
-  /// no external handles, streams, file descriptors, callbacks, credentials,
-  /// provider paths or identifiers, runtime-manifest identifier, or delivery
-  /// destinations.
+  /// Immutable, canonical, data-only durable computation request.
   record durable-run-request {
     version: u32,
-    durable-inputs: list<durable-input>,
-    durable-outputs: list<artifact-ref>,
+    inputs: list<supplied-artifact-binding>,
+    outputs: list<requested-artifact-output>,
     artifact-retention-ttl: option<positive-duration>,
     run-policy: option<run-policy>,
     task-cache-policy: option<task-cache-policy>,
     cache-policy: list<artifact-cache-policy-entry>,
   }
 
-  /// A potentially non-canonical durable input from an external envelope.
-  record noncanonical-durable-input {
-    artifact: string,
-    fingerprint: string,
+  /// Unvalidated DTOs preserve issue context during aggregate validation.
+  record input-member-dto {
+    ordinal: u32,
+    content-id: string,
   }
 
-  record noncanonical-artifact-cache-policy {
-    artifact: string,
-    behavior: artifact-cache-behavior,
-    desired-ttl: option<positive-duration>,
+  record supplied-binding-dto {
+    request: string,
+    members: list<input-member-dto>,
   }
 
-  record noncanonical-task-cache-policy {
-    behavior: artifact-cache-behavior,
-    max-ttl: option<positive-duration>,
+  record requested-output-dto {
+    request: string,
+    cache-policy: option<artifact-cache-policy>,
   }
 
-  /// Typed, non-canonical external form accepted by `from-object`.
-  ///
-  /// Transport adapters are responsible for mapping their envelope field
-  /// names and structural types into this record. Invalid transport shapes
-  /// MUST still be reported with the `unable-to-deserialize-request` context.
-  record noncanonical-durable-run-request {
+  record cache-policy-entry-dto {
+    request: string,
+    policy: artifact-cache-policy,
+  }
+
+  record durable-run-request-dto {
     version: u32,
-    durable-inputs: list<noncanonical-durable-input>,
-    durable-outputs: list<string>,
+    inputs: list<supplied-binding-dto>,
+    outputs: list<requested-output-dto>,
     artifact-retention-ttl: option<positive-duration>,
     run-policy: option<run-policy>,
-    task-cache-policy: option<noncanonical-task-cache-policy>,
-    cache-policy: list<noncanonical-artifact-cache-policy>,
+    task-cache-policy: option<task-cache-policy>,
+    cache-policy: list<cache-policy-entry-dto>,
   }
 
-  /// Process-local source handle supplied by the artifact-I/O surface.
-  /// Passing an owned handle to a builder transfers ownership to that builder.
   resource artifact-source-handle;
-
-  /// Process-local target handle supplied by the artifact-I/O surface.
-  /// Passing an owned handle to a builder transfers ownership to that builder.
   resource artifact-target-handle;
-
-  /// Immutable process-local request containing any source and target handles.
-  /// It is intentionally opaque: execution consumes it and owns cleanup across
-  /// binding, planning, execution, cancellation, failure, and materialization.
   resource local-run-request;
 
-  /// Standalone, manifest-independent builder for a process-local request.
-  ///
-  /// Mutators accumulate structural issues. Duplicate detection occurs after
-  /// canonical parsing and is never last-write-wins. Builders do no I/O,
-  /// manifest inspection, artifact resolution, or phased-family resolution.
   resource local-run-request-builder {
     constructor();
 
-    /// Adds an external source. Ownership transfers even when a later build
-    /// fails; on failure the builder remains valid and continues to own it.
+    /// One complete canonical path may be declared once. Use the plural
+    /// operation to establish member order explicitly.
     include-input: func(
-      artifact: string,
+      request: string,
       source: own<artifact-source-handle>,
     );
 
-    /// Adds a concrete durable artifact instance. Invalid WIT argument values
-    /// fail at the binding boundary rather than producing request validation.
-    include-artifact-instance: func(instance: artifact-instance);
+    include-input-members: func(
+      request: string,
+      sources: list<own<artifact-source-handle>>,
+    );
 
-    /// Adds one local target. Repetition for the same parsed artifact is valid
-    /// ordered fan-out. Mixing targeted and targetless forms is invalid.
+    /// Binds already-published content without selecting a schema.
+    include-content-binding: func(
+      request: string,
+      members: list<input-member-dto>,
+    );
+
+    /// Repeated targets for one output are ordered delivery fan-out, not
+    /// artifact-member cardinality.
     expect-output-target: func(
-      artifact: string,
+      request: string,
       target: own<artifact-target-handle>,
     );
 
-    /// Adds one targetless output. A local targetless output must resolve to a
-    /// cache-writing behavior rather than `no-cache` or `dry-run`.
-    expect-output: func(artifact: string);
-
+    expect-output: func(request: string);
     with-run-policy: func(policy: run-policy);
     with-task-cache-policy: func(policy: task-cache-policy);
     with-artifact-cache-policy: func(
-      artifact: string,
+      request: string,
       policy: artifact-cache-policy,
     );
 
-    /// Builds an immutable local request. At least one output is required.
-    /// Success logically consumes the builder and transfers all handles into
-    /// the request. Failure preserves the builder and its handles for
-    /// correction or cleanup. Bindings MUST reject reuse after success.
-    /// A returned `failure` has kind `request-validation` and contains only
-    /// `request-validation` issue-context cases.
     build: func() -> result<own<local-run-request>, failure>;
-
-    /// Logically consumes an unbuilt builder and closes or aborts every handle
-    /// it owns. Dropping an unbuilt builder provides equivalent cleanup where
-    /// deterministic destruction is available.
     close: func();
   }
 
-  /// Standalone, manifest-independent builder for a data-only durable request.
   resource durable-run-request-builder {
     constructor();
 
-    /// Validates the typed external envelope before returning a builder.
-    /// Envelope shape and unsupported version issues are returned immediately;
-    /// component issues are accumulated and returned by `build`.
-    /// A returned `failure` has kind `request-validation` and contains only
-    /// `request-validation` issue-context cases.
     from-object: static func(
-      request: noncanonical-durable-run-request,
+      request: durable-run-request-dto,
     ) -> result<own<durable-run-request-builder>, failure>;
 
-    /// Binds a semantic artifact reference to an upload fingerprint without
-    /// I/O or a promise that the cache entry currently exists.
-    include-uploaded-artifact: func(
-      artifact: string,
-      fingerprint: string,
+    /// No I/O occurs here. Task acceptance later verifies and atomically
+    /// protects every member before creating a task.
+    include-content-binding: func(
+      request: string,
+      members: list<input-member-dto>,
     );
 
-    /// Declares one targetless durable semantic output. Repeated declarations
-    /// for the same parsed reference are invalid.
-    expect-output: func(artifact: string);
-
-    /// Sets task artifact-claim retention after terminalization. This is
-    /// distinct from cache retention. Omission delegates to the artifact
-    /// persistence service default.
+    expect-output: func(request: string);
     with-artifact-retention-ttl: func(ttl: positive-duration);
-
     with-run-policy: func(policy: run-policy);
     with-task-cache-policy: func(policy: task-cache-policy);
     with-artifact-cache-policy: func(
-      artifact: string,
+      request: string,
       policy: artifact-cache-policy,
     );
 
-    /// Builds a canonical data-only request. At least one output is required.
-    /// Success logically consumes the builder; failure preserves it for
-    /// correction. Bindings MUST reject reuse after success.
-    /// A returned `failure` has kind `request-validation` and contains only
-    /// `request-validation` issue-context cases.
     build: func() -> result<durable-run-request, failure>;
   }
 }

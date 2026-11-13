@@ -5,11 +5,11 @@
 | Field | Value |
 | --- | --- |
 | Semantic stage name | VAD speech detection |
-| Semantic stage ID | `speech_detection.vad_speech_detection` |
+| Producer ID | `speech_detection_vad_speech_detection` |
 | Stage behavior version | `001` |
 | Stage family | Speech detection |
 | Spec status | Draft template example |
-| Primary output | `utterance_detections/vad_stream/1` |
+| Primary output | `utterance_detections/vad_stream` |
 | Default resources | `cpu_compute_bound`, or `gpu_compute_bound` when the selected VAD model requires GPU |
 
 This document is both the VAD speech detection spec and the recommended template shape for future stage specs. Future stages should keep the same section order unless the stage has a clear reason to add a focused companion file, such as a large acceptance-test matrix.
@@ -42,7 +42,7 @@ This stage does not:
 
 ### Provided Outputs
 
-- `utterance_detections/vad_stream/1`
+- `utterance_detections/vad_stream`
 
 ### Optional Diagnostic Outputs
 
@@ -53,7 +53,7 @@ This stage does not:
 
 ### Required Input Resolution
 
-For `utterance_detections/vad_stream/1`, the stage requires:
+For `utterance_detections/vad_stream`, the stage requires:
 
 - one audio artifact satisfying `speech_detection/vad_audio_settings`;
 - resolved VAD settings;
@@ -155,7 +155,7 @@ Validation:
 
 The profile fields `speech_onset_pad_duration_ms`, `speech_offset_pad_duration_ms`, and `min_speech_duration_ms` are included in the profile artifact because downstream stages need them, but this stage must not use them to reshape raw detector output.
 
-### Output: `utterance_detections/vad_stream/1`
+### Output: `utterance_detections/vad_stream`
 
 Role: `intermediate`
 
@@ -206,10 +206,10 @@ Each enabled profile runs over the full resolved audio instance.
 Concurrency is bounded by:
 
 ```text
-speech_detection/vad_settings/any.detection_batch_size
+speech_detection/vad_settings.detection_batch_size
 ```
 
-Profile execution order must not affect final output ordering or artifact fingerprints.
+Profile execution order must not affect final output ordering or binding provenance.
 
 ### 4. Adapter Mapping
 
@@ -261,20 +261,30 @@ Concatenate rows from every enabled profile, then sort by:
 
 The stage must not merge rows across profiles.
 
-## Fingerprinting and Cache Behavior
+## Binding Provenance and Cache Behavior
 
-The output fingerprint for `utterance_detections/vad_stream/1` is stage-derived and must include:
+The stage output capability for `utterance_detections/vad_stream` uses
+`processing_order=1`. Processing order is producer-selection metadata and is not
+part of the scoped artifact request or content identity.
 
-- artifact ID and schema version;
-- producing semantic stage ID;
-- stage behavior version;
-- resolved audio artifact fingerprint;
-- resolved `speech_detection/vad_settings` fingerprint;
-- resolved `speech_detection/vad_audio_settings` fingerprint;
-- resolved `speech_detection/vad_detector_profiles` fingerprint;
-- relevant VAD adapter provider IDs and provider versions.
+The planner derives the output binding provenance from the shared production
+contract, including:
 
-Changing any enabled profile setting must invalidate the VAD output. Changing only a disabled profile should not invalidate the output if the resolved settings fingerprint supports pruning disabled profiles before fingerprinting. If the settings artifact fingerprints the full supplied profile list, disabled-profile changes will invalidate the output; either behavior is acceptable if it is documented and deterministic.
+- exact resolved output `ArtifactSchemaId` and scoped binding occurrence;
+- producer ID and stage behavior version;
+- resolved source-audio input binding provenance;
+- final effective VAD settings fingerprint;
+- relevant adapter/model behavior versions; and
+- the complete resolved stage output set.
+
+The `ContentId` of the emitted VAD stream is calculated only after the exact
+encoded bytes commit. It is not predicted from provenance.
+
+Changing any enabled profile setting that affects semantic detector output must
+change the effective-settings contribution. Disabled-profile handling must be
+deterministic: implementations may prune disabled profiles before effective
+settings fingerprinting, or include the complete resolved settings value, but
+the selected rule is part of the stable settings/provenance contract.
 
 ## Progress Events
 
@@ -289,7 +299,7 @@ stage_state_changed: running
 stage_step_progress: resolving_profiles
 stage_step_progress: running_profile {detector_id}
 stage_step_progress: normalizing_profile_events {detector_id}
-artifact_available: utterance_detections/vad_stream/1
+artifact_available: utterance_detections/vad_stream
 stage_state_changed: completed
 ```
 
@@ -297,11 +307,11 @@ On failure:
 
 ```text
 stage_error
-artifact_failed: utterance_detections/vad_stream/1
+artifact_failed: utterance_detections/vad_stream
 stage_state_changed: failed
 ```
 
-Per-profile progress percentages are optional. If emitted, they must be best-effort diagnostics and must not affect output fingerprints.
+Per-profile progress percentages are optional. If emitted, they must be best-effort diagnostics and must not affect output binding provenance or content.
 
 ## Diagnostics and Workspace Materialization
 
@@ -344,7 +354,7 @@ Recommended stable failure codes:
 
 ### Contract Tests
 
-1. Given one enabled VAD profile and valid audio, the stage emits `utterance_detections/vad_stream/1` with `detector_type = vad` on every row.
+1. Given one enabled VAD profile and valid audio, the stage emits `utterance_detections/vad_stream` with `detector_type = vad` on every row.
 2. Given multiple enabled VAD profiles, the output contains rows from all profiles and preserves each row's `detector_id`.
 3. Given overlapping intervals from different profiles, the output keeps the overlaps unchanged.
 4. Given unsorted adapter output, the final artifact is sorted by `raw_start`, `raw_end`, and `detector_id`.
@@ -360,12 +370,12 @@ Recommended stable failure codes:
 4. An adapter interval where `raw_end <= raw_start` is dropped with a diagnostic warning or fails with `vad_invalid_adapter_interval`, according to adapter policy.
 5. An emitted row beyond source audio duration fails output validation unless within the documented timestamp tolerance.
 
-### Fingerprint Tests
+### Provenance Tests
 
-1. Changing the source audio fingerprint changes the VAD stream fingerprint.
-2. Changing an enabled profile threshold changes the VAD stream fingerprint.
-3. Changing `detection_batch_size` changes the invocation fingerprint only if the implementation treats concurrency as behavior-affecting; otherwise it must be excluded or normalized consistently.
-4. Reordering profile declarations without changing their resolved identities and values does not change output rows or fingerprints.
+1. Changing the source-audio input binding provenance changes the VAD output binding provenance.
+2. Changing an enabled profile threshold changes the effective settings contribution and therefore VAD output binding provenance.
+3. Changing `detection_batch_size` changes binding provenance only if the stage contract treats it as semantic behavior; scheduling-only concurrency values must be excluded.
+4. Reordering profile declarations without changing their canonical effective semantics does not change output rows or binding provenance.
 
 ### Diagnostics Tests
 
@@ -427,8 +437,8 @@ aggressive,vad,1.0,1.260,1.620
 
 ## Open Questions
 
-- Should disabled profiles be pruned before settings fingerprinting, or should the full supplied profile artifact participate in the fingerprint?
-- Should `detection_batch_size` participate in semantic output fingerprints, or should it be treated as scheduling-only metadata?
+- Should disabled profiles be pruned before effective-settings fingerprinting, or should the full resolved profile artifact participate?
+- Should `detection_batch_size` participate in semantic binding provenance, or should it be treated as scheduling-only metadata?
 - What timestamp precision tolerance should validators use for adapter outputs at source audio boundaries?
 - Should the first implementation allow mixed CPU/GPU VAD profiles in one semantic invocation, or split them into separate concrete invocations?
 
@@ -441,5 +451,5 @@ These facts were learned while consolidating `../02-expected_stages.md` and shou
 1. VAD should consume a logical `audio/prepared` requirement satisfying `speech_detection/vad_audio_settings`, not `audio/source` directly. The planner may bind `source/audio` directly if it satisfies the requirement.
 2. The `audio/prepared` input artifact contract describes the resolved audio resource selected for the VAD audio requirement.
 3. VAD output remains low-level detector evidence, but downstream canonicalization terminology should use "utterance event stream" rather than "word-like stream."
-4. Audio preparation should use canonical `audio/prepared` requirements distinguished by constraints and fingerprints, not consumer-specific ready IDs.
+4. Audio preparation should use canonical `audio/prepared` requirements distinguished by constraints and binding provenance, not consumer-specific ready IDs.
 5. Diagnostics remain ordinary declared artifacts. If VAD emits diagnostics that were not requested by the graph, they are incidental outputs.

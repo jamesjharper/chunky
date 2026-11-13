@@ -65,7 +65,7 @@ or implicit conversion.
 Convenience APIs must not hide semantic changes, publication, data loss, or a
 durability transition.
 
-### 7. Portable contracts are strict and versioned:
+### 7. Portable contracts are strict and versioned
 
 Durable requests, run states, results, and failures use strict, canonical,
 versioned representations with stable identities, timestamps, and observable
@@ -86,9 +86,14 @@ consequences where applicable.
 
 ### 9. Artifact identity and publication are honest
 
-The surface distinguishes requested artifact meaning, task-scoped output
-identity, and committed artifact instances. An artifact must not be exposed as
-readable before commitment succeeds.
+The surface distinguishes universal `ContentId`, versionless
+`ArtifactRequest`, hierarchy-qualified `ScopedArtifactRequest`, exact internal
+`ArtifactSchemaId`, task-scoped output bindings, and committed members. Public
+requests and task results remain semantic/content-oriented; exact schema,
+producer, provenance, and cache coordination remain internal.
+A member must not be exposed as readable before its content commit succeeds,
+and an output binding must not be reported complete before successful binding
+closure.
 
 Selected caller inputs are authoritative. Unused inputs remain lazy. Supplying
 an input must not implicitly publish it.

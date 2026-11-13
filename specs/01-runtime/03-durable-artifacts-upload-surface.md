@@ -2,7 +2,9 @@
 
 ## Purpose
 
-Durable artifact upload turns one finite byte sequence into one immutable entry in the configured shared artifact cache and returns the fingerprint by which that upload can later be used.
+Durable artifact upload turns one finite byte sequence into one immutable entry in the configured shared artifact cache and returns its [[../02-artifacts/01-artifact-model-surface#Content|ContentId]].
+
+[help](../02-artifacts/01-artifact-model-surface#Content)
 
 The runtime stores a faithful copy of the supplied bytes without interpreting, transcoding, canonicalizing, or validating their artifact representation. 
 
@@ -14,7 +16,7 @@ The contract supports three complementary ingress paths:
 | **Upload session:** | the caller already has one finite logical object, but transfer may be long or resumable. | Begin a session, upload bound numbered parts through Chunky, then explicitly commit. | Multi-gigabyte files, unreliable networks, and request-size-limited HTTP paths. |
 | **Live capture:** | the final byte sequence is generated over time and its length is not known when capture begins. | Begin capture, append strictly ordered client-sized segments, explicitly seal, then publish. | Live recordings that span multiple requests. |
 
-All three paths converge on the same common publication, fingerprint, retention, claim, and durable-request semantics. They differ only in how provisional bytes enter the runtime before immutable publication.
+All three paths converge on the same common publication, content-identity, retention, claim, and durable-request semantics. They differ only in how provisional bytes enter the runtime before immutable publication.
 
 An open upload or live-capture session is not an artifact and is never bound directly as a stage input. Only a successfully committed finite byte sequence becomes an uploaded artifact.
 
@@ -25,7 +27,7 @@ The artifact upload capability encompasses the control plane for every ingress p
 It coordinates:
 
 - provisional quota and provider-owned staging;
-- fingerprint assignment or verification;
+- `ContentId` computation or verification;
 - immutable cache publication;
 - upload-grace claims;
 - configured retention policy;
@@ -67,14 +69,14 @@ Uploading receives bytes into provider-owned provisional storage through one of 
 
 #### Integrity assertions
 
-`expected_content_digest` applies to the complete byte sequence accepted by the operation that declares it: 
+`expected_content_digest` is an integrity assertion over the complete byte sequence accepted by the operation that declares it:
  - the direct source, 
  - assembled multipart artifact when declared at begin, or 
  - one numbered part when declared during part upload. 
  
- Complete-artifact and part digests have distinct scopes and do not replace one another. 
+ Complete-artifact and part digests have distinct scopes and do not replace one another.
 
-> Note: Live capture does not accept an expected digest because its byte sequence is not known when capture begins; the runtime still computes the committed fingerprint from the completed capture.
+> Note: Live capture does not accept an expected digest because its byte sequence is not known when capture begins; the runtime still computes the committed `ContentId` from the completed capture.
 
 ```text
 ContentDigest
@@ -82,7 +84,7 @@ ContentDigest
   value
 ```
 
-The initial required algorithm is `BLAKE3` unless provider or binding policy supports others. A mismatch fails the scoped operation. Direct publication exposes no committed artifact; a mismatched part remains unaccepted and may be retried from byte zero; an assembled-artifact mismatch fails commit with `ARTIFACT_UPLOAD_DIGEST_MISMATCH`, publishes nothing, and makes the session terminal because accepted parts cannot be replaced.
+The required integrity-digest algorithm is BLAKE3-256. A mismatch fails the scoped operation. Direct publication exposes no committed artifact; a mismatched part remains unaccepted and may be retried from byte zero; an assembled-artifact mismatch fails to commit with `ARTIFACT_UPLOAD_DIGEST_MISMATCH`, publishes nothing, and makes the session terminal because accepted parts cannot be replaced.
 
 #### Provider staging and recovery
 
@@ -91,48 +93,49 @@ The initial required algorithm is `BLAKE3` unless provider or binding policy sup
  
  A _filesystem_ based cache provider may stage a temporary file or immutable generation and atomically publish metadata, including by same-filesystem rename. 
  
- An _object-store_ provider may retain a session- or generation-named object and atomically map the final fingerprint to that immutable generation; physical storage names need not equal semantic cache identity.
+ An _object-store_ provider may retain a session- or generation-named object and atomically map the final `ContentId` to that immutable generation; physical storage names need not equal semantic cache identity.
 
 The provider must persist enough state to distinguish active, complete-but-unpublished, committed, abandoned, timed-out, failed, and ambiguous operations. It must eventually clean up abandoned or timed-out state, must not infer completeness from a data object alone, and must never promote uncertain bytes to a cache hit.
 
 ### Finalizing
 
-Finalizing seals the finite representation; active and transfer state, asserted length, integrity, and fingerprint policy; then commits the immutable cache entry and upload-grace claim as one logical publication. 
+Finalizing seals the finite representation; verifies active and transfer state, asserted length, integrity, and content identity; then commits the immutable cache entry and upload-grace claim as one logical publication.
 
 It publishes authoritative metadata or a completion pointer atomically, marks the ingress operation committed, and releases or converts provisional resources. Only successful finalization makes an artifact visible to task submission or cache lookup.
 
-Publication creates at most one immutable entry for a fingerprint and never overwrites its existing byte sequence.
+Publication creates at most one immutable entry for a `ContentId` and never overwrites its existing byte sequence.
 
-#### Fingerprints and existing entries
+#### Content identity and existing entries
 
-The fingerprint is the committed cache identity of the complete byte sequence, distinct from session IDs and integrity digests. When the caller supplies none, the runtime computes BLAKE3 over the complete bytes, incrementally where possible and without requiring a second read of a one-shot source.
+The `ContentId` is the committed cache identity of the complete byte sequence and is distinct from session IDs and integrity digests. When the caller supplies no `content_id`, the runtime computes one over the complete bytes using the runtime's default content-ID algorithm, incrementally where possible and without requiring a second read of a one-shot source.
 
-A **caller-provided fingerprint** is an equality assertion, not automatically an integrity digest. It may be accepted only under explicit trust policy for that caller and ingress path, and may be trusted without hashing or byte comparison only when that policy permits it. Untrusted or multi-tenant callers should normally use runtime-computed identity. 
+The optional caller-provided `content_id` supplies the complete identity, including its algorithm and value. It may preempt the runtime-computed identity only under explicit trust policy for that caller and ingress path, and may be trusted without hashing or byte comparison only when that policy permits it.
 
-If a **runtime-computed** or verified fingerprint already identifies a valid entry, publication reuses it and may discard duplicate provisional bytes. A trusted asserted fingerprint may reuse an entry without reading the new bytes only when policy explicitly permits that path.
+The independent `expected_content_digest` is only an integrity assertion over the received bytes. It must be verified when supplied and never selects a `ContentId` or authorizes a caller-defined identity.
+
+If a runtime-computed or verified caller-provided `ContentId` already identifies a valid entry, publication reuses it and may discard duplicate provisional bytes. A trusted caller-provided `ContentId` may reuse an existing entry without reading the new bytes only when policy explicitly permits that path.
 
 #### Results
 
 Every successful publication operation returns this result:
 
 ```text
-DurableArtifactUploadResult
-  fingerprint
+DurableContentUploadResult
+  content_id: ContentId
   grace_retained_until
   retention_deadline?
-  byte_length
+  byte_length: u64
 ```
 
 **Where**
- - **`fingerprint`** identifies the complete artifact, 
+ - **`content_id`** identifies the complete byte sequence,
  - **`grace_retained_until`** is the effective absolute claim expiry, 
  - **`retention_deadline`** is the effective absolute retention expiry, and 
  - **`byte_length`** is the committed length. 
 
 The effective retention deadline is established at publication and is never earlier than `grace_retained_until`. A non specified deadline will be determined by the runtime
 
-Every publication operation returns the `DurableArtifactUploadResult`. If a session client loses a publication response, the session's status operation returns the authoritative publication result when the publication is committed. 
-
+Every publication operation returns the `DurableContentUploadResult`. If a session client loses a publication response, the session's status operation returns the authoritative publication result when the publication is committed.
 
 ### Grace
 
@@ -144,9 +147,7 @@ It begins only when publish-and-claim succeeds, is normally measured in minutes 
 
 **Grace Artifact Deletion**
 
-If the claim reaches its expiry, the expiry event trigger a deletion the uploaded artifact. 
-
-When a task lists the artifact as an input before claim expiry, atomic task acceptance deletes the claim, and the artifact thereafter remains subject to its retention deadline and any independent permissions. 
+If the claim reaches its expiry, the expiry event trigger a deletion of the uploaded artifact content. 
 
 The runtime may adjust the requested grace TTL and returns its effective absolute deadline.
 
@@ -160,28 +161,19 @@ Retention establishes the committed root's retention deadline.
 Provider policy may cap or adjust the request only within that lower bound. Retention is independent of provisional inactivity timeouts, downstream-artifact retention, task-input PERMISSIONS, and active-read reservations.
 
 **Grace Claim Deletion**
-Once the caller binds the returned fingerprint to an `a-ref` in a structurally valid `DurableRunRequest`, the atomic task acceptance records that binding and deletes the artifact's upload-grace claim before planning or execution. Effectively removing its grace deletion deadline.
+Once the caller includes the returned `ContentId` in a [[../02-artifacts/01-artifact-model-surface#Supplied artifact binding|SuppliedArtifactBinding]] within a [[02-run-request-building-surface#Canonical durable request|DurableRunRequest]] or [[02-run-request-building-surface#Canonical durable request|RunRequest]], atomic task acceptance records the structurally valid binding and removes or converts the upload-grace claim for any present bound content before planning or execution.
 
-Claim deletion is not contingent on validating bytes against the artifact declaration or waiting for the stage to open the artifact. 
+> Note: Claim deletion is not contingent on artifact-schema validation or waiting for a stage to open the content.
 
 Retention TTL was already established at publication and remains effective if the input is skipped or the task later becomes unplannable, cancelled, expired, or failed. 
 
 Rejection before durable input bindings are structurally valid does not delete the claim.
-
 **Reusing evicted Artifacts**
 
-A run request may carry a fingerprint for an upload that has since been evicted or deleted. 
-
-The fingerprint remains valid identity information even when its bytes are no longer present. The runtime determines required artifacts after cache resolution:
-
-- if cached downstream intermediates satisfy the requested work, stages that
-  would consume the uploaded root are skipped and the root need not be present;
-- if a stage must execute, every input selected for that stage must be present,
-  readable, and valid before the stage starts; and
-- absence of an unneeded root does not fail acceptance, planning, or the task,
-  while absence of a required input fails the task as an unavailable artifact.
-
-Presence checks and task-input claims therefore apply only to artifacts required by stages that will execute, not to every fingerprint carried by the request.
+A run request may carry a `ContentId` for an upload that has previously been evicted or deleted, provided that the runtime determines that
+- a cached downstream intermediates satisfy the requested work
+- stages that would consume the uploaded root have downstream intermediates for all required outputs,
+- and the root need not be present for any other reasion
 
 
 ## Upload Method: Direct Publication
@@ -206,11 +198,10 @@ The runtime exposes separate operations for an in-memory byte sequence, a one-sh
 
 - **`desired_grace_ttl`**, which requests the upload-grace created only when publication succeeds; claim expiry deletes the artifact unless task acceptance has already deleted the claim;
 - **`desired_retention_ttl`**, an optional request for retention beyond grace; effective retention is established at publication and is never shorter than the effective grace TTL;
-- **`fingerprint`**, an optional asserted identity for the complete artifact governed by caller-provided fingerprint policy;
-- **`expected_content_digest`** an optional integrity assertion over the operation's complete input byte sequence.
+- **`content_id`**, an optional caller-defined identity, including algorithm and value, governed by caller-provided content-ID policy; and
+- **`expected_content_digest`**, an optional integrity assertion over the operation's complete input byte sequence.
 
-
-> Note: `fingerprint` and `expected_content_digest` are distinct. The fingerprint is committed cache identity; the expected digest is verified against the input bytes before publication. Supplying an expected digest does not by itself authorize a caller-assigned fingerprint.
+`content_id` and `expected_content_digest` are independent. The former selects the committed cache identity when policy permits; the latter only validates that the bytes were received correctly.
 
 #### Preflight checks
 Before accessing the source, each operation performs all applicable checks that do not require reading bytes:
@@ -218,13 +209,13 @@ Before accessing the source, each operation performs all applicable checks that 
 - provider durability, visibility, retention, and recovery capability;
 - known byte length against configured limits;
 - Provisional quota;
-- caller-provided fingerprint policy;
+- caller-provided content-ID policy and algorithm support;
 - expected digest algorithm support;
 - requested TTL policy.
 
 A preflight failure publishes no artifact. It does not consume caller-owned bytes or a preserved file. When the runtime owns a byte-source adapter, it closes that adapter without requesting source bytes.
 
-Successful byte and byte-source operations return the common `DurableArtifactUploadResult`.
+Successful byte and byte-source operations return the common `DurableContentUploadResult`.
 
 #### Common failure issues
 
@@ -258,16 +249,16 @@ Applies before source consumption whenever the relevant fact is known, and durin
 - **`ARTIFACT_UPLOAD_DIGEST_UNSUPPORTED`**
   - **Cause:** The requested expected-content-digest algorithm is not supported by the runtime or selected provider path.
   - **Retry:** `retryable: false`. The caller must omit or change the assertion, or use a supporting configuration.
-- **`ARTIFACT_UPLOAD_FINGERPRINT_INVALID`**
-  - **Cause:** The caller-provided fingerprint is malformed or incompatible with the selected publication path.
-  - **Retry:** `retryable: false`. The caller must correct or omit the fingerprint.
-- **`ARTIFACT_UPLOAD_FINGERPRINT_NOT_TRUSTED`**
-  - **Cause:** Policy does not permit this caller or ingress path to assign the requested fingerprint.
-  - **Retry:** `retryable: false`. The caller must omit the fingerprint or obtain an applicable policy change.
+- **`ARTIFACT_UPLOAD_CONTENT_ID_INVALID`**
+  - **Cause:** The caller-provided `ContentId`, including its algorithm or value, is malformed or incompatible with the selected publication path.
+  - **Retry:** `retryable: false`. The caller must correct or omit `content_id`.
+- **`ARTIFACT_UPLOAD_CONTENT_ID_NOT_TRUSTED`**
+  - **Cause:** Policy does not permit this caller or ingress path to assign the requested `ContentId`.
+  - **Retry:** `retryable: false`. The caller must omit `content_id` or obtain an applicable policy change.
 
 ##### Operations consuming a byte source
 
-Applies to `publish_artifact_source`, `publish_artifact_file`, and bindings that adapt a request body into `ArtifactByteSource`.
+Applies to `publish_content_source`, `publish_content_file`, and bindings that adapt a request body into `ArtifactByteSource`.
 
 - **`TRANSFER_SOURCE_INVALID`**
   - **Cause:** The supplied source fails or violates the `ArtifactByteSource` contract, or a file cannot provide a stable readable source under the declared ownership rules.
@@ -294,43 +285,43 @@ Applies to `publish_artifact_source`, `publish_artifact_file`, and bindings that
 
 ### Service Boundary: Publishing an in-memory byte sequence
 
-`publish_artifact_bytes` publishes one already-materialized immutable byte value:
+`publish_content_bytes` publishes one already-materialized immutable byte value:
 
 __Example:__
 
 ```python
-upload = await runtime.publish_artifact_bytes(
-    artifact_bytes=wav_bytes,
+upload = await runtime.publish_content_bytes(
+    content_bytes=wav_bytes,
     desired_grace_ttl=timedelta(hours=2),
 )
 ```
 
-#### `publish_artifact_bytes()`
+#### `publish_content_bytes()`
 
 ```text
-runtime.publish_artifact_bytes(
-  artifact_bytes,
+runtime.publish_content_bytes(
+  content_bytes,
   desired_grace_ttl,
   desired_retention_ttl?,
-  fingerprint?,
+  content_id?,
   expected_content_digest?
-) -> DurableArtifactUploadResult
+) -> DurableContentUploadResult
 ```
 
-- **`artifact_bytes`** is the complete finite source. Its in-memory length is authoritative for size checks.
+- **`content_bytes`** is the complete finite source. Its in-memory length is authoritative for size checks.
   - The caller retains ownership of its byte value. It must not mutate shared backing storage while the operation is active.
   - The runtime may read the value incrementally but does not retain caller-owned memory after the operation finishes.
 
-The operation verifies the expected digest when supplied, determines the complete-artifact fingerprint, publishes the immutable artifact, and returns the result.
+The operation verifies the expected digest when supplied, determines the complete content identity under caller-provided content-ID policy, publishes the immutable artifact, and returns the result.
 
 ### Service Boundary: Publishing a one-shot byte source:
 
-`publish_artifact_source` publishes one finite sequential source whose bytes are read once under runtime-controlled read limits:
+`publish_content_source` publishes one finite sequential source whose bytes are read once under runtime-controlled read limits:
 
 __Example:__
 
 ```python
-upload = await runtime.publish_artifact_source(
+upload = await runtime.publish_content_source(
     byte_source=source,
     total_byte_length=expected_size,
     expected_content_digest=expected_source_digest,
@@ -338,17 +329,17 @@ upload = await runtime.publish_artifact_source(
 )
 ```
 
-#### `publish_artifact_source()`
+#### `publish_content_source()`
 
 ```text
-runtime.publish_artifact_source(
+runtime.publish_content_source(
   byte_source: ArtifactByteSource,
   total_byte_length?,
   desired_grace_ttl,
   desired_retention_ttl?,
-  fingerprint?,
+  content_id?,
   expected_content_digest?
-) -> DurableArtifactUploadResult
+) -> DurableContentUploadResult
 ```
 
 - **`byte_source`** is the complete `ArtifactByteSource` and is consumed at most once. After passing it to the operation, the caller must not read from or reuse it.
@@ -434,12 +425,12 @@ This is only the minimal shape. A production ABI should additionally define vers
 
 ### Service Boundary: Publishing a local file
 
-`publish_artifact_file` opens and publishes one stable local file system path
+`publish_content_file` opens and publishes one stable local file system path
 
 __Example:__
 
 ```python
-upload = await runtime.publish_artifact_file(
+upload = await runtime.publish_content_file(
     path="input.wav",
     source_disposition="CONSUME",
     desired_grace_ttl=timedelta(hours=2),
@@ -447,17 +438,17 @@ upload = await runtime.publish_artifact_file(
 )
 ```
 
-#### `publish_artifact_file()`
+#### `publish_content_file()`
 
 ```text
-runtime.publish_artifact_file(
+runtime.publish_content_file(
   path,
   source_disposition? = PRESERVE,
   desired_grace_ttl,
   desired_retention_ttl?,
-  fingerprint?,
+  content_id?,
   expected_content_digest?
-) -> DurableArtifactUploadResult
+) -> DurableContentUploadResult
 ```
 
 - **`path`** identifies the complete source file. The runtime opens and closes any file handles it creates.
@@ -481,13 +472,13 @@ Streaming provides bounded-memory transfer and back pressure.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/artifacts` | Stream one finite request body directly into immutable artifact publication and return `DurableArtifactUploadResult`. |
+| `POST` | `/artifacts` | Stream one finite request body directly into immutable artifact publication and return `DurableContentUploadResult`. |
 
-The request body is the artifact byte sequence. Binding-specific headers carry optional publication inputs such as `fingerprint`, `expected_content_digest`, `desired_grace_ttl`, and `desired_retention_ttl`. A successful response contains the common `DurableArtifactUploadResult`; failures use the common `ARTIFACT_UPLOAD` failure contract.
+The request body is the content byte sequence. Binding-specific headers carry optional publication inputs such as `content_id`, `expected_content_digest`, `desired_grace_ttl`, and `desired_retention_ttl`. A successful response contains the common `DurableContentUploadResult`; failures use the common `ARTIFACT_UPLOAD` failure contract.
 
-This is also the direct-publication path for a short live source that fits in one request, such as a sub-30-second IoT command capture. The HTTP handler streams the unknown-length request body into `publish_artifact_source` and returns `DurableArtifactUploadResult` after normal end-of-source and publication. It does not create a live-capture session, expose replay or resume, or require a separate completion request.
+This is also the direct-publication path for a short live source that fits in one request, such as a sub-30-second IoT command capture. The HTTP handler streams the unknown-length request body into `publish_content_source` and returns `DurableContentUploadResult` after normal end-of-source and publication. It does not create a live-capture session, expose replay or resume, or require a separate completion request.
 
-Chunky still computes the runtime fingerprint and content digest while consuming the request. A caller-provided `expected_content_digest` is available only when the caller knows it before sending or the binding reliably supports supplying it through request trailers; it is not required for one-request streaming publication.
+Unless policy accepts a caller-provided `content_id` without verification, Chunky computes or verifies the `ContentId` while consuming the request. A caller-provided `expected_content_digest` is available only when the caller knows it before sending or the binding reliably supports supplying it through request trailers; it is not required for one-request streaming publication.
 
 The binding should:
 -   preserve streaming back pressure;
@@ -528,10 +519,10 @@ async fn publish_artifact(
     State(runtime): State<AppState>,
     headers: HeaderMap,
     body: Body,
-) -> ApiResult<Json<DurableArtifactUploadResult>> {
-    let options = parse_publish_artifact_options(&headers)?;
+) -> ApiResult<Json<DurableContentUploadResult>> {
+    let options = parse_publish_content_options(&headers)?;
     let result = runtime
-        .publish_artifact_source(
+        .publish_content_source(
             artifact_body_source(body),
             options,
         )
@@ -541,7 +532,7 @@ async fn publish_artifact(
 }
 ```
 
-`parse_publish_artifact_options` maps fingerprint, digest, grace, and retention headers into `PublishArtifactOptions`; `Content-Length` is handled as optional request preflight. Observed-byte limits and idle-transfer timeouts wrap reads from the adapted source without materializing it.
+`parse_publish_content_options` maps caller-provided content ID, expected-content-digest, grace, and retention headers into `PublishContentOptions`; `Content-Length` is handled as optional request preflight. Observed-byte limits and idle-transfer timeouts wrap reads from the adapted source without materializing it.
 
 A body-source error before `EndOfSource` fails the publication. Dropping the handler stops reading but does not guarantee that asynchronous abort code runs, so incomplete provider staging must remain unpublished and recoverable. A disconnect after `EndOfSource` may leave only the response outcome ambiguous.
 
@@ -586,18 +577,18 @@ The complete artifact remains unpublished while the session is active. Successfu
 **Process overview**
 
 ```text
-begin_artifact_upload()
-  -> upload_artifact_part(1)
-  -> upload_artifact_part(2)
+begin_content_upload()
+  -> upload_content_part(1)
+  -> upload_content_part(2)
   -> ...
-  -> upload_artifact_part(part_count)
-commit_artifact_upload()
+  -> upload_content_part(part_count)
+commit_content_upload()
 ```
 
 1. **Create the session.** The caller supplies the exact `total_byte_length` and session options. Chunky validates preflight policy, chooses one fixed `part_size`, derives `part_count`, and returns the session identity and current inactivity deadline.
 2. **Upload the parts.** The caller sends each numbered part to Chunky. Every request contains one complete part. Parts may be sent sequentially or, concurrently and out of order.
 3. **Recover after interruption.** The caller reads session status from Chunky and retransmits only parts not present in the authoritative accepted-part set. An incomplete part attempt restarts from that part's byte zero; there is no intra-part resume.
-4. **Finalize the artifact.** After every part is accepted, the caller invokes `commit_artifact_upload`. Chunky verifies completeness, final integrity and identity, publishes the immutable artifact, creates the upload-grace claim, and returns `DurableArtifactUploadResult`.
+4. **Finalize the artifact.** After every part is accepted, the caller invokes `commit_content_upload`. Chunky verifies completeness, final integrity and identity, publishes the immutable artifact, creates the upload-grace claim, and returns `DurableContentUploadResult`.
 
 The arrows show the logical lifecycle, not a required transfer order. Commit is the only step that requires all numbered parts to have been accepted.
 
@@ -617,7 +608,7 @@ A retry is safe only when `Failure.retry.retryable` is `true` and the operation-
 
 When a transport error, caller cancellation, timeout, or dropped response prevents the caller from knowing whether a session mutation was accepted, the outcome is ambiguous rather than automatically failed. 
 
-The caller must resolve that outcome through `get_artifact_upload` before retransmitting a part or changing session state. A compatible commit retry may recover its recorded result. 
+The caller must resolve that outcome through `get_content_upload` before retransmitting a part or changing session state. A compatible commit retry may recover its recorded result.
 
 A begin retry cannot recover an existing session and is safe only when Chunky proves that the earlier begin created no session. 
 
@@ -673,12 +664,12 @@ Applies to begin and part upload; provider capacity may also be required during 
 - **`ARTIFACT_UPLOAD_DIGEST_UNSUPPORTED`**
   - **Cause:** The requested complete-artifact digest algorithm is not supported by the runtime or selected provider path.
   - **Retry:** `retryable: false`. The caller must omit or change the assertion, or use a supporting configuration.
-- **`ARTIFACT_UPLOAD_FINGERPRINT_INVALID`**
-  - **Cause:** The caller-provided fingerprint is malformed or incompatible with multipart publication.
-  - **Retry:** `retryable: false`. The caller must correct or omit the fingerprint.
-- **`ARTIFACT_UPLOAD_FINGERPRINT_NOT_TRUSTED`**
-  - **Cause:** Policy does not permit this caller or ingress path to assign the requested fingerprint.
-  - **Retry:** `retryable: false`. The caller must omit the fingerprint or obtain an applicable policy change.
+- **`ARTIFACT_UPLOAD_CONTENT_ID_INVALID`**
+  - **Cause:** The caller-provided `ContentId`, including its algorithm or value, is malformed or incompatible with multipart publication.
+  - **Retry:** `retryable: false`. The caller must correct or omit `content_id`.
+- **`ARTIFACT_UPLOAD_CONTENT_ID_NOT_TRUSTED`**
+  - **Cause:** Policy does not permit this caller or ingress path to assign the requested `ContentId`.
+  - **Retry:** `retryable: false`. The caller must omit `content_id` or obtain an applicable policy change.
 ##### Existing-session mutation state
 
 Applies to part upload, commit, and abort when the requested mutation is incompatible with the current lifecycle state.
@@ -720,7 +711,7 @@ Applies to part upload, commit, and abort when the requested mutation is incompa
   - **Cause:** The assembled part sequence does not equal the complete length declared at begin. Publication does not occur.
   - **Retry:** `retryable: false`. The session is terminal when its accepted parts cannot be corrected; otherwise the caller must resolve the missing or invalid part state before retrying commit.
 - **`ARTIFACT_UPLOAD_DIGEST_MISMATCH`**
-  - **Cause:** The assembled artifact does not match the complete-artifact digest recorded at begin. Publication does not occur and the session becomes terminally failed.
+  - **Cause:** The assembled artifact does not match the complete-artifact `expected_content_digest` recorded at begin. Publication does not occur and the session becomes terminally failed.
   - **Retry:** `retryable: false`. The caller must begin a new session with correct bytes or assertions.
 - **`ARTIFACT_UPLOAD_FINALIZATION_AMBIGUOUS`**
   - **Cause:** Chunky cannot prove whether immutable publication committed.
@@ -729,19 +720,19 @@ Applies to part upload, commit, and abort when the requested mutation is incompa
 
 ### Service Boundary: Beginning an upload session
 
-`begin_artifact_upload` validates the complete-object intent, reserves a provisional quota, chooses the fixed part geometry, and creates the session:
+`begin_content_upload` validates the complete-object intent, reserves a provisional quota, chooses the fixed part geometry, and creates the session:
 
 ```text
-runtime.begin_artifact_upload(
+runtime.begin_content_upload(
   total_byte_length,
   desired_inactivity_timeout?,
   desired_grace_ttl,
   desired_retention_ttl?,
-  fingerprint?,
+  content_id?,
   expected_content_digest?
-) -> ArtifactUploadPlan
+) -> ContentUploadPlan
 
-ArtifactUploadPlan
+ContentUploadPlan
   upload_session_id
   part_size
   part_count
@@ -755,7 +746,7 @@ ArtifactUploadPlan
 - **`desired_inactivity_timeout`** requests how long the provisional upload state may remain without qualifying API activity. Runtime policy may cap or reject it. The effective moving deadline is returned in `inactivity_deadline` and is independent of post-publication retention.
 - **`desired_grace_ttl`** requests the upload-grace claim created only after successful publication.
 - **`desired_retention_ttl`** optionally requests retention beyond grace. Retention is established at publication; its effective TTL equals the effective grace TTL unless a longer value is requested and permitted.
-- **`fingerprint`** is an optional-asserted identity for the complete artifact and is governed by the common caller-provided fingerprint policy. It is not a part digest.
+- **`content_id`** is an optional caller-defined identity for the complete artifact, including algorithm and value, governed by caller-provided content-ID policy. It is not a part digest.
 - **`expected_content_digest`** is an optional integrity assertion for the complete artifact. Chunky stores it with the session and verifies it against the single contiguous byte sequence assembled in ascending part-number order during commit. It is distinct from the optional digest supplied for each upload part.
 
 > Supplying `expected_content_digest` is recommended whenever the caller can compute it from the original complete artifact. It verifies that the final assembly has exactly the expected bytes and detects corruption, omission, duplication, or incorrect part ordering across the complete sequence.
@@ -771,7 +762,7 @@ ArtifactUploadPlan
 **Example:**
 
 ```python
-plan = await runtime.begin_artifact_upload(
+plan = await runtime.begin_content_upload(
     total_byte_length=expected_size,
     desired_inactivity_timeout=timedelta(hours=24),
     desired_grace_ttl=timedelta(hours=2),
@@ -787,7 +778,7 @@ Before creating session state, the runtime verifies:
 - future authorisation;
 - total byte length against limits;
 - provisional quota;
-- caller-provided fingerprint policy;
+- caller-provided content-ID policy and algorithm support;
 - expected digest algorithm support;
 - requested inactivity-timeout policy; and
 - a part size that satisfies configured service, upstream request-size, and provider constraints without exceeding the permitted part count.
@@ -796,7 +787,7 @@ Before creating session state, the runtime verifies:
 
 The upload-session inactivity timeout is a sliding timeout, not a fixed session lifetime:
 
-- `begin_artifact_upload` establishes the initial `inactivity_deadline` from the effective timeout;
+- `begin_content_upload` establishes the initial `inactivity_deadline` from the effective timeout;
 - each successful API operation targeting the active session resets `inactivity_deadline` to the operation's activity time plus the effective timeout, including status reads and compatible retries; a future authorization-capable implementation resets it only after authorization succeeds;
 - unknown-session traffic and requests that arrive after the deadline do not reset it; a future authorization rejection also does not reset it;
 - once the deadline passes without qualifying activity, the session becomes terminally `timed_out`, and the runtime removes or schedules cleanup of its provisional parts and associated provider state; and
@@ -830,10 +821,10 @@ Chunky chooses `part_size` comfortably below every configured request-body limit
 
 ### Service Boundary: Uploading parts
 
-`upload_artifact_part` transfers one complete fixed-range part to Chunky:
+`upload_content_part` transfers one complete fixed-range part to Chunky:
 
 ```text
-runtime.upload_artifact_part(
+runtime.upload_content_part(
   upload_session_id,
   part_number,
   byte_source: ArtifactByteSource,
@@ -853,9 +844,9 @@ AcceptedUploadPart
 
 **Result fields:**
 - **`part_number`** identifies the accepted upload part and makes the acceptance response self-identifying.
-- **`content_digest`** is Chunky's BLAKE3 digest of the accepted bytes when the request supplied `expected_content_digest`; otherwise it is absent. The supplied digest is checked only when present.
+- **`content_digest`** is Chunky's computed digest of the accepted bytes when the request supplied `expected_content_digest`; otherwise it is absent.
 
-Returning `AcceptedUploadPart` means the complete part is durably staged and its acceptance metadata is atomically recorded. If the caller does not receive the result, `get_artifact_upload` is the authoritative recovery mechanism.
+Returning `AcceptedUploadPart` means the complete part is durably staged and its acceptance metadata is atomically recorded. If the caller does not receive the result, `get_content_upload` is the authoritative recovery mechanism.
 
 Part acceptance, failure, and retry follow **Part acceptance and retry** in the resumable multipart transfer model.
 
@@ -871,7 +862,7 @@ Chunky may allocate provisional storage lazily and map upload parts onto provide
 parts = list(read_file_parts("input.wav", part_size=plan.part_size))
 
 for part_number, part_bytes in parts:
-    await runtime.upload_artifact_part(
+    await runtime.upload_content_part(
         upload_session_id=plan.upload_session_id,
         part_number=part_number,
         byte_source=part_bytes,
@@ -892,24 +883,24 @@ A failed, interrupted, timed-out, or cancelled attempt leaves that part absent u
 
 ### Service Boundary: Inspecting status for resume
 
-`get_artifact_upload` returns the authoritative session status, including which parts remain outstanding. A caller that lost its local progress state can use this response to reconstruct its progress and continue the upload:
+`get_content_upload` returns the authoritative session status, including which parts remain outstanding. A caller that lost its local progress state can use this response to reconstruct its progress and continue the upload:
 
 ```text
-runtime.get_artifact_upload(
+runtime.get_content_upload(
   upload_session_id
-) -> ArtifactUploadStatus
+) -> ContentUploadStatus
 
-ArtifactUploadStatus
+ContentUploadStatus
   upload_session_id
-  state: ArtifactUploadState
+  state: ContentUploadState
   inactivity_timeout
   inactivity_deadline
   expected_byte_length
   received_byte_length
   outstanding_parts[]: int
-  publication_result?: DurableArtifactUploadResult
+  publication_result?: DurableContentUploadResult
 
-ArtifactUploadState
+ContentUploadState
   reserved | receiving | received | finalizing
   committed | aborted | timed_out | failed
 ```
@@ -922,7 +913,7 @@ ArtifactUploadState
 - **`expected_byte_length`** is the complete length declared when the session began.
 - **`received_byte_length`** is the sum of durably accepted segment lengths.
 - **`outstanding_parts`** contains the authoritative part numbers that have not yet been accepted. While the session is resumable, only numbers in this collection must be retransmitted in full; callers must not infer acceptance from locally observed progress.
-- **`publication_result`** is present exactly when `state` is `committed` and contains the authoritative `DurableArtifactUploadResult` returned by publication.
+- **`publication_result`** is present exactly when `state` is `committed` and contains the authoritative `DurableContentUploadResult` returned by publication.
 
 **State values and resume behavior:**
 
@@ -942,59 +933,59 @@ Lifecycle states move forward only. `committed`, `aborted`, `timed_out`, and `fa
 __Example:__
 
 ```python
-status = await runtime.get_artifact_upload(plan.upload_session_id)
+status = await runtime.get_content_upload(plan.upload_session_id)
 
 outstanding_parts = set(status.outstanding_parts)
 parts = list(read_file_parts("input.wav", part_size=plan.part_size))
 
 for part_number, part_bytes in parts:
     if part_number in outstanding_parts:
-        await runtime.upload_artifact_part(
+        await runtime.upload_content_part(
             upload_session_id=plan.upload_session_id,
             part_number=part_number,
             byte_source=part_bytes,
             expected_content_digest=blake3_digest(part_bytes),
         )
 
-upload = await runtime.commit_artifact_upload(
+upload = await runtime.commit_content_upload(
     upload_session_id=plan.upload_session_id,
 )
 ```
 
 ### Service Boundary: Committing
 
-`commit_artifact_upload` seals the session and publishes the assembled artifact. `upload_session_id` selects the caller-owned session. It verifies that all planned parts are accepted, assembles them in part-number order, computes or verifies the complete-artifact fingerprint under common policy, and applies the common finalisation sequence.
+`commit_content_upload` seals the session and publishes the assembled artifact. `upload_session_id` selects the caller-owned session. It verifies that all planned parts are accepted, assembles them in part-number order, verifies the complete-artifact digest when supplied, determines the `ContentId` under caller-provided content-ID policy, and applies the common finalisation sequence.
 
-The returned `DurableArtifactUploadResult` is the common publication result. A compatible retry recovers an ambiguous commit outcome without creating another artifact.
+The returned `DurableContentUploadResult` is the common publication result. A compatible retry recovers an ambiguous commit outcome without creating another artifact.
 
 ```text
-runtime.commit_artifact_upload(
+runtime.commit_content_upload(
   upload_session_id
-) -> DurableArtifactUploadResult
+) -> DurableContentUploadResult
 ```
 
 ```python
-plan = await runtime.begin_artifact_upload(...)
+plan = await runtime.begin_content_upload(...)
 
 # ...
 
-upload = await runtime.commit_artifact_upload(
+upload = await runtime.commit_content_upload(
     upload_session_id=plan.upload_session_id,
 )
 ```
 
 #### Finalization
 
-`commit_artifact_upload` verifies that every part from `1` through the plan's `part_count` is accepted and that each accepted part completed its length and digest checks. Chunky assembles the parts in ascending part-number order and verifies the observed total length and optional complete-artifact `expected_content_digest` over that single contiguous byte sequence before applying the common finalization sequence and determining the complete-artifact fingerprint. A future authorization-capable implementation also verifies ownership.
+`commit_content_upload` verifies that every part from `1` through the plan's `part_count` is accepted and that each accepted part completed its length and digest checks. Chunky assembles the parts in ascending part-number order and verifies the observed total length and optional complete-artifact `expected_content_digest` over that single contiguous byte sequence before applying the common finalization sequence and determining the complete `ContentId`. A future authorization-capable implementation also verifies ownership.
 
 If the assembled bytes do not match the expected digest recorded when the session began, commit returns `ARTIFACT_UPLOAD_DIGEST_MISMATCH`, publishes no artifact, and makes the session terminally failed.
 
 ### Service Boundary: Abort the session:
 
-`abort_artifact_upload` terminates provisional upload state. This prevents new part acceptance, releases provisional quota, and removes or schedules cleanup of session-owned staging and internal provider state. It never removes an artifact that has already been committed.
+`abort_content_upload` terminates provisional upload state. This prevents new part acceptance, releases provisional quota, and removes or schedules cleanup of session-owned staging and internal provider state. It never removes an artifact that has already been committed.
 
 ```text
-runtime.abort_artifact_upload(
+runtime.abort_content_upload(
   upload_session_id
 ) -> None
 ```
@@ -1008,7 +999,7 @@ The status endpoint is also the resume endpoint. After an interrupted or ambiguo
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/artifact/upload/multipart` | Begin a resumable multipart upload. |
-| `PUT` | `/artifact/upload/multipart/{id}/parts/{part_number}` | Upload one complete numbered part to Chunky, with an optional expected digest in request metadata. |
+| `PUT` | `/artifact/upload/multipart/{id}/parts/{part_number}` | Upload one complete numbered part to Chunky, with an optional expected content digest in request metadata. |
 | `GET` | `/artifact/upload/multipart/{id}` | Return authoritative lifecycle and accepted-part status. |
 | `POST` | `/artifact/upload/multipart/{id}/commit` | Assemble, finalize, and publish the upload. |
 | `POST` | `/artifact/upload/multipart/{id}/abort` | Abort the provisional session. |
@@ -1029,16 +1020,16 @@ pub fn upload_session_routes(runtime: AppState) -> Router {
 
 async fn begin_upload(
     State(runtime): State<AppState>,
-    Json(options): Json<BeginArtifactUploadOptions>,
-) -> ApiResult<Json<ArtifactUploadPlan>> {
-    Ok(Json(runtime.begin_artifact_upload(options).await?))
+    Json(options): Json<BeginContentUploadOptions>,
+) -> ApiResult<Json<ContentUploadPlan>> {
+    Ok(Json(runtime.begin_content_upload(options).await?))
 }
 
 async fn upload_status(
     State(runtime): State<AppState>,
     Path(id): Path<String>,
-) -> ApiResult<Json<ArtifactUploadStatus>> {
-    Ok(Json(runtime.get_artifact_upload(&id).await?))
+) -> ApiResult<Json<ContentUploadStatus>> {
+    Ok(Json(runtime.get_content_upload(&id).await?))
 }
 
 async fn upload_part(
@@ -1049,7 +1040,7 @@ async fn upload_part(
 ) -> ApiResult<Json<AcceptedUploadPart>> {
     let expected_content_digest = parse_content_digest(&headers)?;
     let result = runtime
-        .upload_artifact_part(
+        .upload_content_part(
             &id,
             part_number,
             artifact_body_source(body),
@@ -1063,15 +1054,15 @@ async fn upload_part(
 async fn commit_upload(
     State(runtime): State<AppState>,
     Path(id): Path<String>,
-) -> ApiResult<Json<DurableArtifactUploadResult>> {
-    Ok(Json(runtime.commit_artifact_upload(&id).await?))
+) -> ApiResult<Json<DurableContentUploadResult>> {
+    Ok(Json(runtime.commit_content_upload(&id).await?))
 }
 
 async fn abort_upload(
     State(runtime): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<StatusCode> {
-    runtime.abort_artifact_upload(&id).await?;
+    runtime.abort_content_upload(&id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 ```
@@ -1143,7 +1134,7 @@ complete_live_capture(final_byte_source?)
 1. **Create the session.** The caller supplies session and publication options and may include the first byte source. Chunky validates preflight policy, durably accepts any initial bytes as the first segment, and returns the session identity, accepted byte length, and current inactivity deadline.
 2. **Append capture segments.** The caller chooses each segment boundary and sends one complete segment at a time. Chunky serializes accepted requests and extends the accepted byte prefix in that order.
 3. **Recover an individual request.** The caller retains the current segment and the previously acknowledged byte length until acceptance is known. It retries only after an explicitly recoverable failure or after authoritative status proves that the segment was not accepted. *It never blindly retries an ambiguous request.*
-4. **Finalize the artifact.** The caller explicitly completes the capture and may include the final byte source in that request. Chunky appends any final segment, seals the byte sequence, verifies final assertions, publishes the immutable artifact, creates the upload-grace claim, and returns `DurableArtifactUploadResult`.
+4. **Finalize the artifact.** The caller explicitly completes the capture and may include the final byte source in that request. Chunky appends any final segment, seals the byte sequence, verifies final assertions, publishes the immutable artifact, creates the upload-grace claim, and returns `DurableContentUploadResult`.
 
 > The optional begin and completion bodies save round trips; they have the same acceptance rules as an ordinary append. A transport-level request timeout or dropped handler does not itself time out the session. The session times out only when its inactivity deadline passes without another qualifying API operation.
 
@@ -1242,9 +1233,9 @@ runtime.begin_live_capture(
   desired_inactivity_timeout?,
   desired_grace_ttl,
   desired_retention_ttl?,
-) -> LiveCapturePlan
+) -> AcceptedLiveCaptureSegment
 
-LiveCapturePlan
+AcceptedLiveCaptureSegment
   capture_session_id
   inactivity_deadline
   received_byte_length
@@ -1276,7 +1267,6 @@ plan = await runtime.begin_live_capture(
 
 
 #### Additional error types
-
 - **`ARTIFACT_UPLOAD_OPTIONS_INVALID`**
   - **Cause:** A requested inactivity timeout, grace TTL, retention TTL, or other begin option is invalid or rejected by runtime policy.
   - **Retry:** `retryable: false`. The caller must change the rejected option.
@@ -1356,13 +1346,13 @@ runtime.get_live_capture(
 
 LiveCaptureStatus
   capture_session_id
-  state: ArtifactUploadState
+  state: ContentUploadState
   inactivity_timeout
   inactivity_deadline
   received_byte_length
-  publication_result?: DurableArtifactUploadResult
+  publication_result?: DurableContentUploadResult
 
-ArtifactUploadState
+ContentUploadState
   reserved | receiving | received | finalizing
   committed | aborted | timed_out | failed
 ```
@@ -1379,7 +1369,7 @@ ArtifactUploadState
 - **`inactivity_timeout`** is the session's fixed effective inactivity duration.
 - **`inactivity_deadline`** is the current inactivity deadline, refreshed by this successful status request while the session remains active. Future authorization must succeed before refresh.
 - **`received_byte_length`** is the length of the durably accepted segment prefix.
-- **`publication_result`** is present exactly when `state` is `committed` and contains the authoritative `DurableArtifactUploadResult` returned by publication.
+- **`publication_result`** is present exactly when `state` is `committed` and contains the authoritative `DurableContentUploadResult` returned by publication.
 
 After `aborted`, `timed_out`, or terminal `failed` state, the capture cannot accept new bytes. A transport-level timeout of one append request does not itself create any of those terminal states.
 
@@ -1393,7 +1383,7 @@ runtime.complete_live_capture(
   capture_session_id,
   final_byte_source?: ArtifactByteSource,
   total_byte_length?
-) -> DurableArtifactUploadResult
+) -> DurableContentUploadResult
 ```
 
 
@@ -1425,7 +1415,7 @@ upload = await runtime.complete_live_capture(
 - **`final_byte_source`** optionally supplies one last client-sized segment before sealing, avoiding a separate append request.
 - **`total_byte_length`** optionally asserts the complete accepted payload length.
 
-The returned `DurableArtifactUploadResult` is the common publication result. If a final byte source is present, it follows the ordinary total-length, serialization, and atomic-acceptance rules. A compatible completion retry recovers the recorded final-segment and publication outcome without appending the final bytes twice or creating another artifact.
+The returned `DurableContentUploadResult` is the common publication result. If a final byte source is present, it follows the ordinary total-length, serialization, and atomic-acceptance rules. A compatible completion retry recovers the recorded final-segment and publication outcome without appending the final bytes twice or creating another artifact.
 
 #### Expected failure issues
 
@@ -1446,7 +1436,7 @@ After sealing:
 
 - no new payload bytes are accepted;
 - final length assertions are checked;
-- the runtime computes the digest and fingerprint from the complete sealed representation; and
+- the runtime computes the `ContentId` from the complete sealed representation; and
 - the common immutable publication operation runs.
 
 Receiving silence, a client-side end marker, or a server-side endpointing decision does not publish by itself. Those mechanisms cause the caller or capture coordinator to invoke `complete_live_capture`.
@@ -1499,7 +1489,7 @@ async fn begin_capture(
     State(runtime): State<AppState>,
     headers: HeaderMap,
     body: Body,
-) -> ApiResult<Json<LiveCapturePlan>> {
+) -> ApiResult<Json<AcceptedLiveCaptureSegment>> {
     let options = parse_begin_live_capture_options(&headers)?;
     let initial_byte_source = optional_artifact_body_source(&headers, body)?;
     Ok(Json(
@@ -1536,7 +1526,7 @@ async fn complete_capture(
     Path(id): Path<String>,
     headers: HeaderMap,
     body: Body,
-) -> ApiResult<Json<DurableArtifactUploadResult>> {
+) -> ApiResult<Json<DurableContentUploadResult>> {
     let options = parse_complete_live_capture_options(&headers)?;
     let final_byte_source = optional_artifact_body_source(&headers, body)?;
     Ok(Json(
@@ -1596,8 +1586,8 @@ Issue codes concerning authorization, principals, tenants, or session ownership 
 - `ARTIFACT_UPLOAD_LENGTH_MISMATCH`;
 - `ARTIFACT_UPLOAD_DIGEST_MISMATCH`;
 - `ARTIFACT_UPLOAD_DIGEST_UNSUPPORTED`;
-- `ARTIFACT_UPLOAD_FINGERPRINT_INVALID`;
-- `ARTIFACT_UPLOAD_FINGERPRINT_NOT_TRUSTED`;
+- `ARTIFACT_UPLOAD_CONTENT_ID_INVALID`;
+- `ARTIFACT_UPLOAD_CONTENT_ID_NOT_TRUSTED`;
 - `ARTIFACT_UPLOAD_FINALIZATION_AMBIGUOUS`;
 - `ARTIFACT_STORAGE_FAILURE`;
 - `TRANSFER_SOURCE_INVALID`.
@@ -1646,18 +1636,18 @@ It never contains source bytes, credentials, internal provider operations, or pr
 ### Common invariants
 
 1. Every successful path publishes at most one immutable byte-cache entry.
-2. No ingress path accepts or resolves an `a-ref`.
+2. No ingress path accepts or resolves an [[../02-artifacts/01-artifact-model-surface#Artifact request|ArtifactRequest]], [[../02-artifacts/01-artifact-model-surface#Scoped artifact request|ScopedArtifactRequest]], or [[../02-artifacts/01-artifact-model-surface#Artifact schema|ArtifactSchemaId]].
 3. No ingress path performs artifact-specific validation or transcoding.
-4. Only committed authoritative metadata or a completion pointer makes bytes visible under a fingerprint.
+4. Only committed authoritative metadata or a completion pointer makes bytes visible under a `ContentId`.
 5. Publication success includes an upload-grace claim.
 6. Committed bytes are a faithful copy of the finite representation accepted for publication.
-7. A caller-provided fingerprint is trusted without byte verification only under explicit policy.
+7. A caller-provided `ContentId` is trusted without byte verification only under explicit policy.
 8. An expected content digest is verified against the complete input bytes of the operation that accepts it.
 9. Physical provider naming is not semantic cache identity.
 10. A lost session-completion response is recovered through status, not a second logical artifact.
 11. Large-artifact execution does not require whole-artifact deserialization into memory.
 12. Task submission occurs only after immutable publication.
-13. A structurally valid task proposal deletes the upload-grace claim for every present uploaded artifact named as a durable input. Retention was established at publication, and later task failure does not restore the claim or roll back retention.
+13. Task acceptance atomically records structurally valid supplied bindings and removes or converts applicable grace claims. After cache resolution, every resolved input is verified and protected before execution; an unavailable resolved input fails the task rather than making execution wait for future bytes.
 14. A byte-stream error, normal end-of-stream, cooperative cancellation, and dropped consumption are distinct outcomes.
 15. Dropping an ingress future never makes incomplete provisional bytes visible as a committed artifact.
 
@@ -1680,7 +1670,7 @@ It never contains source bytes, credentials, internal provider operations, or pr
 7. Each qualifying operation on an active upload session resets its inactivity deadline; the timeout does not protect the committed artifact.
 8. Authoritative accepted-part state determines resumability.
 9. A part becomes accepted only when its complete body has the expected length, its optional expected content digest matches, and its bytes and metadata are durably recorded.
-10. `expected_content_digest` on `upload_artifact_part` covers only that part and is never treated as a complete-artifact digest.
+10. `expected_content_digest` on `upload_content_part` covers only that part and is never treated as a complete-artifact digest or `ContentId`.
 11. An incomplete, length-mismatched, digest-mismatched, or otherwise failed part attempt is not resumable and is retried from byte zero.
 12. Retrying an accepted part with different bytes or a conflicting digest fails without changing the accepted part.
 13. Accepting every part does not itself publish the artifact.
@@ -1692,10 +1682,10 @@ It never contains source bytes, credentials, internal provider operations, or pr
 ### Live-capture invariants
 
 1. Live capture is finite even though its length is unknown when it begins.
-2. An open capture is provisional state, not an `ArtifactInstance`.
+2. An open capture is provisional state, not published or addressable content.
 3. An open capture is never bound directly as a stage input.
 4. Accepted segments form one strictly ordered byte prefix; the client does not select append positions or sequence elements.
-5. Explicit completion seals the byte sequence before fingerprinting and publication.
+5. Explicit completion seals the byte sequence before content identification and publication.
 6. No new payload bytes are accepted after sealing.
 7. Capture inactivity timeout or abort never exposes partial bytes as an artifact.
 8. A combined capture-and-submit facade composes publication and task submission without changing their separate atomic boundaries.

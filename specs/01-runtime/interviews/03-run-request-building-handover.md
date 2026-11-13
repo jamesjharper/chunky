@@ -1,5 +1,8 @@
 # Handover: Continue the Run Request Building Interview
 
+> **Historical.** Superseded by the active run-request, artifact-model, and
+> failure surfaces using `ContentId` and `ScopedArtifactRequest`.
+
 > Consolidation status (2026-07-21): confirmed results through decision 90 are
 > captured in the authoritative specifications. The instructions below apply
 > when resuming the remaining open interview and must not be used to undo that

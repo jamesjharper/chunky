@@ -1,0 +1,405 @@
+specs/99-stage-implementations/02-expected_stages.md
+  s_fe16321cbaf1b9::t_5fccd0f5d3a45f 33
+  s_1fd9e6bf97d36f::t_0f7242ec7d564b 3,5-6,9-11,17-20,94,121,143,162-163,169,197-199,205-207,238-240,277,311-312,335,342,376,409,448-449,466,498,536,590,597-603,607-610,612-616
+  s_fe16321cbaf1b9::t_cbbf50d110bb20 14-15,21-28,604-606,611
+specs/03-bindings/04-artifact-persistence.md
+  s_fe16321cbaf1b9::t_5de0b35217541d 20,34,39,46,54,59-60,78-79,83,85-86,94-96,128-129,133,140,143-144,176-178,186,230-231
+  s_fd57d103d58018::t_d617551d513ef9 64-66
+  s_fe16321cbaf1b9::t_3b3d4b9dea73af 200-204
+  s_1fd9e6bf97d36f::t_b16999dacf5d2d 5-7,9-10,14,16-19,21-22,26-30,32,35,38,42-43,47,49,51-52,55-57,62,73,75-76,81,84,88-89,91-92,97,99,101-103,105-107,109-112,114,116-117,119-121,123-124,126,132,134-139,146,150-154,157-162,164-165,167-168,170,172-174,180-182,184,188-191,193,195-196,198,206,210-217,223-229,232
+  s_1fd9e6bf97d36f::t_7fdee118d2bca9 68-71
+specs/06-planning/01-task-planning.md
+  s_fe16321cbaf1b9::t_d5a15b9759a1ba 5,9,19-20,26,28-29,33,36-37,40,43-46,67-68,76-78,81,83,90,101,106,109,120,124-125,140-141
+  s_fe16321cbaf1b9::t_5fccd0f5d3a45f 113
+  s_1fd9e6bf97d36f::t_332a65da7b508d 1,6-7,11,13,15-18,21,23-24,32,48,50,52-56,58,60-62,64-65,70,72,75,79-80,82,84,87,89,91,93,95,98-100,102-103,107-108,110,112,115,117,121,127-128,130-131,133,135-136,138-139,142-143,145-146,148,150-152,154-156,158-160,162,164-166,168,170,172-173,175-177,179-180,182,184-185,187-189,191,193-194,196-198,200,202-205,222,229-231,233-236,238-242,244-248,259-262,266-284,288-294,296-302,305,307-313
+  s_fe16321cbaf1b9::t_40974e25656fb8 207,209-215,217-220,224-228,249-258,263-265,285-287,295,303-304,306,314-316
+specs/01-runtime/07-failure-surface.md
+  s_1fd9e6bf97d36f::t_283da5ffb0b96a 266-269,273-274,277-278,290,301,304-310,315-336,339-341,352-354,356,364,367,370-371,374,377-378,381-382,385-386,389-395,398-429,434-443,445,455-459
+  s_fe16321cbaf1b9::t_f3da7f87a86cb3 460
+  s_fe16321cbaf1b9::t_77af7150b74ef4 282,289,291,294,297,300,311-314,337-338,342-348,430-433,444
+  s_fd57d103d58018::t_e4905f30a8b026 396-397
+specs/01-runtime/02-run-request-building-surface.md
+  s_fe16321cbaf1b9::t_9b3bf63a8e658f 29-31
+  s_fe16321cbaf1b9::t_08e88c54cd6613 5-6,8-16,18-20,22,24-26,32-34,36,39-43,46-50,52,54-57,59,61-66,68,71-77,79-94,97-101,103,105-108,110-112,114-119,121-123,125,127,130-132,134-136,139,141-148,151-156,158-160,162,164,167-169,172-175,177-181,183-186,188,190-201,204-205,207,209,212-215,218-223,225-227,229,231-237,239-242,245-249,251,253-256,258,264-281,284-286,290-292,294,296-300,302-305,307-312,314,316-320,324-332
+specs/01-runtime/06-durable-task-surface.md
+  s_fe16321cbaf1b9::t_1e836179b98605 1-40
+specs/01-runtime/07-failure-surface.wit
+  s_1fd9e6bf97d36f::t_283da5ffb0b96a 3,39-40,45,85,113-114,117-127,206,208
+  s_fd57d103d58018::t_30cea02a56dd11 207
+  s_fe16321cbaf1b9::t_ca947fbc14e7d1 13-14,75,84,86,90,94,98,115-116,177-205,216-217
+  s_fe16321cbaf1b9::t_3b3d4b9dea73af 26-27
+  s_1fd9e6bf97d36f::t_d514fcfb978fcf 209
+specs/03-bindings/03-content-store.md
+  s_fe16321cbaf1b9::t_d8dcee491e42ca 20,26,32-34,145
+  s_fe16321cbaf1b9::t_5fccd0f5d3a45f 77,216
+  s_1fd9e6bf97d36f::t_0fd027c86c9368 1-19,21-25,27-31,35-76,78-144,146-215,217-223
+specs-back/01-runtime/03-durable-artifacts-upload-surface.md
+  h_6046a6be1688c0 1-1700
+specs/07-scheduling/eventing-and-task-control-model-spec.md
+  s_fe16321cbaf1b9::t_d927ba2fab4d16 5-7,11-12,21,24-25,27,36-37,39-41,45,47-50,52-53,55,57-58,60-61,63,65-66,68,70-71,73-74,76,78-81,83-88,91-92,94-95,97,99,101-106,108,110,112-118,120,122,124,126-131,134-135,137-138,140,142,144-147,150-151,153,155-157,159,161,164-167,170-171,173-175,177-178,180,182-184,188-196
+specs/01-runtime/05-durable-artifact-download-surface.md
+  s_1fd9e6bf97d36f::t_2193480e530ab3 1,5,7,10,13,15,20,23,30,32-33,35-40,42,44-45,47-48,55,57,59,62-63,65,67,69,71-73,75-79,81,84,87,91-92,98-101,103,105-113,118,122-125,129,132-133,137-140,142-145,147,149-152,154-156,158-161,163,165-167,169-171,173,175-177,203,210,212-213,217,219-221,223-225,227,229,231-236
+  s_fe16321cbaf1b9::t_ec5bbd8b82cf63 8,11,18-19,26-27,34,41,50-53,60-61,68,85,94-96
+  s_fe16321cbaf1b9::t_3b3d4b9dea73af 205-208
+  s_fe16321cbaf1b9::t_4f4af91e229812 121,179,181-186,188-193,195,197-201,218,230
+  s_fe16321cbaf1b9::t_4b76a5f527d34c 93
+specs/01-runtime/04-run-surface.md
+  s_fe16321cbaf1b9::t_348627529874c1 50,66-70,77,83,94-95,102,109,114-115,146,153-154,182,309-310
+  s_fe16321cbaf1b9::t_e20b9397fb6151 298-301
+  s_1fd9e6bf97d36f::t_287ce3c603d394 5-6,8-9,11,14-16,21-26,28-30,32,34-37,39,41-42,46,49,53-55,57-60,62,64,72,75-76,78-80,85-87,89,91,98,101,103-108,112,117,120-125,128-133,135-136,138-139,141,143,145,149-151,156,158,160,168,171-173,175,177-178,181,183-185,188-190,192,194-198,200,202,205-208,211-214,216,218,221-222,225,227-229,231-235,237,239-240,242,245-248,251-252,254,256,259-260,263-297,302-308,311-320
+specs/01-runtime/01-runtime-builder-surface.md
+  s_fe16321cbaf1b9::t_93f2b59ad31f34 16,24,77,344-346,357,361-362
+  s_fe16321cbaf1b9::t_c52ef0c5c291e1 191-196
+  s_fe16321cbaf1b9::t_b50b8f86378dec 363-364
+  s_fe16321cbaf1b9::t_1cb728df708eee 126,130,132,137,149,156,158,186,188,199,201,207,242,261,315,338,371
+specs/05-stages/99-terminology.md
+  s_fe16321cbaf1b9::t_03e0a567f7757a 3,5-6,8-9,11-12,14,16-17,19-20,22-24,26-27,29-31,33-34,36,38-39,41-42,44-46,48-50
+specs/02-artifacts/01-artifact-model-surface.md
+  s_9316873e561b7e::t_e9aeb5694633cb 55,58-63
+  s_fe16321cbaf1b9::t_cc72a3b8e76f7a 72,79,82,85,110
+  s_fe16321cbaf1b9::t_04bb97c1aedd56 303-306,438-441,445-446,473-476,503-508,516-519,533-537,546-553,566,568-569,572-579
+  s_fd57d103d58018::t_1b93bb048d8fc6 41-43,45,49,51,53,65,67
+  h_6046a6be1688c0 3,8,10-13,17-18,36,39,80-81,107-109,111-114,116,123-125,131,134,136-139,151,163,168,185,189,242,244,246-252,254-255,257-258,436,444,449-450,452-454,456-460,463-464,466-467,469,471,478-481,483-485,488,491-494,497-498,501,510,512-513,515,521,523-524,526,528,530-532,538-542,544-545,554-565,567,570-571
+  s_fe16321cbaf1b9::t_9b3bf63a8e658f 155-159
+  s_fe16321cbaf1b9::t_4766406f7032e9 352-354,395,402
+  s_fe16321cbaf1b9::t_6108edc8fc446e 5-6,14-15,29-34,40
+  s_fd57d103d58018::t_7ef2a7a99b73c5 47,74,102
+  s_fe16321cbaf1b9::t_5fccd0f5d3a45f 543
+  s_fe16321cbaf1b9::t_aab56a85814361 118-120,128,141,143,145,147-149,152-153,161,164-167,170-174,176-178,180,182-183,186-188,191-193,195,197,199-204,206-209,211-215,217,219-220,223-232,235-239,260,451
+  s_fd57d103d58018::t_278549eb4668b7 75-76
+  s_fd57d103d58018::t_2e7c46dcaee451 100-101
+  s_fd57d103d58018::t_24e05d59c9e4c3 1,21,24,26,37,68-71,73,88,94-96,103-106,115,117,240-241
+specs/02-artifacts/02-artifact-io-surface.md
+  s_fd57d103d58018::t_c8a9f9ffb6127f 34-38
+  s_fe16321cbaf1b9::t_bee7121f221f24 1,5-7,9-10,12,14,18-19,27-28,30-32,40,42,44-45,47-49,51,53-54,56-61,63-65,67-68,70,72,75-78,81-82,84,86-87,90-95,98,100-102,105,107-110,112-113,115,117-118,120-125,127-130,132,134,137-141,144,146,148-153,155-156,158,160,163-166,169-170,172-176,178,180,182-187,189-190,192,194,196-199,201-203,205-208,210,212-213,215,217,224,226-228,230,232-235,239-245
+  s_fe16321cbaf1b9::t_a3f5558df21371 216,219-222,246-250
+specs/02-artifacts/99-terminology.md
+  s_fe16321cbaf1b9::t_a07645dad37de3 3,5-6,8-9,11-12,14-15,17-18,20-21,23-24,26-28,30-31,33-34,36,38-39,41-42,44
+specs/03-bindings/99-terminology.md
+  s_fe16321cbaf1b9::t_a0a22cd7e29957 1,3-4,6-7,9,11-13,15-16,18,20-21,23-24,26-27
+specs/01-runtime/interviews/03-run-request-building-interview.md
+  s_fe16321cbaf1b9::t_2815c8214320a7 3-6
+specs/00-overview/01-run-contract-overview.md
+  s_fd57d103d58018::t_c8a9f9ffb6127f 25,27,42-47
+  s_fe16321cbaf1b9::t_ce5ecc8c38ac66 137-138,144-146
+  s_fe16321cbaf1b9::t_f0671cdaff04c6 1,3,5,7-12,14-16,18-20,22,24,26,28-39,48-57,60-64,66,68-69,71-73,75-98,100-102,104,106-108,110-111,113-126,129-136,139-143,147-178
+specs/artifact-binding-redesign-refactor-notes.md
+  h_6046a6be1688c0 1-2,17-203
+  s_fe16321cbaf1b9::t_5eb7152a5e09c7 3-16
+specs-back/00-overview/01-run-contract-overview.md
+  h_6046a6be1688c0 1-163
+specs/01-runtime/00-design-principles.md
+  s_fe16321cbaf1b9::t_93f2b59ad31f34 68,89-96
+specs/artifact-binding-redesign-handover-prompt.md
+  s_b7282066dc6f6c::t_be5652caa6ab33 862-864,877,880-898
+  s_b7282066dc6f6c::t_47efe7d5ecb36a 688-689,710-716,737-738,740-753
+  s_b7282066dc6f6c::t_e818b687c71327 170-176,215-224,233-236,239-240,246-247,254-255
+  s_b7282066dc6f6c::t_670c254deff320 916-922,926-928
+  s_b7282066dc6f6c::t_d13fbf36685560 979-983,986-993
+  s_b7282066dc6f6c::t_318129a006de33 995-1008
+  s_b7282066dc6f6c::t_097bfc0ea54196 348-350,365-367,370,618-621,664-666
+  s_b7282066dc6f6c::t_6cf0e266d25d5a 1172-1175,1187-1199,1205,1208,1211,1214,1217,1220,1223
+  s_b7282066dc6f6c::t_12d3f390fe9f00 1228-1248
+  s_fd57d103d58018::t_c8a9f9ffb6127f 394-395,397-399,839-841
+  s_c15931f9492d26::t_3481bad10f323e 118-131,135-137,139,144-146,149-152,154-156,165,168,189-192,194-202,204,244-245,253,256-257,259-260,266,269-271,274,276-281,294-297,299,308,311-323,328-337,342,353,357-359,362-364,368,379,410,413-414,419,446,455,457,459,461-462,465,471-476,484,486-492,494,503,516-519,521-522,529,732-736,755-769,771-779,781-786,813-814,822,834,842-844,849-855,858-860,876,899-901,933-935,939,973,975-976,994,1009-1010,1013,1016,1023,1025-1026,1032-1034,1044-1050,1052-1059,1065-1067,1070-1076,1083-1086,1089-1091,1094-1096,1105,1107-1108,1111-1113,1120,1122,1138-1139,1203-1204,1225-1227
+  s_b7282066dc6f6c::t_a85aa985a5031a 381-384,386,389-393,396,400-401,404-409,411-412,415-418,421-426,447-449,451-453,460,463-464,466-470,479-482
+  s_c15931f9492d26::t_f3f0be6c75a9b9 23
+  s_b7282066dc6f6c::t_979bbed7c87b40 1164-1166,1170-1171,1176-1186,1200,1206-1207,1209-1210,1212-1213,1215-1216,1218-1219,1221-1222,1224
+  s_b7282066dc6f6c::t_5dd4189225f363 300-307
+  s_c15931f9492d26::t_6c0fd154489dba 1051
+  s_b7282066dc6f6c::t_6f860133077b2e 941-942,948-961,963-972
+  s_b7282066dc6f6c::t_5c9d4ef1aa42d4 787-799,801-812,824-825,835-838
+  s_b7282066dc6f6c::t_731d151f21c0c4 815-819,821,823,826-833,845-848,861,865-875,902-905,909,911-912,936-938,940,943-946,977-978,1011-1012,1014-1015,1027-1031,1068-1069,1087-1088,1092-1093,1109-1110
+  s_b7282066dc6f6c::t_bb9d00e207be29 1060-1064,1077-1082,1100-1104
+  s_b7282066dc6f6c::t_67179405e36387 48,52,55,65,68-71,83-88,97-107
+  s_b7282066dc6f6c::t_a208dc4dce76e4 58-59,72-78,89-96,108-115
+  s_b7282066dc6f6c::t_79f841ff83fa0d 140-142
+  s_b7282066dc6f6c::t_0060aa53b209b2 261-264,282-293,298,310,324-327,338-339,345,354,372-377
+  s_b7282066dc6f6c::t_3b0e75001a6d76 1116-1119,1121,1123-1137,1140-1162
+  s_c15931f9492d26::t_2385b52fd4b88d 530-600,605-617,622-663,667-669,675-676,680-681,684-685,687,690-693,696-697,700-701,703-705,717-719,722-730
+  s_b7282066dc6f6c::t_32a9e0fd760d2f 177,179-188,237-238,241-243
+  s_b7282066dc6f6c::t_c68615ff782e30 498-499,504-515,523-528
+  s_b7282066dc6f6c::t_d743d994e0c497 962
+  s_b7282066dc6f6c::t_a458cc5ac6b6e6 800,974,1024,1106
+  s_9316873e561b7e::t_b1a8ede261979b 1-22,24-47,49-51,53-54,56-57,60-62,79-82,116,132,134,138,143,147-148,153,157,159,161-162,225,258,265,267-268,272-273,275,309,340-341,343-344,346-347,351-352,355-356,360-361,369,371,378,380,385,387-388,402-403,420,427,450,454,456,458,477-478,483,485,493,495-497,500-502,520,754,770,780,1163,1201-1202
+  s_c15931f9492d26::t_fe68cf1f15fb6a 117,133,193,203,205-214
+  s_b7282066dc6f6c::t_023c7f41633128 428-445
+  s_c15931f9492d26::t_1eaebf0bceec1c 601-604,878-879,947,984-985,1035-1037,1097-1099,1114-1115
+  s_b7282066dc6f6c::t_f9a21160bef097 1017-1022,1038-1043
+  s_c15931f9492d26::t_d416ead4030bcd 820,856-857
+  s_b7282066dc6f6c::t_ba1966c23e9a2b 670-674,677-679,682-683,686,694-695,698-699,702,706-709,720-721,731,739
+  s_fd57d103d58018::t_6f224df7e52302 906-908,910,913-915,923-925,929-932,1167-1169
+  s_c15931f9492d26::t_1878cf58594925 63-64,66-67,158,160,163-164,166-167,169,178,226-232,248-252
+specs/01-runtime/interviews/04-run-surface-interview.md
+  s_fe16321cbaf1b9::t_1efd80f022b739 3-5
+specs/05-stages/stages-spec.md
+  s_fe16321cbaf1b9::t_00b071a33fa1d7 3,5-6,8-10,12,14-18,20,22,24-25,28,33,37-38,40-41,43-44,46,48,50-56,58-60,62-64,66-67,69-71,73,75-76,78-90,92-99,101,103-104,106-108,110-111,113,117-120,122-124,126-130,132-137,139-140,142,144-145,147-148,150,152-156,158,161-168,171-172,174,176-179,182-183,185,188-196,199-200,202,204-207,210,213,216-217,219-220,222-225,227,229,231,233-235,237-239,241-242,244,246-247,250-254,257,259-260,262-263,265-266,268,270,273,276,278-281,283-284,286,288-290,292-294,296,298-300,302-303,305,307,309-317,319-320,322,324-325,327-329,331,333-334,336,338-342,344,346-354
+  s_fe16321cbaf1b9::t_9b3bf63a8e658f 115-116
+  s_fe16321cbaf1b9::t_5fccd0f5d3a45f 91
+specs/Chunky-artifact-binding-redesign-Q1-Q139.md
+  s_fe16321cbaf1b9::t_ac05c853403ecb 1-852,856-916
+  s_fd57d103d58018::t_c8a9f9ffb6127f 853-855
+specs/01-runtime/interviews/06-artifact-binding-redesign-interview.md
+  s_fe16321cbaf1b9::t_9b60cb76d69100 1-845
+specs/07-scheduling/02-persisted-task-lifecycle.md
+  s_fe16321cbaf1b9::t_35f200cfba2a42 5-7,11-12,14,18-25,27-29,31-32,34,38,40-51,53-54,56-59,61-62,64,66-67,69-71,73,75-76,78,80-85,87-88,90,92,94-98,100-101,103,105-106,108-109,111,118-121,124-126,128-129,131,133,135,138,141,143,145-154,156,158-160,162-165,167,171-181
+specs/01-runtime/99-internals/05-run-binding-and-execution.md
+  s_fe16321cbaf1b9::t_2b09add4cf0d6c 14-19,22-60
+  s_fe16321cbaf1b9::t_828bc1bb066b56 61-63
+  s_fe16321cbaf1b9::t_df1ba7c2c67586 1,5-11,64-89
+specs/03-bindings/01-bindings.md
+  s_fe16321cbaf1b9::t_b6b8b2c7ed4a45 1,3,5-6,8,10,13,16-18,20-22,24,26-28,30-32,34-36,39,41-47,49-51,53,55-58,60,62-71,74-77,79,81-83,85-87,89,91-94,96-98,100,102-108
+specs/03-bindings/00-storage-boundaries.md
+  s_fe16321cbaf1b9::t_3c90637785ed86 5-6,9-13,16-17,19,21-24,28-32,34,36,38,40-41,44,47-49,51,53,55-56,58-59,61,63,66-67,69-70,72-73,75-76,79,81,84-88,91-92,94-95,97,99,101-106,109,111,113-118,120,122-124,126-130,132,134-138
+specs/01-runtime/interviews/03-run-request-building-handover.md
+  s_fe16321cbaf1b9::t_6f25431d85b938 3-5
+specs/01-runtime/interviews/05-durable-artifact-transfer-interview.md
+  s_fe16321cbaf1b9::t_9b3f3ec99a99a2 3-5
+specs-back/01-runtime/02-run-request-building-surface.md
+  h_6046a6be1688c0 1-1012
+specs/01-runtime/06-durable-artifact-operations-surface.md
+  s_fe16321cbaf1b9::t_c356f1d31da942 1-22
+specs/99-stage-implementations/02-speech-detection/01-vad-speech-detection/spec.md
+  s_fe16321cbaf1b9::t_f3da7f87a86cb3 268
+  s_fe16321cbaf1b9::t_cbbf50d110bb20 8,12,45,56,158,209,212,264,266-267,270-271,273-278,281-287,302,310,314,357,373,375-378,440-441,454
+  s_fe16321cbaf1b9::t_5fccd0f5d3a45f 280
+  s_fe16321cbaf1b9::t_3831211ecb2c66 279
+.serena/memories/specs/core.md
+  s_1fd9e6bf97d36f::t_c34c5d1c998341 5-12,14-17
+.serena/memories/conventions.md
+  s_1fd9e6bf97d36f::t_c34c5d1c998341 9-10,12
+specs/04-fingerprinting/01-fingerprints.md
+  s_fe16321cbaf1b9::t_5fccd0f5d3a45f 33
+  s_fe16321cbaf1b9::t_cef399b7f5e840 1,3,5,7-9,11-12,14,16-19,22,24-25,28-29,31,34-40,42,44-45,48-50,53-54,56,59-61,64,66,68-70,72,75-76,79,81-86,88-89,91,93-94,97-104,107,109-111,113-114,116,118-123,125-131,134-135,138-140,142-143,145,147-150,152-153,155,157,159-161,164-167,170,173,175-180,182,184-186,188,190,193-197,200-209,211-214,216-217,219,221,223,225-227,229-230,232,234-245
+specs/01-runtime/interviews/04-run-surface-handover.md
+  s_fe16321cbaf1b9::t_a0d8747d6c3e75 3-5
+specs/03-bindings/02-cache-management.md
+  s_fe16321cbaf1b9::t_c1bd2b852b60a4 26-28,35-40,42-45,225
+  s_fe16321cbaf1b9::t_5fccd0f5d3a45f 314
+  s_1fd9e6bf97d36f::t_270999c3487188 5-6,8,10-11,13,15,18,21,24-25,29-30,33,47,49,51-54,56,58,60,63-64,66-68,70-72,75,78-86,89,91,93-95,97-99,101-103,105-108,110-112,114,116-117,120-122,125-126,128-129,131-134,136,138,141-146,149,151,154,157,159-160,162,164-165,167-168,170,172-175,177-178,180,182-184,186,188-190,192,194-197,199-200,202,204-206,211-216,219-220,222,224,226-227,229-230,232,234-236,238-240,242-243,245,247,249-252,254-255,257,259,261-263,265-269,271,273-276,278-280,282,284-285,287,289,291-293,295-297,300-312,315-324
+  s_fe16321cbaf1b9::t_46bca2abed1473 313
+specs/01-runtime/03-durable-artifacts-upload-surface.md
+  s_fd57d103d58018::t_001f8fc34658c5 667-672,714,731,749,847,957,979,1589-1590,1644,1650,1673
+  s_fd57d103d58018::t_5904c67f62ff85 72,77,79,110,112,114,116,201-202,204,212,252-257
+  s_fd57d103d58018::t_e3726fb4f6b0ca 306,315,340,449,477,481,535
+  s_fd57d103d58018::t_c984032481bdac 781
+  s_fd57d103d58018::t_381d19575ea601 1236,1238,1492
+  s_fd57d103d58018::t_1f9977dc253724 1639,1641,1685,1688
+  s_fd57d103d58018::t_c46bf08b4fd8cf 102,131,138,611
+  s_fd57d103d58018::t_053de2f237e0c2 5-7,19,30,96,106-108,123-124
+  s_fd57d103d58018::t_a5d0b5a4beb4e8 523,1023
+  s_fd57d103d58018::t_271c056fde20b5 1439
+  s_fd57d103d58018::t_99edaf78361810 218,261,288,293-294,299,302-303,308,311,319,324,332,335,342,428,433,441,444,451,475,479,522,525,580-582,584-585,591,723,726,733,735,765,790,824,827,849,865,886,889,891,893,895,901,903,916,936,943,950,959,962,964,968,972,985,988,1024-1025,1031-1032,1043,1057-1058,1065,1137,1349,1353,1355,1372,1386,1418,1529
+  s_fd57d103d58018::t_3f613856fbd072 1002
+  s_fd57d103d58018::t_0c8868ab63637b 173,176
+  h_6046a6be1688c0 87,127,150,164,166,174-175
+specs/01-runtime/02-run-request-building-surface.wit
+  s_fe16321cbaf1b9::t_2ea739e08ae83c 8-11,13-27,29-33,39-40,53-64,77-82,86,89,92-93,100-103,106-108,111-113,116-121,123-124,127-128,138-139,141,145-154,156-157,159,163,167,179,182-186,189,194
+specs/01-runtime/03-durable-artifacts-upload-surface.wit
+  s_1fd9e6bf97d36f::t_377ab408c22730 3,15,19,40-43,46,55-59,64,66,73,75,82,84-85,89,100,113,115,121,124,131,133,140,142,144,146,148,152-153,165,169,192
+  s_fd57d103d58018::t_d10b9edb0e160e 25-27,31-36,38-39,62,71,80,110,129
+  s_fe16321cbaf1b9::t_e77fbf04f93fa3 29-30,44
+specs-back/01-runtime/02-run-request-building-surface.wit
+  s_71a16036b89306::t_92eebcd3e1592d 1-242
+specs-back/01-runtime/03-durable-artifacts-upload-surface.wit
+  s_71a16036b89306::t_815b2aee279798 1-238
+specs-back/01-runtime/04-run-surface.md
+  s_4b77a825e2ad01::t_d774e034864ac4 1-750
+specs-back/01-runtime/07-failure-surface.wit
+  s_7b656d0e71d624::t_463d3af259f609 1-310
+specs-back/01-runtime/08-time-formats.md
+  s_71a16036b89306::t_c563b784761d28 1-32
+specs-back/01-runtime/08-time-formats.wit
+  s_71a16036b89306::t_cc55b0562a323f 1-24
+specs-back/01-runtime/99-internals/05-run-binding-and-execution.md
+  s_4b77a825e2ad01::t_e35ead4cff8dde 1-105
+specs-back/01-runtime/99-internals/99-runtime-builder-inbuilts.md
+  s_00ad50637ca88c::t_cec36203109c29 1-93
+specs-back/01-runtime/interviews/03-run-request-building-handover.md
+  s_77222657b4f06e::t_15c5208002ed28 1-136
+specs-back/01-runtime/interviews/03-run-request-building-interview.md
+  s_77222657b4f06e::t_527fd8508215f5 1-1324
+specs-back/01-runtime/interviews/04-run-surface-handover.md
+  s_77222657b4f06e::t_eeb27fabf89619 1-114
+specs-back/01-runtime/interviews/04-run-surface-interview.md
+  s_77222657b4f06e::t_b407085f8c5650 1-1444
+specs-back/03-bindings/00-storage-boundaries.md
+  s_91075db2f92d0b::t_974bde77c4c3e1 1-628
+specs-back/03-bindings/01-bindings.md
+  s_00ad50637ca88c::t_13a5253ef98202 1-378
+specs-back/03-bindings/02-cache-management.md
+  s_4b77a825e2ad01::t_d6a88800e8c62b 1-1443
+specs-back/03-bindings/04-artifact-persistence.md
+  s_4b77a825e2ad01::t_6f783b9ab402eb 1-474
+specs-back/03-bindings/99-terminology.md
+  s_fb34b4a198cee8::t_eb0ae5787788cd 1-565
+specs-back/05-stages/99-terminology.md
+  s_77222657b4f06e::t_575a0dede5a118 1-181
+specs-back/06-planning/01-task-planning.md
+  s_4b77a825e2ad01::t_749cab90daa8e5 1-1005
+specs-back/06-planning/older-versions/04-scheduling-back.md
+  s_77222657b4f06e::t_e3a8be50be3d2b 1-528
+"specs-back/06-planning/older-versions/05-graph-creation copy.md"
+  s_77222657b4f06e::t_2130ab03982fc8 1-441
+specs-back/06-planning/older-versions/05-graph-creation.md
+  s_77222657b4f06e::t_e73edc903436b9 1-592
+specs-back/06-planning/older-versions/planning-spec.md
+  s_77222657b4f06e::t_d87754c9e29221 1-181
+specs-back/07-scheduling/eventing-and-task-control-model-spec.md
+  s_00ad50637ca88c::t_8bd95039be142d 1-433
+specs-back/99-stage-implementations/02-expected_stages.md
+  s_77222657b4f06e::t_093fc4b9408d08 1-664
+specs-back/99-stage-implementations/02-speech-detection/01-vad-speech-detection/spec.md
+  s_77222657b4f06e::t_f0b6b3251a8156 1-445
+specs-back/99-stage-implementations/02-speech-detection/03-speaker-role-detection/spec.md
+  s_77222657b4f06e::t_a7a271817e6966 1-467
+specs-back/SPECS_RULE.md
+  s_77222657b4f06e::t_7d789719483a4b 1-40
+specs/01-runtime/03-durable-artifacts-upload-surface-draft-review.md
+  s_fd57d103d58018::t_1e1ac3c2e92944 1-299
+.serena/project.yml
+  h_6046a6be1688c0 1,25-26,31-37,97-188
+specs-back/01-runtime/00-design-principles.md
+  h_6046a6be1688c0 1-140
+specs-back/01-runtime/01-runtime-builder-surface.md
+  h_6046a6be1688c0 1-390
+specs-back/01-runtime/05-durable-artifact-download-surface.md
+  h_6046a6be1688c0 1-359
+specs-back/01-runtime/06-durable-artifact-operations-surface.md
+  h_6046a6be1688c0 1-2
+specs-back/01-runtime/07-failure-surface.md
+  h_6046a6be1688c0 1-570
+specs-back/01-runtime/interviews/05-durable-artifact-transfer-interview.md
+  h_6046a6be1688c0 1-2222
+specs-back/02-artifacts/01-artifact-model-surface.md
+  h_6046a6be1688c0 1-660
+specs-back/02-artifacts/02-artifact-io-surface.md
+  h_6046a6be1688c0 1-430
+specs-back/02-artifacts/99-terminology.md
+  h_6046a6be1688c0 1-270
+specs-back/04-fingerprinting/01-fingerprints.md
+  h_6046a6be1688c0 1-508
+specs-back/05-stages/stages-spec.md
+  h_6046a6be1688c0 1-875
+specs-back/07-scheduling/02-persisted-task-lifecycle.md
+  h_6046a6be1688c0 1-208
+specs/99-stage-implementations/02-speech-detection/03-speaker-role-detection/spec.md
+  h_6046a6be1688c0 466
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ac334c4735e1f95d61d829f6c8b002ea9dcc7e2e",
+  "prompts": {},
+  "humans": {
+    "h_6046a6be1688c0": {
+      "author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  },
+  "sessions": {
+    "s_00ad50637ca88c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9cfa-3673-7a33-922a-9775f0b89531",
+        "model": "unknown"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_1fd9e6bf97d36f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fff76-4503-7620-a9a2-e37264ef19ed",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_4b77a825e2ad01": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc06d-1c1b-70e2-9ca4-8cf87cc08257",
+        "model": "unknown"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_71a16036b89306": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fd9e6-78da-7880-836c-e14eae2f7a00",
+        "model": "unknown"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_77222657b4f06e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9c8d-af1a-73b2-a2ec-f0bf42b71b87",
+        "model": "unknown"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_7b656d0e71d624": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fd977-9b01-7fb2-8e10-e0fbab6954ba",
+        "model": "unknown"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_91075db2f92d0b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9d6d-164c-7b33-96ee-1e26c4d3d9a6",
+        "model": "unknown"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_9316873e561b7e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a012a1-d350-7642-b071-df3db6be6d28",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_b7282066dc6f6c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a022dc-d034-7bb1-bfe5-5649dfefb32c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_c15931f9492d26": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0221a-e290-78c3-ae90-80e69d5c11e9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_fb34b4a198cee8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb547-d29b-72a1-9644-f74cabf7dae8",
+        "model": "unknown"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_fd57d103d58018": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0237d-9a58-74d2-8171-326b7376ebbc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    },
+    "s_fe16321cbaf1b9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0231a-a1e9-7e93-bf4c-69e2b3b33242",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "James Harper <JamesjHarper@outlook.com>"
+    }
+  }
+}
